@@ -250,6 +250,12 @@ const VIEW_R = 440;           // 感測器有效距離，換算後約 13 公尺
 const MAPS = {
   atrium: {
     name:"COLUMN FOREST",
+    theme:{
+      walls:[0x8C7AD8,0x7E6FC4,0x9A82C8], edge:0xE0703A,
+      trim:0xA994E8, panel:0x6E5FA8, strip:0x3FD9E0,
+      floor:0x9C86FF, ceiling:0x5A4A90, light:0xFFB05A,
+      glow:0xFF9A48, cold:0x140E28, pipe:0x1A1432, terrain:0x6E5FA8,
+    },
     walls:[
       {x:0,y:0,w:W,h:24},{x:0,y:H-24,w:W,h:24},
       {x:0,y:0,w:24,h:H},{x:W-24,y:0,w:24,h:H},
@@ -285,6 +291,12 @@ const MAPS = {
   },
   corridors: {
     name:"DEAD SIGNAL",
+    theme:{
+      walls:[0x3A6F78,0x315A68,0x4C7F72], edge:0x65D2B3,
+      trim:0x6E9F9A, panel:0x24464F, strip:0xF2B35C,
+      floor:0x3D6670, ceiling:0x29434F, light:0x75D7C4,
+      glow:0x3BBCA8, cold:0x0B2028, pipe:0x14323A, terrain:0x19353F,
+    },
     walls:[
       {x:0,y:0,w:W,h:24},{x:0,y:H-24,w:W,h:24},
       {x:0,y:0,w:24,h:H},{x:W-24,y:0,w:24,h:H},
@@ -308,6 +320,11 @@ const MAPS = {
       {x:580,y:360,dir:"x"},{x:740,y:360,dir:"x"},{x:900,y:360,dir:"x"},
       {x:1060,y:360,dir:"x"},{x:260,y:100,dir:"y"},{x:460,y:100,dir:"x"},
       {x:820,y:100,dir:"x"},{x:1020,y:100,dir:"y"},{x:640,y:620,dir:"x"},
+    ],
+    terrain:[
+      {x:64,y:316,w:1152,h:88,kind:"channel"},
+      {x:220,y:54,w:150,h:64,kind:"pad"},
+      {x:910,y:584,w:150,h:64,kind:"pad"},
     ],
   },
 };
@@ -886,12 +903,12 @@ floor.rotation.x = -Math.PI/2;
 floor.position.set(W*S/2, 0, H*S/2);
 scene.add(floor);
 
-const ceil = new THREE.Mesh(new THREE.PlaneGeometry(W*S, H*S),
-  new THREE.MeshStandardMaterial({
-    map:       texFrom(WALL_SURF.color,  W*S/5, H*S/5),
-    normalMap: texFrom(WALL_SURF.normal, W*S/5, H*S/5),
-    color:0x5A4A90, roughness:0.95, metalness:0.1,
-  }));
+const ceilMat = new THREE.MeshStandardMaterial({
+  map:       texFrom(WALL_SURF.color,  W*S/5, H*S/5),
+  normalMap: texFrom(WALL_SURF.normal, W*S/5, H*S/5),
+  color:0x5A4A90, roughness:0.95, metalness:0.1,
+});
+const ceil = new THREE.Mesh(new THREE.PlaneGeometry(W*S, H*S), ceilMat);
 ceil.rotation.x = Math.PI/2;
 ceil.position.set(W*S/2, WALL_H, H*S/2);
 scene.add(ceil);
@@ -903,6 +920,7 @@ function buildMapGeometry(){
   while (mapLayer.children.length){
     mapLayer.remove(mapLayer.children[mapLayer.children.length-1]);
   }
+  const theme = activeMap.theme;
   const PX = 1600, PY = Math.round(PX * H / W);
   const c = document.createElement("canvas");
   c.width = PX; c.height = PY;
@@ -994,8 +1012,48 @@ const panelMat = new THREE.MeshStandardMaterial({
   normalMap: texFrom(WALL_SURF.normal, 2, 1),
   color:0x6E5FA8, roughness:0.92, metalness:0.15,
 });
+const terrainMat = new THREE.MeshStandardMaterial({
+  map:       texFrom(WALL_SURF.color, 2, 1),
+  normalMap: texFrom(WALL_SURF.normal, 2, 1),
+  color:0x6E5FA8, roughness:0.78, metalness:0.35,
+});
 
 const stripMat = new THREE.MeshBasicMaterial({color:0x3FD9E0});
+  for (let i=0;i<wallMats.length;i++) wallMats[i].color.setHex(theme.walls[i]);
+  edgeMat.color.setHex(theme.edge);
+  trimMat.color.setHex(theme.trim);
+  panelMat.color.setHex(theme.panel);
+  terrainMat.color.setHex(theme.terrain);
+  stripMat.color.setHex(theme.strip);
+  floorMat.color.setHex(theme.floor);
+  ceilMat.color.setHex(theme.ceiling);
+  for (const t of (activeMap.terrain || [])){
+    const slab = new THREE.Mesh(
+      new THREE.BoxGeometry(t.w*S, 0.035, t.h*S), terrainMat);
+    slab.position.set((t.x+t.w/2)*S, 0.018, (t.y+t.h/2)*S);
+    mapLayer.add(slab);
+    if (t.kind === "channel"){
+      const railGeo = new THREE.BoxGeometry(t.w*S-0.18, 0.025, 0.035);
+      for (const y of [t.y+10, t.y+t.h-10]){
+        const rail = new THREE.Mesh(railGeo, stripMat);
+        rail.position.set((t.x+t.w/2)*S, 0.045, y*S);
+        mapLayer.add(rail);
+      }
+    } else {
+      const railX = new THREE.BoxGeometry(t.w*S, 0.025, 0.035);
+      const railZ = new THREE.BoxGeometry(0.035, 0.025, t.h*S);
+      for (const y of [t.y, t.y+t.h]){
+        const rail = new THREE.Mesh(railX, stripMat);
+        rail.position.set((t.x+t.w/2)*S, 0.045, y*S);
+        mapLayer.add(rail);
+      }
+      for (const x of [t.x, t.x+t.w]){
+        const rail = new THREE.Mesh(railZ, stripMat);
+        rail.position.set(x*S, 0.045, (t.y+t.h/2)*S);
+        mapLayer.add(rail);
+      }
+    }
+  }
 const stripGeoCache = {}, stripGlowCache = {};
 function addStrip(len, cx, cz, rotY){
   const key = len.toFixed(2);
@@ -1201,9 +1259,9 @@ addDoorFrames();
 // ── 天花板燈具與管線：給這個空間一點可辨識的地標 ──
 // 熱成像裡燈具本來就是熱的，所以它們發亮是說得通的
 (() => {
-  const fixMat  = new THREE.MeshBasicMaterial({color:0xFFB05A});
-  const fixCold = new THREE.MeshLambertMaterial({color:0x140E28});
-  const pipeMat = new THREE.MeshLambertMaterial({color:0x1A1432});
+  const fixMat  = new THREE.MeshBasicMaterial({color:theme.light});
+  const fixCold = new THREE.MeshLambertMaterial({color:theme.cold});
+  const pipeMat = new THREE.MeshLambertMaterial({color:theme.pipe});
   const fixGeo  = new THREE.BoxGeometry(0.16, 0.06, 2.2);
   const housing = new THREE.BoxGeometry(0.34, 0.14, 2.5);
 
@@ -1224,7 +1282,7 @@ addDoorFrames();
       const shaft = new THREE.Mesh(
         new THREE.ConeGeometry(1.25, WALL_H-0.25, 14, 1, true),
         new THREE.MeshBasicMaterial({
-          color:0xFF9A48, transparent:true, opacity:0.045,
+          color:theme.glow, transparent:true, opacity:0.045,
           blending:THREE.AdditiveBlending, depthWrite:false,
           side:THREE.DoubleSide,
         }));
@@ -1234,7 +1292,7 @@ addDoorFrames();
       const pool = new THREE.Mesh(
         new THREE.CircleGeometry(1.5, 22),
         new THREE.MeshBasicMaterial({
-          color:0xFF9A48, transparent:true, opacity:0.05,
+          color:theme.glow, transparent:true, opacity:0.05,
           blending:THREE.AdditiveBlending, depthWrite:false,
         }));
       pool.rotation.x = -Math.PI/2;
@@ -1242,7 +1300,7 @@ addDoorFrames();
       mapLayer.add(pool);
       // 真光源很貴，每三盞才放一顆；其餘靠地上的加法亮斑撐住觀感
       if (i % 3 === 0){
-        const lamp = new THREE.PointLight(0xFFAE68, 1.15, 7.5, 2);
+        const lamp = new THREE.PointLight(theme.light, 1.15, 7.5, 2);
         lamp.position.set(px*S, WALL_H-0.45, py*S);
         mapLayer.add(lamp);
       }

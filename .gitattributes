@@ -1,0 +1,6 @@
+# 換行統一用 LF 入庫。
+# 不釘死的話，不同 agent（或不同工具）寫檔時的換行設定不一致，
+# diff 會變成「整個檔案都改過」，換手時完全看不出對方動了什麼
+* text=auto eol=lf
+*.html text eol=lf
+*.md   text eol=lf

@@ -1246,6 +1246,9 @@ function makeBotObject(type){
   const upper = new THREE.Group();
   upper.rotation.x = B.lean;
   hips.add(upper);
+  const upperRestQuat = new THREE.Quaternion().copy(upper.quaternion);
+  const hitAxis = new THREE.Vector3();
+  const hitQuat = new THREE.Quaternion();
 
   put(g.pelvis, warm, 0, 0.02*k, 0, hips);
   const torso = put(g.torso, hot, 0, 0.40*k, 0, upper);
@@ -1257,23 +1260,28 @@ function makeBotObject(type){
   pack.scale.set(1.25*B.pack, B.pack, 0.7*B.pack);
 
   put(g.neck, warm, 0, 0.74*k, 0, upper);
-  put(g.head, core, 0, 0.90*k, 0, upper);
-  const helm = B.helmet ? put(g.helmet, warm, 0, 0.90*k, 0, upper) : null;
+  const head = new THREE.Group();
+  head.position.y = 0.90*k;
+  upper.add(head);
+  put(g.head, core, 0, 0, 0, head);
+  const headRestQuat = new THREE.Quaternion().copy(head.quaternion);
+  const headQuat = new THREE.Quaternion();
+  const helm = B.helmet ? put(g.helmet, warm, 0, 0, 0, head) : null;
   if (helm) helm.rotation.x = -0.18;
   // STALKER 沒有頭盔，頭是裸露的熱源，配一片感測鰭
   if (B.crest){
-    const cr = put(g.crest, warm, 0, 1.04*k, 0.02*k, upper);
+    const cr = put(g.crest, warm, 0, 0.14*k, 0.02*k, head);
     cr.rotation.x = 0.35;
   }
   // LANCER 側邊掛一顆光學瞄準莢艙，那是它遠距離的來源
   if (B.optic){
-    const op = put(g.optic, cold, 0.17*k, 0.93*k, -0.02*k, upper);
+    const op = put(g.optic, cold, 0.17*k, 0.03*k, -0.02*k, head);
     op.rotation.z = Math.PI/2;
-    const ln = put(g.lens, core, 0.25*k, 0.93*k, -0.02*k, upper);
+    const ln = put(g.lens, core, 0.25*k, 0.03*k, -0.02*k, head);
     ln.rotation.z = Math.PI/2;
   }
   // 面罩橫跨眼部，玻璃擋紅外線所以是暗的
-  const visor = put(g.visor, cold, 0, 0.885*k, -0.115*k, upper);
+  const visor = put(g.visor, cold, 0, -0.015*k, -0.115*k, head);
   visor.rotation.z = Math.PI/2;
   visor.scale.set(1, 1, 0.55);
 
@@ -1335,15 +1343,22 @@ function makeBotObject(type){
 
   // 體溫光暈：永遠面向鏡頭的加法混色貼片，遠處先看到的是一團熱
   const halo = new THREE.Mesh(
-    new THREE.PlaneGeometry(1.5*k, 2.0*k),
+    // 尺寸收緊，讓它貼著軀幹而不是往外糊到腿上
+    new THREE.PlaneGeometry(1.15*k, 1.45*k),
     new THREE.MeshBasicMaterial({
       map:DECAL_TEX, color:T.color, transparent:true, opacity:0.32,
       blending:THREE.AdditiveBlending, depthWrite:false,
     }));
-  halo.position.y = 1.05*k;
+  // 對準「發熱最強的部位」而不是人形的幾何中心。
+  // 四肢的材質只有 0.48 倍亮度，亮部中心其實在軀幹與頭之間；
+  // 原本放在 1.05k 會讓光暈峰值落在腿上，看起來像身體下方多了一團熱源
+  halo.position.y = 1.38*k;
   root.add(halo);
 
-  root.userData = {hot, core, torso, hips, armL, armR, legL, legR, halo, k, phase:0};
+  root.userData = {
+    hot, core, torso, hips, upper, head, armL, armR, legL, legR, halo, k, phase:0,
+    upperRestQuat, hitAxis, hitQuat, headRestQuat, headQuat,
+  };
 
   // 被聲納標記時用的穿牆輪廓
   const ghostMat = new THREE.MeshBasicMaterial({
@@ -2261,6 +2276,7 @@ function spawnRound(){
       lastX:s.x, lastY:s.y, goalX:s.x, goalY:s.y,
       strafe:Math.random()<0.5?1:-1, stuck:0, px:s.x, py:s.y,
       revealed:0, flash:0, laser:null,
+      hitT:0, hitAngle:0, hitForce:0, headT:0, headForce:0,
     });
   }
   // 每回合補給重置，放在離玩家遠且沒有視線的位置
@@ -2749,6 +2765,13 @@ function update(dt){
               if (diff < 1.31){ dealt = Math.round(dealt*TT.frontArmor); blocked = true; }
             }
             b.hp -= dealt; b.flash = 0.1;
+            b.hitT = 0.25;
+            b.hitAngle = Math.atan2(bl.vy, bl.vx);
+            b.hitForce = Math.min(0.52, 0.08 + dealt/200);
+            if (zone === "head"){
+              b.headT = 0.14;
+              b.headForce = Math.min(0.62, 0.22 + dealt/300);
+            }
             if (b.hp <= 0) b.deathAngle = Math.atan2(bl.vy, bl.vx);
             G.hits++;
             spawnSpark(bl.x, bl.y,
@@ -2996,6 +3019,28 @@ function sync(dtLast){
     b.obj.rotation.y = yawOf(b.angle);
     // 走路循環：相位由實際走過的距離推進，速度不同擺動頻率自然不同
     const ud = b.obj.userData;
+    b.hitT = Math.max(0, b.hitT - dtLast);
+    b.headT = Math.max(0, b.headT - dtLast);
+    const hitPhase = Math.min(1, b.hitT/0.25);
+    const upperKick = Math.sin(hitPhase*Math.PI*0.5) * b.hitForce;
+    if (upperKick > 0.0001){
+      const hitDelta = b.hitAngle - b.angle;
+      const hitDirX = Math.sin(hitDelta);
+      const hitDirZ = -Math.cos(hitDelta);
+      // 受擊軸跟著子彈方向轉，側面命中也會真的往側邊歪，而不是只點頭
+      ud.hitAxis.set(hitDirZ, 0, -hitDirX);
+      ud.hitQuat.setFromAxisAngle(ud.hitAxis, upperKick);
+      ud.upper.quaternion.copy(ud.upperRestQuat).multiply(ud.hitQuat);
+    } else {
+      ud.upper.quaternion.copy(ud.upperRestQuat);
+    }
+    const headKick = b.headT > 0
+      ? Math.sin((1 - b.headT/0.14)*Math.PI) * b.headForce : 0;
+    ud.head.quaternion.copy(ud.headRestQuat);
+    if (headKick > 0.0001){
+      ud.headQuat.setFromAxisAngle(ud.hitAxis, headKick);
+      ud.head.quaternion.multiply(ud.headQuat);
+    }
     if (ud.legL){
       ud.phase += (b.moved || 0) * 0.055;
       const amp = Math.min(1, (b.moved || 0) / 2.2);

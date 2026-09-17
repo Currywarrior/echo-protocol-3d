@@ -1534,11 +1534,9 @@ function makeBotObject(type){
       map:DECAL_TEX, color:T.color, transparent:true, opacity:0.32,
       blending:THREE.AdditiveBlending, depthWrite:false,
     }));
-  // 對準「發熱最強的部位」而不是人形的幾何中心。
-  // 四肢的材質只有 0.48 倍亮度，亮部中心其實在軀幹與頭之間；
-  // 原本放在 1.05k 會讓光暈峰值落在腿上，看起來像身體下方多了一團熱源
-  halo.position.y = 1.38*k;
-  root.add(halo);
+  // 熱暈跟著上半身走，否則爆頭甩動時會在頭下方留下像殘影的第二個熱源
+  halo.position.y = 0.46*k;
+  upper.add(halo);
 
   root.userData = {
     hot, core, torso, hips, upper, head, armL, armR, legL, legR, halo, k, phase:0,

@@ -3251,7 +3251,7 @@ function sync(dtLast){
       // 熱暈是給遠處辨識用的。近距離還疊上去，會把本來就亮的身體
       // 推過曝成一團白，反而看不出兵種與頭部位置
       const halod = Math.hypot(b.x - p.x, b.y - p.y) * S;
-      ud.halo.visible = halod > 3.2;
+      ud.halo.visible = b.type !== "stalker" && halod > 3.2;
       ud.halo.material.opacity = Math.min(0.38, 0.015 + halod*0.036);
     }
     b.obj.userData.hot.color.setHex(b.flash > 0 ? 0xFFFFFF : TYPES[b.type].color);

@@ -2899,7 +2899,9 @@ function update(dt){
       for (let j=i+1;j<G.bots.length;j++){
         const B = G.bots[j];
         const dx2 = B.x-A.x, dy2 = B.y-A.y;
-        const d2 = Math.hypot(dx2, dy2), need = A.rad + B.rad;
+        // STALKER 的頭部輪廓很接近，物理半徑剛分開時視覺上仍會像雙頭
+        const visualGap = A.type === "stalker" && B.type === "stalker" ? 18 : 0;
+        const d2 = Math.hypot(dx2, dy2), need = A.rad + B.rad + visualGap;
         if (d2 < need){
           // 兩隻敵人被牆同時推回原位時可能完全重合；不能讓零距離跳過分離，
           // 否則兩個同型敵人的頭會互相穿插，熱成像看起來就像殘影閃爍
@@ -3271,7 +3273,9 @@ function sync(dtLast){
       ud.halo.material.opacity = Math.min(0.38, 0.015 + halod*0.036);
     }
     b.obj.userData.hot.color.setHex(b.flash > 0 ? 0xFFFFFF : TYPES[b.type].color);
-    b.obj.userData.ghost.visible = b.revealed > 0;
+    // STALKER 貼近時，穿牆線框會和頭部疊成會閃的第二顆頭；小地圖仍保留標記
+    const revealDist = Math.hypot(b.x - p.x, b.y - p.y) * S;
+    b.obj.userData.ghost.visible = b.type !== "stalker" && b.revealed > 0 && revealDist > 3.2;
     if (b.obj.userData.ghost.visible){
       b.obj.userData.ghost.material.opacity = 0.28 + 0.24*Math.sin(G.t*9);
     }

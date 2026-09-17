@@ -1,0 +1,20 @@
+# 測試用的臨時建置（把回合倒數改短、繞過 pointer lock 之類）
+test.html
+*.test.html
+
+# 備份與暫存
+*.bak
+*.prod
+*.orig
+*~
+
+# 系統
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# 玩家自選的配樂不該進版控（有版權，而且它本來就存在瀏覽器的 IndexedDB）
+*.mp3
+*.ogg
+*.wav
+*.m4a

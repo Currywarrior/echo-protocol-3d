@@ -1,0 +1,3693 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Echo Protocol 3D</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap">
+<style>
+  :root{color-scheme:dark;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);}
+  body{margin:0;font:14px system-ui,-apple-system,sans-serif;}
+  img{max-width:100%;}
+  [hidden]{display:none!important;}
+</style>
+</head>
+<body>
+<style>
+  :root{
+    --void:#05060E;
+    --panel:#0D0A1C;
+    --line:#241A3C;
+    --ink:#F2ECFF;
+    --muted:#9184B4;
+    --cyan:#3FE0C8;
+    --heat:#FF8A2B;
+    --violet:#A277FF;
+    --sonar:#7CE0FF;
+    --danger:#FF4D5E;
+  }
+  html{box-sizing:border-box;height:100%;}
+  *,*::before,*::after{box-sizing:inherit;}
+  body{
+    height:100%;margin:0;
+    background:var(--void);color:var(--ink);
+    font-family:"Chakra Petch",system-ui,-apple-system,"Segoe UI",sans-serif;
+    display:flex;flex-direction:column;overflow:hidden;
+  }
+  #stage{flex:1;min-height:0;display:grid;place-items:center;padding:16px;}
+  #frame{
+    position:relative;border:1px solid var(--line);border-radius:4px;
+    overflow:hidden;background:#000;
+    box-shadow:0 24px 70px rgba(0,0,0,.7);
+  }
+  #gl,#ui{position:absolute;inset:0;width:100%;height:100%;display:block;}
+  #ui{pointer-events:none;}
+
+  .overlay{
+    position:absolute;inset:0;z-index:5;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:20px;padding:24px;text-align:center;
+    background:rgba(5,6,14,.93);
+  }
+  /* 開場畫面讓背後的運鏡透出來，中央保持厚度以維持字的可讀性 */
+  #overStart{
+    background:
+      radial-gradient(150% 100% at 50% 0%, rgba(255,138,43,.06), transparent 62%),
+      radial-gradient(62% 52% at 50% 48%, rgba(5,6,14,.94) 0%, rgba(5,6,14,.86) 58%, rgba(5,6,14,.6) 100%);
+  }
+  #overStart h1,#overStart .lede,#overStart .eyebrow{text-shadow:0 2px 18px rgba(0,0,0,.9);}
+  .overlay[hidden]{display:none !important;}
+  .eyebrow{font-size:11px;letter-spacing:.34em;text-transform:uppercase;color:var(--heat);font-weight:600;}
+  .overlay h1{margin:0;font-size:clamp(28px,5.8vw,54px);font-weight:700;letter-spacing:.06em;line-height:1;text-wrap:balance;}
+  .overlay h1 em{font-style:normal;color:var(--heat);}
+  .lede{margin:0;max-width:56ch;color:var(--muted);font-size:clamp(12px,1.6vw,15px);line-height:1.65;}
+  .keys{
+    display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));
+    gap:1px;background:var(--line);border:1px solid var(--line);border-radius:3px;
+    width:min(100%,680px);overflow:hidden;
+  }
+  .key{background:var(--panel);padding:10px 12px;display:flex;align-items:baseline;gap:9px;text-align:left;}
+  .key b{
+    font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;font-weight:600;
+    color:var(--ink);border:1px solid var(--line);border-radius:3px;
+    padding:2px 6px;flex:none;background:#151029;
+  }
+  .key span{font-size:12px;color:var(--muted);line-height:1.45;}
+  .key span i{font-style:normal;color:var(--heat);}
+  .key span i.v{color:var(--violet);}
+  button{
+    font-family:inherit;font-size:13px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;
+    color:#1A0A02;background:var(--heat);border:0;border-radius:3px;padding:13px 34px;
+    cursor:pointer;transition:transform .12s ease,box-shadow .12s ease;
+  }
+  button:hover{transform:translateY(-1px);box-shadow:0 6px 24px rgba(255,138,43,.3);}
+  button:focus-visible{outline:2px solid var(--ink);outline-offset:3px;}
+  .stats{display:flex;gap:32px;flex-wrap:wrap;justify-content:center;}
+  .stat{display:flex;flex-direction:column;gap:5px;}
+  .stat b{
+    font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:clamp(22px,4.2vw,36px);
+    font-weight:600;font-variant-numeric:tabular-nums;line-height:1;
+  }
+  .stat span{font-size:10px;letter-spacing:.24em;text-transform:uppercase;color:var(--muted);}
+  #overDead h1,#overDead .eyebrow{color:var(--danger);}
+  .hint{font-size:11px;color:var(--muted);letter-spacing:.1em;}
+  .settings{
+    display:flex;flex-direction:column;gap:14px;
+    width:min(100%,380px);
+    border:1px solid var(--line);border-radius:3px;
+    background:var(--panel);padding:16px 18px;
+  }
+  .settings label{
+    display:grid;grid-template-columns:1fr 150px 42px;
+    align-items:center;gap:12px;
+    font-size:12px;color:var(--muted);text-align:left;
+  }
+  .settings b{
+    font-family:"IBM Plex Mono",ui-monospace,monospace;
+    font-size:12px;color:var(--heat);text-align:right;font-variant-numeric:tabular-nums;
+  }
+  .settings input[type=range]{width:100%;accent-color:var(--heat);}
+  .trackrow{
+    display:grid;grid-template-columns:auto 1fr auto auto;
+    align-items:center;gap:8px;font-size:12px;color:var(--muted);text-align:left;
+  }
+  .trackrow em{
+    font-style:normal;color:var(--ink);font-size:11px;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }
+  .filebtn{
+    font-size:11px;font-weight:700;letter-spacing:.1em;
+    color:#1A0A02;background:var(--heat);border-radius:3px;
+    padding:6px 10px;cursor:pointer;white-space:nowrap;
+  }
+  .trackrow button{
+    font-size:11px;letter-spacing:.1em;padding:6px 10px;
+    background:transparent;color:var(--muted);border:1px solid var(--line);
+  }
+  .trackrow button:hover{transform:none;box-shadow:none;color:var(--ink);}
+  .tracknote{margin:0;font-size:10px;color:var(--muted);opacity:.7;text-align:left;}
+  .ghost{
+    background:transparent;color:var(--muted);
+    border:1px solid var(--line);
+    font-size:11px;letter-spacing:.16em;padding:9px 20px;
+  }
+  .ghost:hover{transform:none;box-shadow:none;color:var(--ink);border-color:var(--heat);}
+  /* 全螢幕時把外框留白與說明列收掉，讓畫面真的填滿 */
+  :fullscreen #stage{padding:0;}
+  :fullscreen .footnote{display:none;}
+  :fullscreen #frame{border:0;border-radius:0;}
+  .footnote{font-size:11px;color:var(--muted);letter-spacing:.04em;padding:0 16px 12px;text-align:center;}
+  .footnote b{color:var(--heat);font-weight:600;}
+  @media (prefers-reduced-motion:reduce){button{transition:none;}}
+</style>
+
+<div id="stage">
+  <div id="frame">
+    <canvas id="gl"></canvas>
+    <canvas id="ui"></canvas>
+
+    <div class="overlay" id="overStart">
+      <div class="eyebrow">Thermal Recon · First Person</div>
+      <h1>ECHO <em>PROTOCOL</em></h1>
+      <p class="lede">你戴的是紅外線感測器。世界本身是暗的，只有熱才看得見——敵人是發光的熱源，牆是冷的。你的視野只有面前那一塊，背後永遠是盲區。卡角、預瞄、用聲納在開門前先看一眼。</p>
+      <div class="keys">
+        <div class="key"><b>W A S D</b><span>移動</span></div>
+        <div class="key"><b>MOUSE</b><span>視角</span></div>
+        <div class="key"><b>LMB</b><span>射擊</span></div>
+        <div class="key"><b>RMB</b><span>切換瞄準（<i>LANCE</i> 是倍率鏡）</span></div>
+        <div class="key"><b>SPACE</b><span>跳躍（空中槍口會散）</span></div>
+        <div class="key"><b>R</b><span>換彈</span></div>
+        <div class="key"><b>F</b><span>檢視武器</span></div>
+        <div class="key"><b>1</b><span><i>VECTOR</i>：連發、28 發</span></div>
+        <div class="key"><b>2</b><span><i>LANCE</i>：一槍一殺、5 發</span></div>
+        <div class="key"><b>3</b><span><i>BREACH</i>：近距離散彈、6 發</span></div>
+        <div class="key"><b>WHEEL</b><span>滾輪循環切換武器</span></div>
+        <div class="key"><b>SHIFT</b><span>衝刺（槍口會散開）</span></div>
+        <div class="key"><b>CTRL</b><span>蹲下（壓低視線、槍更穩、躲得掉平射）</span></div>
+        <div class="key"><b>部位</b><span>爆頭 <i>2.5 倍</i>、軀幹 1 倍、腿 0.6 倍</span></div>
+        <div class="key"><b>Q</b><span><i>聲納</i>：穿牆標記敵人 3 秒</span></div>
+        <div class="key"><b>E</b><span><i class="v">ECHO</i>：回到三秒前的位置與血量</span></div>
+      </div>
+      <button id="btnStart">開始部署</button>
+      <button type="button" class="ghost fsbtn">全螢幕</button>
+      <p class="hint">點擊畫面會鎖定滑鼠，按 ESC 解除</p>
+    </div>
+
+    <div class="overlay" id="overDead" hidden>
+      <div class="eyebrow">Signal Lost</div>
+      <h1>陣亡</h1>
+      <div class="stats">
+        <div class="stat"><b id="dScore">0</b><span>Score</span></div>
+        <div class="stat"><b id="dRound">1</b><span>Round</span></div>
+        <div class="stat"><b id="dKills">0</b><span>Kills</span></div>
+        <div class="stat"><b id="dAcc">0%</b><span>Accuracy</span></div>
+        <div class="stat"><b id="dBest">0</b><span>Best</span></div>
+      </div>
+      <button id="btnRetry">再來一次</button>
+    </div>
+
+    <div class="overlay" id="overPause" hidden>
+      <div class="eyebrow">Paused</div>
+      <h1>滑鼠已解除鎖定</h1>
+      <div class="settings">
+        <label for="setSens">滑鼠靈敏度
+          <input type="range" id="setSens" min="0.3" max="3" step="0.05">
+          <b id="valSens">1.00</b>
+        </label>
+        <label for="setFov">視野 FOV
+          <input type="range" id="setFov" min="65" max="105" step="1">
+          <b id="valFov">78</b>
+        </label>
+        <label for="setMusic">音樂音量
+          <input type="range" id="setMusic" min="0" max="1" step="0.05">
+          <b id="valMusic">0.35</b>
+        </label>
+        <div class="trackrow">
+          <span>配樂曲目</span>
+          <em id="trackName">未選擇</em>
+          <label class="filebtn" for="setTrack">選擇音檔</label>
+          <input type="file" id="setTrack" accept="audio/*" hidden>
+          <button type="button" id="btnClearTrack">清除</button>
+        </div>
+        <p class="tracknote">音檔只存在你這台瀏覽器裡，不會寫進遊戲檔案</p>
+        <button type="button" class="ghost fsbtn">全螢幕</button>
+      </div>
+      <p class="lede">點擊畫面回到遊戲。</p>
+    </div>
+  </div>
+</div>
+<p class="footnote"><b>Q</b> 聲納 · <b>E</b> 回溯 · <b>1 / 2</b> 換槍　—　需要鍵盤滑鼠</p>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.147.0/three.min.js"></script>
+<script>
+(() => {
+"use strict";
+
+// ─────────────────────────────────────────────
+// 世界模型：沿用 2D 版的座標系，邏輯層完全不動
+// 所有遊戲判定都在 XY 平面上做，3D 只是把它畫出來
+// ─────────────────────────────────────────────
+const W = 1280, H = 720;      // 邏輯世界大小（沿用 2D 版的像素座標）
+const S = 0.03;               // 像素 → 公尺，整張圖約 38m x 22m
+const WALL_H = 3.2;           // 牆高（公尺）
+const EYE = 1.62;             // 視線高度
+const VIEW_R = 440;           // 感測器有效距離，換算後約 13 公尺
+
+const WALLS = [
+  {x:0,y:0,w:W,h:24},{x:0,y:H-24,w:W,h:24},
+  {x:0,y:0,w:24,h:H},{x:W-24,y:0,w:24,h:H},
+  {x:180,y:120,w:24,h:190},{x:180,y:410,w:24,h:190},
+  {x:1076,y:120,w:24,h:190},{x:1076,y:410,w:24,h:190},
+  {x:380,y:96,w:210,h:24},{x:690,y:96,w:210,h:24},
+  {x:380,y:600,w:210,h:24},{x:690,y:600,w:210,h:24},
+  {x:560,y:300,w:160,h:120},
+  {x:380,y:280,w:24,h:160},{x:876,y:280,w:24,h:160},
+  {x:596,y:184,w:88,h:24},{x:596,y:512,w:88,h:24},
+  // 八根方柱：給第一人稱多一些可以繞行與卡角的掩體
+  {x:268,y:296,w:44,h:44},{x:968,y:296,w:44,h:44},
+  {x:268,y:420,w:44,h:44},{x:968,y:420,w:44,h:44},
+  {x:452,y:170,w:44,h:44},{x:784,y:170,w:44,h:44},
+  {x:452,y:506,w:44,h:44},{x:784,y:506,w:44,h:44},
+];
+
+// 牆的線段，給視線判定用（敵人 AI 要知道看不看得到你）
+const SEGS = [];
+for (const w of WALLS){
+  const {x,y} = w, X = x+w.w, Y = y+w.h;
+  SEGS.push({x1:x,y1:y,x2:X,y2:y},{x1:X,y1:y,x2:X,y2:Y},
+            {x1:X,y1:Y,x2:x,y2:Y},{x1:x,y1:Y,x2:x,y2:y});
+}
+
+const SPAWNS = [
+  {x:100,y:100},{x:100,y:360},{x:100,y:620},
+  {x:1180,y:100},{x:1180,y:360},{x:1180,y:620},
+  {x:640,y:60},{x:640,y:660},
+  {x:300,y:200},{x:980,y:200},
+  {x:300,y:520},{x:980,y:520},
+  {x:480,y:360},{x:800,y:360},
+];
+
+const P = {
+  speed:215, sprintMul:1.5, crouchMul:0.52, adsMul:0.55,
+  jumpV:4.2, gravity:11.5, airMul:0.82,
+  // 速度式移動：地面有摩擦、加速需要時間、空中幾乎沒有控制權
+  accel:12, airAccel:1.7, friction:8.5, stopSpeed:60, rad:13, maxHp:100, swapTime:0.34,
+  sonarCd:9, echoCd:16, echoBack:3.0,
+};
+const GUNS = {
+  vector:{ key:"vector", name:"VECTOR",
+           dmg:22, fireGap:0.075, mag:28, spread:0.030,
+           bloomRate:0.012, bloomMax:0.090, reload:0.95, spd:2600, auto:true,
+           adsFov:50, adsSpread:0.011, scope:false,
+           rcV:0.0105, rcH:0.0042, rcBack:9.0 },
+  lance: { key:"lance",  name:"LANCE",
+           dmg:85, fireGap:0.62,  mag:5,  spread:0.070,
+           bloomRate:0,     bloomMax:0,     reload:1.32, spd:5200, auto:false,
+           adsFov:17, adsSpread:0.0006, scope:true,
+           rcV:0.050, rcH:0.007, rcBack:3.4 },
+  breach:{ key:"breach", name:"BREACH",
+           dmg:17, fireGap:0.52,  mag:6,  spread:0.085, pellets:8,
+           bloomRate:0,     bloomMax:0,     reload:1.55, spd:1800, auto:false,
+           adsFov:56, adsSpread:0.052, scope:false,
+           rcV:0.072, rcH:0.013, rcBack:3.0 },
+};
+const GUN_ORDER = ["vector","lance","breach"];
+
+// 命中部位：頭部要準但回報高，打腿懲罰命中率不佳的射擊
+const ZONE = { head:2.5, torso:1.0, leg:0.6 };
+// 人形模型的整體縮放，調到標準兵種全高約 1.8 公尺、頭心約在玩家視線高
+const BOT_SCALE = 0.88;
+const BULLET_G = 3.0;   // 子彈重力，刻意低於真實值：飛行時間短，下墜才不會誇張
+function botK(type){ return (TYPES[type].rad / 13) * BOT_SCALE; }
+// 分界高度直接對應人形模型的骨架比例（k 是體型縮放）
+function zonesOf(type){
+  const k = botK(type);
+  return { legTop: 0.92*k, torsoTop: 1.70*k, headTop: 2.08*k };
+}
+// 玩家當下的視線高度（蹲下會變矮）
+function eyeH(){ return EYE - (G && G.crouchT ? G.crouchT : 0) * 0.55 + (G ? G.player.z : 0); }
+const TYPES = {
+  grunt:{
+    name:"GRUNT", score:100, hp:70, speed:120, rad:13, color:0xFF8A2B,
+    range:520, keepDist:250, reaction:0.34,
+    dmg:8, spread:0.10, bulletSpd:620,
+    burstSize:3, burstGap:0.13, burstRest:1.35,
+  },
+  stalker:{
+    name:"STALKER", score:120, hp:45, speed:196, rad:11, color:0xFFD24D,
+    range:190, keepDist:0, reaction:0.18,
+    dmg:7, spread:0.26, bulletSpd:560,
+    burstSize:3, burstGap:0.05, burstRest:1.55,
+  },
+  warden:{
+    name:"WARDEN", score:320, hp:260, speed:92, rad:17, color:0xC24DFF,
+    range:430, keepDist:200, reaction:0.5,
+    dmg:11, spread:0.08, bulletSpd:660,
+    burstSize:5, burstGap:0.11, burstRest:1.9,
+    frontArmor:0.12,          // 正面只吃 12% 傷害，必須繞背
+  },
+  lancer:{
+    name:"LANCER", score:180, hp:85, speed:78, rad:14, color:0xFF5470,
+    range:760, keepDist:420, reaction:0.95,
+    dmg:26, spread:0.012, bulletSpd:1500,
+    burstSize:1, burstGap:0, burstRest:2.2,
+  },
+};
+
+// ─────────────────────────────────────────────
+// 2D 幾何：碰撞與視線都還是在平面上算
+// ─────────────────────────────────────────────
+function rayHit(px,py,dx,dy,x1,y1,x2,y2){
+  const sx = x2-x1, sy = y2-y1;
+  const den = dx*sy - dy*sx;
+  if (Math.abs(den) < 1e-9) return -1;
+  const t = ((x1-px)*sy - (y1-py)*sx) / den;
+  const u = ((x1-px)*dy - (y1-py)*dx) / den;
+  return (t >= 0 && u >= 0 && u <= 1) ? t : -1;
+}
+function hasLOS(ax,ay,bx,by){
+  const dx = bx-ax, dy = by-ay, len = Math.hypot(dx,dy);
+  if (len < 1e-6) return true;
+  const nx = dx/len, ny = dy/len;
+  for (const s of SEGS){
+    const t = rayHit(ax,ay,nx,ny,s.x1,s.y1,s.x2,s.y2);
+    if (t > 0 && t < len) return false;
+  }
+  return true;
+}
+function inWall(x,y){
+  for (const w of WALLS) if (x>w.x && x<w.x+w.w && y>w.y && y<w.y+w.h) return true;
+  return false;
+}
+function aabbHit(e,w){
+  return e.x+e.rad > w.x && e.x-e.rad < w.x+w.w &&
+         e.y+e.rad > w.y && e.y-e.rad < w.y+w.h;
+}
+// 回傳這一步撞到了哪個軸，呼叫端才能把該方向的速度歸零，
+// 否則貼著牆時速度會一直累積，離開牆的瞬間會彈射出去
+function moveWithCollision(e,dx,dy){
+  let hx = false, hy = false;
+  if (dx){
+    const x0 = e.x;
+    e.x += dx;
+    for (const w of WALLS) if (aabbHit(e,w)){ e.x = dx>0 ? w.x-e.rad : w.x+w.w+e.rad; hx = true; }
+    // 保險：連續吸附多面牆有可能把座標推到別的地方去（看起來就是瞬移）。
+    // 解算後還是卡在牆裡就整個退回原位，寧可不動也不要跳走
+    if (hx){ for (const w of WALLS) if (aabbHit(e,w)){ e.x = x0; break; } }
+  }
+  if (dy){
+    const y0 = e.y;
+    e.y += dy;
+    for (const w of WALLS) if (aabbHit(e,w)){ e.y = dy>0 ? w.y-e.rad : w.y+w.h+e.rad; hy = true; }
+    if (hy){ for (const w of WALLS) if (aabbHit(e,w)){ e.y = y0; break; } }
+  }
+  return {x:hx, y:hy};
+}
+// 2D 朝向角 → Three.js 的 Y 軸旋轉（物件預設面向 -Z）
+function yawOf(a){ return Math.atan2(-Math.cos(a), -Math.sin(a)); }
+
+// ─────────────────────────────────────────────
+// 音效
+// ─────────────────────────────────────────────
+let actx = null;
+function audioOn(){
+  if (!actx){ try { actx = new (window.AudioContext||window.webkitAudioContext)(); } catch(e){ actx = null; } }
+  if (actx && actx.state === "suspended") actx.resume();
+  initReverb();
+  // 自動播放被擋掉的話，靠使用者的下一次點擊補上
+  if (userTrack && userTrack.paused && SET.music > 0) userTrack.play().catch(()=>{});
+}
+function sfx(type,freq,dur,vol,sweep){
+  if (!actx) return;
+  const t0 = actx.currentTime;
+  const o = actx.createOscillator(), g = actx.createGain();
+  o.type = type; o.frequency.setValueAtTime(freq,t0);
+  if (sweep) o.frequency.exponentialRampToValueAtTime(Math.max(40,sweep), t0+dur);
+  g.gain.setValueAtTime(vol,t0);
+  g.gain.exponentialRampToValueAtTime(0.0008, t0+dur);
+  o.connect(g).connect(actx.destination);
+  sendReverb(g, 0.26);
+  o.start(t0); o.stop(t0+dur+0.02);
+}
+// 預先產生幾段白噪音重複使用。原本每次發聲都配置一塊新緩衝
+// 並用 JS 迴圈填滿（48kHz 下約 12KB），敵人腳步一多就是持續的垃圾製造機。
+// 衰減改用 gain 的指數斜降，不再烘進取樣值裡
+let noiseBufs = null;
+function noiseBuf(){
+  if (!actx) return null;
+  if (!noiseBufs){
+    noiseBufs = [];
+    const n = Math.floor(actx.sampleRate * 0.6);   // 夠長：最長音效 0.2s + 最大起播偏移 0.15s
+    for (let k=0;k<3;k++){
+      const b = actx.createBuffer(1, n, actx.sampleRate);
+      const d = b.getChannelData(0);
+      for (let i=0;i<n;i++) d[i] = Math.random()*2 - 1;
+      noiseBufs.push(b);
+    }
+  }
+  return noiseBufs[(Math.random()*noiseBufs.length)|0];
+}
+function noiseSource(dur){
+  const b = noiseBuf();
+  if (!b) return null;
+  const src = actx.createBufferSource();
+  src.buffer = b;
+  // 從隨機位置起播，重複使用同一塊緩衝也不會聽出規律
+  src.start(0, Math.random()*0.15, dur);
+  return src;
+}
+function sfxNoise(dur,vol,hz){
+  if (!actx) return;
+  const t0 = actx.currentTime;
+  const f = actx.createBiquadFilter(); f.type = "lowpass"; f.frequency.value = hz;
+  const g = actx.createGain();
+  g.gain.setValueAtTime(vol, t0);
+  g.gain.exponentialRampToValueAtTime(0.0008, t0 + dur);
+  f.connect(g).connect(actx.destination);
+  sendReverb(g, 0.30);
+  const src = actx.createBufferSource();
+  src.buffer = noiseBuf();
+  src.connect(f);
+  src.start(t0, Math.random()*0.15, dur);
+}
+
+// 場上發出的聲音：依距離衰減、依方位左右分聲、隔著牆會變悶
+// 在一個看不見背後的遊戲裡，這是玩家最重要的感測器
+// 走廊殘響：指數衰減的噪音就是最基本的房間脈衝響應。
+// 這個場景是密閉的金屬空間，乾聲聽起來會像在真空裡
+let convolver = null, reverbIn = null;
+function initReverb(){
+  if (!actx || convolver) return;
+  const len = Math.floor(actx.sampleRate * 1.15);
+  const ir = actx.createBuffer(2, len, actx.sampleRate);
+  for (let ch=0; ch<2; ch++){
+    const d = ir.getChannelData(ch);
+    for (let i=0;i<len;i++){
+      const t = i/len;
+      // 前 8 毫秒留白當作直達聲與反射之間的間隙
+      const gap = i < actx.sampleRate*0.008 ? 0 : 1;
+      d[i] = (Math.random()*2-1) * Math.pow(1-t, 2.8) * gap;
+    }
+  }
+  convolver = actx.createConvolver();
+  convolver.buffer = ir;
+  const lp = actx.createBiquadFilter();
+  lp.type = "lowpass"; lp.frequency.value = 2300;   // 金屬走廊的殘響偏悶
+  const wet = actx.createGain();
+  wet.gain.value = 0.55;
+  reverbIn = actx.createGain();
+  reverbIn.gain.value = 1;
+  reverbIn.connect(convolver).connect(lp).connect(wet).connect(actx.destination);
+}
+// 把一個節點分一份訊號送進殘響
+function sendReverb(node, amount){
+  if (!reverbIn || amount <= 0.001) return;
+  const g = actx.createGain();
+  g.gain.value = amount;
+  node.connect(g).connect(reverbIn);
+}
+
+function spatial(wx, wy, baseVol){
+  if (!actx || !G) return null;
+  const p = G.player;
+  const dx = wx-p.x, dy = wy-p.y;
+  const dist = Math.hypot(dx,dy);
+  if (dist > 1000) return null;
+  const att = baseVol / (1 + (dist/230)*(dist/230));
+  if (att < 0.0015) return null;
+  const blocked = !hasLOS(p.x,p.y,wx,wy);
+  const pan = actx.createStereoPanner ? actx.createStereoPanner() : null;
+  if (pan){
+    // 轉成「相對於視線」的左右，玩家轉頭時聲音方位會跟著轉
+    const rel = Math.atan2(dy,dx) - p.angle;
+    pan.pan.value = Math.max(-1, Math.min(1, Math.sin(rel)*0.95));
+  }
+  const lp = actx.createBiquadFilter();
+  lp.type = "lowpass";
+  lp.frequency.value = blocked ? 420 : 14000;   // 隔牆只剩低頻
+  const g = actx.createGain();
+  g.gain.value = att * (blocked ? 0.55 : 1);
+  let tail = lp; lp.connect(g); tail = g;
+  if (pan){ g.connect(pan); tail = pan; }
+  tail.connect(actx.destination);
+  // 距離越遠、隔著牆時，殘響佔比越高——這是判斷遠近最直接的線索
+  sendReverb(g, Math.min(0.85, 0.18 + dist/900 + (blocked ? 0.3 : 0)));
+  return {input:lp, gain:g};
+}
+function sfxAt(wx,wy,type,freq,dur,vol,sweep){
+  const chain = spatial(wx,wy,vol);
+  if (!chain) return;
+  const t0 = actx.currentTime;
+  const o = actx.createOscillator();
+  o.type = type; o.frequency.setValueAtTime(freq,t0);
+  if (sweep) o.frequency.exponentialRampToValueAtTime(Math.max(40,sweep), t0+dur);
+  const env = actx.createGain();
+  env.gain.setValueAtTime(1,t0);
+  env.gain.exponentialRampToValueAtTime(0.0008, t0+dur);
+  o.connect(env).connect(chain.input);
+  o.start(t0); o.stop(t0+dur+0.02);
+}
+function sfxNoiseAt(wx,wy,dur,vol,hz){
+  const chain = spatial(wx,wy,vol);
+  if (!chain) return;
+  const t0 = actx.currentTime;
+  const f = actx.createBiquadFilter(); f.type = "lowpass"; f.frequency.value = hz;
+  const env = actx.createGain();
+  env.gain.setValueAtTime(1, t0);
+  env.gain.exponentialRampToValueAtTime(0.0008, t0 + dur);
+  f.connect(env).connect(chain.input);
+  const src = actx.createBufferSource();
+  src.buffer = noiseBuf();
+  src.connect(f);
+  src.start(t0, Math.random()*0.15, dur);
+}
+
+
+// ─────────────────────────────────────────────
+// 配樂：播放玩家自選的本機音檔
+// ─────────────────────────────────────────────
+// 玩家自選的配樂。檔案只存在這台瀏覽器的 IndexedDB 裡，
+// 不會寫進專案檔、不會跟著分享出去——遊戲提供的是「能放你自己的音樂」這個功能
+let userTrack = null;        // HTMLAudioElement
+let userTrackName = "";
+function trackDB(){
+  return new Promise((res, rej) => {
+    const r = indexedDB.open("echoProtocol", 1);
+    r.onupgradeneeded = () => r.result.createObjectStore("music");
+    r.onsuccess = () => res(r.result);
+    r.onerror   = () => rej(r.error);
+  });
+}
+async function saveTrack(blob, name){
+  try {
+    const db = await trackDB();
+    await new Promise((res, rej) => {
+      const tx = db.transaction("music", "readwrite");
+      tx.objectStore("music").put({blob, name}, "track");
+      tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+    });
+  } catch(e){ /* 存不進去不影響本次播放 */ }
+}
+async function loadStoredTrack(){
+  try {
+    const db = await trackDB();
+    const rec = await new Promise((res, rej) => {
+      const tx = db.transaction("music", "readonly");
+      const q = tx.objectStore("music").get("track");
+      q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error);
+    });
+    if (rec && rec.blob) attachTrack(rec.blob, rec.name, false);
+  } catch(e){}
+}
+async function clearTrack(){
+  if (userTrack){ userTrack.pause(); URL.revokeObjectURL(userTrack.src); userTrack = null; }
+  userTrackName = "";
+  updateTrackLabel();
+  try {
+    const db = await trackDB();
+    const tx = db.transaction("music", "readwrite");
+    tx.objectStore("music").delete("track");
+  } catch(e){}
+}
+function attachTrack(blob, name, autoplay){
+  if (userTrack){ userTrack.pause(); URL.revokeObjectURL(userTrack.src); }
+  const el = new Audio(URL.createObjectURL(blob));
+  el.loop = true;
+  el.volume = musicGain();
+  userTrack = el;
+  userTrackName = name || "自選音樂";
+  updateTrackLabel();
+  // 自動播放需要使用者手勢，失敗就等下一次點擊時由 audioOn 接手
+  if (autoplay) el.play().catch(()=>{});
+}
+// 滑桿值 → 實際音量。取 2.2 次方讓低段有足夠的微調空間，
+// 線性映射會讓中間位置就已經過響
+function musicGain(){
+  const v = (typeof SET !== "undefined" && SET) ? SET.music : 0.35;
+  return Math.max(0, Math.min(1, Math.pow(v, 2.2)));
+}
+function updateTrackLabel(){
+  const el = document.getElementById("trackName");
+  if (el) el.textContent = userTrackName || "未選擇";
+}
+
+
+
+
+// ─────────────────────────────────────────────
+// 3D 場景
+// ─────────────────────────────────────────────
+const glCanvas = document.getElementById("gl");
+const uiCanvas = document.getElementById("ui");
+const uctx = uiCanvas.getContext("2d");
+const frame = document.getElementById("frame");
+const overStart = document.getElementById("overStart");
+const overDead  = document.getElementById("overDead");
+const overPause = document.getElementById("overPause");
+
+const renderer = new THREE.WebGLRenderer({canvas:glCanvas, antialias:true});
+renderer.setClearColor(0x03030A, 1);
+renderer.autoClear = false;
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.FogExp2(0x03030A, 0.062);
+
+const camera = new THREE.PerspectiveCamera(78, 16/9, 0.1, 120);
+camera.rotation.order = "YXZ";
+
+// 環境光壓得很低：這個世界本來就該是暗的
+scene.add(new THREE.HemisphereLight(0x3A2A62, 0x120A24, 0.85));
+
+// 掛在攝影機上的感測器光源，照得到的範圍就是玩家的有效視野
+const sensorLight = new THREE.PointLight(0xFF9A50, 3.4, VIEW_R*S, 1.25);
+camera.add(sensorLight);
+// 開槍時瞬間爆亮的槍口光
+const muzzleLight = new THREE.PointLight(0xFFD08A, 0, 9, 2);
+muzzleLight.position.set(0.25,-0.18,-0.5);
+camera.add(muzzleLight);
+scene.add(camera);
+
+// ─────────────────────────────────────────────
+// 程序生成的表面材質
+// 沒有外部貼圖可用，所以全部在 canvas 上畫出來再送進 GPU。
+// 除了顏色貼圖，還從高度圖算出法線貼圖，表面才會對光線有反應——
+// 這是「平板」跟「有材質的牆」最大的差別
+// ─────────────────────────────────────────────
+function mkCanvas(n){ const c = document.createElement("canvas"); c.width = c.height = n; return c; }
+
+// 從灰階高度圖推導法線貼圖（中央差分）
+function heightToNormal(hc, strength){
+  const n = hc.width;
+  const hx = hc.getContext("2d");
+  const src = hx.getImageData(0,0,n,n).data;
+  const out = hx.createImageData(n,n);
+  const at = (x,y) => { x=(x+n)%n; y=(y+n)%n; return src[(y*n+x)*4]/255; };
+  for (let y=0;y<n;y++){
+    for (let x=0;x<n;x++){
+      const dx = (at(x+1,y) - at(x-1,y)) * strength;
+      const dy = (at(x,y+1) - at(x,y-1)) * strength;
+      const nx = -dx, ny = -dy, nz = 1;
+      const l = Math.sqrt(nx*nx+ny*ny+nz*nz);
+      const i = (y*n+x)*4;
+      out.data[i]   = (nx/l*0.5+0.5)*255;
+      out.data[i+1] = (ny/l*0.5+0.5)*255;
+      out.data[i+2] = (nz/l*0.5+0.5)*255;
+      out.data[i+3] = 255;
+    }
+  }
+  const nc = mkCanvas(n);
+  nc.getContext("2d").putImageData(out,0,0);
+  return nc;
+}
+function texFrom(canvas, rx, ry){
+  const t = new THREE.CanvasTexture(canvas);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(rx||1, ry||1);
+  t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  return t;
+}
+
+// 牆面：橫向分割的金屬板、接縫、鉚釘、污漬
+function buildWallSurface(){
+  const N = 512;
+  const c = mkCanvas(N), x = c.getContext("2d");
+  const h = mkCanvas(N), hx = h.getContext("2d");
+  x.fillStyle = "#191234"; x.fillRect(0,0,N,N);
+  hx.fillStyle = "#8A8A8A"; hx.fillRect(0,0,N,N);
+
+  // 板材：每塊色調略有差異，打破均勻感
+  const rows = 4, cols = 2;
+  for (let r=0;r<rows;r++){
+    for (let cI=0;cI<cols;cI++){
+      const px = cI*(N/cols), py = r*(N/rows);
+      const v = 0.86 + Math.random()*0.28;
+      x.fillStyle = `rgb(${Math.round(25*v)},${Math.round(18*v)},${Math.round(52*v)})`;
+      x.fillRect(px,py,N/cols,N/rows);
+      hx.fillStyle = `rgb(${Math.round(138*(0.94+Math.random()*0.12))},0,0)`;
+      hx.fillStyle = `hsl(0,0%,${Math.round(54+Math.random()*6)}%)`;
+      hx.fillRect(px,py,N/cols,N/rows);
+    }
+  }
+  // 接縫：顏色壓深、高度凹下去
+  x.strokeStyle = "#0A0618"; x.lineWidth = 5;
+  hx.strokeStyle = "#1E1E1E"; hx.lineWidth = 7;
+  for (const ctx2 of [x,hx]){
+    ctx2.beginPath();
+    for (let r=1;r<rows;r++){ ctx2.moveTo(0,r*(N/rows)); ctx2.lineTo(N,r*(N/rows)); }
+    for (let cI=1;cI<cols;cI++){ ctx2.moveTo(cI*(N/cols),0); ctx2.lineTo(cI*(N/cols),N); }
+    ctx2.stroke();
+  }
+  // 鉚釘：沿著接縫排列，高度凸起
+  for (let r=0;r<=rows;r++){
+    for (let i=0;i<14;i++){
+      const px = (i+0.5)*(N/14), py = r*(N/rows);
+      x.fillStyle = "#2A2050";
+      x.beginPath(); x.arc(px,py,3.2,0,Math.PI*2); x.fill();
+      hx.fillStyle = "#C8C8C8";
+      hx.beginPath(); hx.arc(px,py,3.6,0,Math.PI*2); hx.fill();
+    }
+  }
+  // 污漬與刮痕
+  for (let i=0;i<70;i++){
+    const px = Math.random()*N, py = Math.random()*N, w2 = 8+Math.random()*60;
+    x.fillStyle = `rgba(6,4,18,${(0.04+Math.random()*0.12).toFixed(3)})`;
+    x.fillRect(px,py,w2,2+Math.random()*10);
+  }
+  for (let i=0;i<2600;i++){
+    const px = Math.random()*N, py = Math.random()*N;
+    x.fillStyle = `rgba(150,120,220,${(Math.random()*0.05).toFixed(3)})`;
+    x.fillRect(px,py,1.4,1.4);
+  }
+  return {color:c, normal:heightToNormal(h, 2.4)};
+}
+
+// 地板：方形地磚、磨損、中央的區域標記
+function buildFloorSurface(){
+  const N = 512;
+  const c = mkCanvas(N), x = c.getContext("2d");
+  const h = mkCanvas(N), hx = h.getContext("2d");
+  x.fillStyle = "#1B1440"; x.fillRect(0,0,N,N);
+  hx.fillStyle = "#909090"; hx.fillRect(0,0,N,N);
+  const T = 4, cell = N/T;
+  for (let r=0;r<T;r++){
+    for (let cI=0;cI<T;cI++){
+      const v = 0.88 + Math.random()*0.24;
+      x.fillStyle = `rgb(${Math.round(30*v)},${Math.round(22*v)},${Math.round(66*v)})`;
+      x.fillRect(cI*cell, r*cell, cell, cell);
+      hx.fillStyle = `hsl(0,0%,${Math.round(56+Math.random()*8)}%)`;
+      hx.fillRect(cI*cell, r*cell, cell, cell);
+    }
+  }
+  x.strokeStyle = "#090616"; x.lineWidth = 4;
+  hx.strokeStyle = "#202020"; hx.lineWidth = 6;
+  for (const ctx2 of [x,hx]){
+    ctx2.beginPath();
+    for (let i=1;i<T;i++){
+      ctx2.moveTo(i*cell,0); ctx2.lineTo(i*cell,N);
+      ctx2.moveTo(0,i*cell); ctx2.lineTo(N,i*cell);
+    }
+    ctx2.stroke();
+  }
+  // 地磚四角的固定螺栓
+  for (let r=0;r<=T;r++) for (let cI=0;cI<=T;cI++){
+    x.fillStyle = "#3A2A6A";
+    x.beginPath(); x.arc(cI*cell, r*cell, 4.2, 0, Math.PI*2); x.fill();
+    hx.fillStyle = "#3C3C3C";
+    hx.beginPath(); hx.arc(cI*cell, r*cell, 4.6, 0, Math.PI*2); hx.fill();
+  }
+  // 磨損痕跡
+  for (let i=0;i<48;i++){
+    const px = Math.random()*N, py = Math.random()*N;
+    x.fillStyle = `rgba(120,95,200,${(0.02+Math.random()*0.05).toFixed(3)})`;
+    x.beginPath(); x.ellipse(px,py, 12+Math.random()*44, 8+Math.random()*26, Math.random()*3, 0, Math.PI*2); x.fill();
+  }
+  for (let i=0;i<2200;i++){
+    x.fillStyle = `rgba(170,140,240,${(Math.random()*0.045).toFixed(3)})`;
+    x.fillRect(Math.random()*N, Math.random()*N, 1.4, 1.4);
+  }
+  // 粗糙度：中央走道被踩得發亮（低粗糙度），邊角沒人走所以粗糙
+  const r = mkCanvas(N), rx = r.getContext("2d");
+  rx.fillStyle = "#C8C8C8"; rx.fillRect(0,0,N,N);
+  for (let i=0;i<26;i++){
+    const px = Math.random()*N, py = Math.random()*N;
+    const g2 = rx.createRadialGradient(px,py,2, px,py, 40+Math.random()*90);
+    g2.addColorStop(0, "rgba(70,70,70,.55)");    // 磨亮
+    g2.addColorStop(1, "rgba(70,70,70,0)");
+    rx.fillStyle = g2;
+    rx.fillRect(px-140, py-140, 280, 280);
+  }
+  // 地磚接縫積灰，比磚面粗糙
+  rx.strokeStyle = "rgba(240,240,240,.7)"; rx.lineWidth = 5;
+  rx.beginPath();
+  for (let i=1;i<T;i++){
+    rx.moveTo(i*cell,0); rx.lineTo(i*cell,N);
+    rx.moveTo(0,i*cell); rx.lineTo(N,i*cell);
+  }
+  rx.stroke();
+  return {color:c, normal:heightToNormal(h, 2.0), rough:r};
+}
+
+const WALL_SURF  = buildWallSurface();
+const FLOOR_SURF = buildFloorSurface();
+
+// ── 地板 ──
+const floorMat = new THREE.MeshStandardMaterial({
+  map:          texFrom(FLOOR_SURF.color,  W*S/4, H*S/4),
+  normalMap:    texFrom(FLOOR_SURF.normal, W*S/4, H*S/4),
+  roughnessMap: texFrom(FLOOR_SURF.rough,  W*S/4, H*S/4),
+  color:0x9C86FF, roughness:1.0, metalness:0.30,
+});
+floorMat.normalScale.set(0.85,0.85);
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(W*S, H*S), floorMat);
+floor.rotation.x = -Math.PI/2;
+floor.position.set(W*S/2, 0, H*S/2);
+scene.add(floor);
+
+const ceil = new THREE.Mesh(new THREE.PlaneGeometry(W*S, H*S),
+  new THREE.MeshStandardMaterial({
+    map:       texFrom(WALL_SURF.color,  W*S/5, H*S/5),
+    normalMap: texFrom(WALL_SURF.normal, W*S/5, H*S/5),
+    color:0x5A4A90, roughness:0.95, metalness:0.1,
+  }));
+ceil.rotation.x = Math.PI/2;
+ceil.position.set(W*S/2, WALL_H, H*S/2);
+scene.add(ceil);
+
+// ── 接觸陰影 ──
+// 沒有即時陰影可用（太貴），所以把牆腳的暗角預先畫成一張遮罩，
+// 用一層半透明黑鋪在地板上。少了這個，牆會像是浮在地面上
+(() => {
+  const PX = 1600, PY = Math.round(PX * H / W);
+  const c = document.createElement("canvas");
+  c.width = PX; c.height = PY;
+  const x = c.getContext("2d");
+  const k = PX / W;
+  x.clearRect(0,0,PX,PY);
+
+  // 外擴一圈模糊的黑色footprint，就是柔邊的接觸陰影
+  x.save();
+  x.filter = "blur(16px)";
+  x.fillStyle = "rgba(0,0,0,0.85)";
+  for (const w of WALLS){
+    const pad = 13;
+    x.fillRect((w.x-pad)*k, (w.y-pad)*k, (w.w+pad*2)*k, (w.h+pad*2)*k);
+  }
+  x.restore();
+
+  // 貼著牆腳再壓一圈更深的暗，讓交界線更實
+  x.save();
+  x.filter = "blur(5px)";
+  x.fillStyle = "rgba(0,0,0,0.9)";
+  for (const w of WALLS){
+    const pad = 5;
+    x.fillRect((w.x-pad)*k, (w.y-pad)*k, (w.w+pad*2)*k, (w.h+pad*2)*k);
+  }
+  x.restore();
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  const ao = new THREE.Mesh(
+    new THREE.PlaneGeometry(W*S, H*S),
+    new THREE.MeshBasicMaterial({
+      map:tex, transparent:true, opacity:0.72,
+      depthWrite:false, color:0x000000,
+    }));
+  ao.rotation.x = -Math.PI/2;
+  ao.position.set(W*S/2, 0.012, H*S/2);
+  ao.renderOrder = 1;
+  scene.add(ao);
+})();
+
+// ── 牆 ──
+// BoxGeometry 六個面的 UV 都是 0..1，直接貼圖會讓長牆的材質被拉長，
+// 所以依每個面的實際尺寸重新縮放 UV，磚縫大小才會全場一致
+function rescaleBoxUV(geo, wx, wy, wz, density){
+  const uv = geo.attributes.uv;
+  const faces = [
+    [wz,wy],[wz,wy],   // +X, -X
+    [wx,wz],[wx,wz],   // +Y, -Y
+    [wx,wy],[wx,wy],   // +Z, -Z
+  ];
+  for (let f=0; f<6; f++){
+    const [su,sv] = faces[f];
+    for (let i=0;i<4;i++){
+      const idx = f*4+i;
+      uv.setXY(idx, uv.getX(idx)*su*density, uv.getY(idx)*sv*density);
+    }
+  }
+  uv.needsUpdate = true;
+  return geo;
+}
+// 三種牆面變體：同一張貼圖換色調、粗糙度與金屬度，
+// 看起來就像不同批次、不同鏽蝕程度的板材
+const WALL_VARIANTS = [
+  {color:0x8C7AD8, roughness:0.86, metalness:0.20},
+  {color:0x7E6FC4, roughness:0.94, metalness:0.12},
+  {color:0x9A82C8, roughness:0.74, metalness:0.34},
+];
+const wallMats = WALL_VARIANTS.map(v => {
+  const m = new THREE.MeshStandardMaterial({
+    map:       texFrom(WALL_SURF.color),
+    normalMap: texFrom(WALL_SURF.normal),
+    color:v.color, roughness:v.roughness, metalness:v.metalness,
+  });
+  m.normalScale.set(1.1,1.1);
+  return m;
+});
+const wallMat = wallMats[0];
+// 邊緣線保留：熱像儀對溫差邊界特別敏感，這是這個畫面的識別特徵
+const edgeMat = new THREE.LineBasicMaterial({color:0xE0703A, transparent:true, opacity:0.5});
+// 牆基的導引燈條：貼著地面的一條細窄發光帶。
+// 它同時給出色彩對比、強化牆的輪廓，也讓地板的法線貼圖有東西可以反光
+// 線腳用比牆身亮一階的金屬，嵌板則暗一階，靠明度差把層次拉開
+const trimMat = new THREE.MeshStandardMaterial({
+  map: texFrom(WALL_SURF.color, 3, 1),
+  color:0xA994E8, roughness:0.55, metalness:0.55,
+});
+const panelMat = new THREE.MeshStandardMaterial({
+  map:       texFrom(WALL_SURF.color, 2, 1),
+  normalMap: texFrom(WALL_SURF.normal, 2, 1),
+  color:0x6E5FA8, roughness:0.92, metalness:0.15,
+});
+
+const stripMat = new THREE.MeshBasicMaterial({color:0x3FD9E0});
+const stripGeoCache = {}, stripGlowCache = {};
+function addStrip(len, cx, cz, rotY){
+  const key = len.toFixed(2);
+  if (!stripGeoCache[key]) stripGeoCache[key] = new THREE.BoxGeometry(len, 0.035, 0.022);
+  if (!stripGlowCache[key]) stripGlowCache[key] = new THREE.PlaneGeometry(len, 0.55);
+  const m = new THREE.Mesh(stripGeoCache[key], stripMat);
+  m.position.set(cx, 0.10, cz);
+  m.rotation.y = rotY;
+  scene.add(m);
+  // 燈條打在地上的溢光
+  const gl2 = new THREE.Mesh(stripGlowCache[key], new THREE.MeshBasicMaterial({
+    color:0x2FA8B8, transparent:true, opacity:0.11,
+    blending:THREE.AdditiveBlending, depthWrite:false,
+  }));
+  gl2.rotation.x = -Math.PI/2;
+  gl2.rotation.z = -rotY;
+  gl2.position.set(cx + Math.sin(rotY)*0.30, 0.025, cz + Math.cos(rotY)*0.30);
+  gl2.renderOrder = 2;
+  scene.add(gl2);
+}
+
+for (const w of WALLS){
+  const gw = w.w*S, gd = w.h*S;
+  const geo = rescaleBoxUV(new THREE.BoxGeometry(gw, WALL_H, gd), gw, WALL_H, gd, 0.42);
+  // 用座標當種子挑變體，同一面牆每次載入都長一樣
+  const m = new THREE.Mesh(geo, wallMats[(w.x*7 + w.y*13) % wallMats.length]);
+  m.position.set((w.x+w.w/2)*S, WALL_H/2, (w.y+w.h/2)*S);
+  scene.add(m);
+  const e = new THREE.LineSegments(new THREE.EdgesGeometry(geo), edgeMat);
+  e.position.copy(m.position);
+  scene.add(e);
+
+  // 建築收邊：牆頂的簷口與牆腳的踢腳板，都比牆身略寬。
+  // 少了這圈線腳，牆就只是一個長方體而不是一面牆
+  const trimOut = 0.055;
+  const corniceGeo = new THREE.BoxGeometry(gw + trimOut*2, 0.16, gd + trimOut*2);
+  const cornice = new THREE.Mesh(corniceGeo, trimMat);
+  cornice.position.set((w.x+w.w/2)*S, WALL_H - 0.08, (w.y+w.h/2)*S);
+  scene.add(cornice);
+  const baseGeo = new THREE.BoxGeometry(gw + trimOut*2, 0.22, gd + trimOut*2);
+  const baseb = new THREE.Mesh(baseGeo, trimMat);
+  baseb.position.set((w.x+w.w/2)*S, 0.11, (w.y+w.h/2)*S);
+  scene.add(baseb);
+  for (const t of [cornice, baseb]){
+    const e2 = new THREE.LineSegments(new THREE.EdgesGeometry(t.geometry), edgeMat);
+    e2.position.copy(t.position);
+    scene.add(e2);
+  }
+
+  // 大面積的牆挖一塊內凹嵌板，平面才不會一路空到底
+  if (Math.min(w.w, w.h) <= 40 && Math.max(w.w, w.h) >= 170){
+    const along = w.w >= w.h;
+    const panW = (along ? gw : gd) - 0.55;
+    const inset = new THREE.Mesh(
+      along ? new THREE.BoxGeometry(panW, 1.25, gd + 0.02)
+            : new THREE.BoxGeometry(gw + 0.02, 1.25, panW),
+      panelMat);
+    inset.position.set((w.x+w.w/2)*S, WALL_H*0.52, (w.y+w.h/2)*S);
+    scene.add(inset);
+    const e3 = new THREE.LineSegments(new THREE.EdgesGeometry(inset.geometry), edgeMat);
+    e3.position.copy(inset.position);
+    scene.add(e3);
+  }
+
+  // 夠長的內牆才鋪燈條，外牆與小柱子留白
+  const isOuter = (w.w >= W || w.h >= H);
+  if (!isOuter && Math.max(w.w, w.h) >= 150){
+    if (w.w >= w.h){
+      addStrip(gw-0.2, (w.x+w.w/2)*S, w.y*S - 0.03, 0);
+      addStrip(gw-0.2, (w.x+w.w/2)*S, (w.y+w.h)*S + 0.03, Math.PI);
+    } else {
+      addStrip(gd-0.2, w.x*S - 0.03, (w.y+w.h/2)*S, -Math.PI/2);
+      addStrip(gd-0.2, (w.x+w.w)*S + 0.03, (w.y+w.h/2)*S, Math.PI/2);
+    }
+  }
+}
+
+// ── 牆面外掛件 ──
+// 大面積的平牆再怎麼貼圖都會顯得空，掛一些管線、通風口、電箱
+// 讓輪廓有起伏，走過去時的視差才有東西可看
+(() => {
+  const metal = new THREE.MeshStandardMaterial({color:0x2A2050, roughness:0.7, metalness:0.45});
+  const dark  = new THREE.MeshStandardMaterial({color:0x140E2C, roughness:0.9, metalness:0.2});
+  const lit   = new THREE.MeshBasicMaterial({color:0x4DE0B0});
+  const ventGeo = new THREE.BoxGeometry(0.52, 0.42, 0.07);
+  const boxGeo  = new THREE.BoxGeometry(0.34, 0.46, 0.20);
+  const pipeGeo = new THREE.CylinderGeometry(0.055,0.055,1,8);
+  const ledGeo  = new THREE.BoxGeometry(0.06,0.06,0.03);
+  const R = (() => { let a = 20260917; return () => (a = (a*1103515245+12345) & 0x7fffffff) / 0x7fffffff; })();
+
+  for (const w of WALLS){
+    // 只在夠長的牆面上掛東西，小柱子留白
+    const long = Math.max(w.w, w.h);
+    if (long < 140) continue;
+    const horiz = w.w >= w.h;
+    const n = Math.min(5, Math.floor(long/150));
+    for (let i=0;i<n;i++){
+      const t = (i+0.5)/n;
+      // 牆的兩側各挑一面掛
+      const side = R() < 0.5 ? -1 : 1;
+      const px = horiz ? (w.x + w.w*t) : (w.x + (side>0 ? w.w+0.1 : -0.1));
+      const py = horiz ? (w.y + (side>0 ? w.h+0.1 : -0.1)) : (w.y + w.h*t);
+      const ry = horiz ? 0 : Math.PI/2;
+      const roll = R();
+
+      if (roll < 0.34){
+        const v = new THREE.Mesh(ventGeo, dark);
+        v.position.set(px*S, 1.55 + R()*0.7, py*S);
+        v.rotation.y = ry;
+        scene.add(v);
+        // 百葉窗格
+        for (let b=0;b<4;b++){
+          const bar = new THREE.Mesh(new THREE.BoxGeometry(0.46,0.035,0.09), metal);
+          bar.position.set(px*S, v.position.y - 0.14 + b*0.09, py*S);
+          bar.rotation.y = ry;
+          bar.translateZ(0.02);
+          scene.add(bar);
+        }
+      } else if (roll < 0.62){
+        const b2 = new THREE.Mesh(boxGeo, metal);
+        b2.position.set(px*S, 1.3 + R()*0.5, py*S);
+        b2.rotation.y = ry;
+        scene.add(b2);
+        const led = new THREE.Mesh(ledGeo, lit);
+        led.position.copy(b2.position);
+        led.position.y += 0.12;
+        led.rotation.y = ry;
+        led.translateZ(0.11);
+        scene.add(led);
+      } else {
+        // 貼牆的垂直管線
+        const len = 1.6 + R()*1.2;
+        const pipe = new THREE.Mesh(pipeGeo, metal);
+        pipe.scale.y = len;
+        pipe.position.set(px*S, len/2 + 0.1, py*S);
+        scene.add(pipe);
+        const band = new THREE.Mesh(new THREE.CylinderGeometry(0.075,0.075,0.07,8), dark);
+        band.position.set(px*S, 0.1 + len*0.62, py*S);
+        scene.add(band);
+      }
+    }
+  }
+})();
+
+// ── 天花板燈具與管線：給這個空間一點可辨識的地標 ──
+// 熱成像裡燈具本來就是熱的，所以它們發亮是說得通的
+(() => {
+  const fixMat  = new THREE.MeshBasicMaterial({color:0xFFB05A});
+  const fixCold = new THREE.MeshLambertMaterial({color:0x140E28});
+  const pipeMat = new THREE.MeshLambertMaterial({color:0x1A1432});
+  const fixGeo  = new THREE.BoxGeometry(0.16, 0.06, 2.2);
+  const housing = new THREE.BoxGeometry(0.34, 0.14, 2.5);
+
+  // 沿著主要通道掛燈條
+  const lanes = [
+    {x:240, y:240, n:6, dir:"x"}, {x:240, y:480, n:6, dir:"x"},
+    {x:640, y:180, n:3, dir:"y"}, {x:640, y:540, n:3, dir:"y"},
+  ];
+  for (const L of lanes){
+    for (let i=0;i<L.n;i++){
+      const px = L.dir === "x" ? L.x + i*160 : L.x;
+      const py = L.dir === "y" ? L.y + i*120 : L.y;
+      if (inWall(px,py)) continue;
+      const h = new THREE.Mesh(housing, fixCold);
+      h.position.set(px*S, WALL_H-0.07, py*S);
+      if (L.dir === "y") h.rotation.y = Math.PI/2;
+      scene.add(h);
+      const f = new THREE.Mesh(fixGeo, fixMat);
+      f.position.set(px*S, WALL_H-0.15, py*S);
+      if (L.dir === "y") f.rotation.y = Math.PI/2;
+      scene.add(f);
+      // 光柱：加法混色的錐體，在霧裡讀起來就是一道光
+      const shaft = new THREE.Mesh(
+        new THREE.ConeGeometry(1.25, WALL_H-0.25, 14, 1, true),
+        new THREE.MeshBasicMaterial({
+          color:0xFF9A48, transparent:true, opacity:0.045,
+          blending:THREE.AdditiveBlending, depthWrite:false,
+          side:THREE.DoubleSide,
+        }));
+      shaft.position.set(px*S, (WALL_H-0.25)/2, py*S);
+      scene.add(shaft);
+      // 燈正下方在地上打出一圈亮斑
+      const pool = new THREE.Mesh(
+        new THREE.CircleGeometry(1.5, 22),
+        new THREE.MeshBasicMaterial({
+          color:0xFF9A48, transparent:true, opacity:0.05,
+          blending:THREE.AdditiveBlending, depthWrite:false,
+        }));
+      pool.rotation.x = -Math.PI/2;
+      pool.position.set(px*S, 0.02, py*S);
+      scene.add(pool);
+      // 真光源很貴，每三盞才放一顆；其餘靠地上的加法亮斑撐住觀感
+      if (i % 3 === 0){
+        const lamp = new THREE.PointLight(0xFFAE68, 1.15, 7.5, 2);
+        lamp.position.set(px*S, WALL_H-0.45, py*S);
+        scene.add(lamp);
+      }
+    }
+  }
+
+  // 沿著外牆拉一圈管線，讓牆面不是一片平的
+  const pipeGeo = new THREE.CylinderGeometry(0.075,0.075, W*S-2, 10);
+  for (const z of [0.55, H*S-0.55]){
+    for (const yy of [2.55, 2.32]){
+      const pipe = new THREE.Mesh(pipeGeo, pipeMat);
+      pipe.rotation.z = Math.PI/2;
+      pipe.position.set(W*S/2, yy, z);
+      scene.add(pipe);
+    }
+  }
+})();
+
+// ── 補給品：給你「離開掩體」的理由 ──
+const PICKUPS = {
+  cell: {name:"THERMAL CELL", color:0x3FE0C8, label:"+35 HP"},
+  ammo: {name:"AMMO",         color:0xFFD24D, label:"AMMO FULL"},
+};
+const pickupGeo = new THREE.BoxGeometry(0.34,0.34,0.34);
+function makePickup(kind){
+  const P2 = PICKUPS[kind];
+  const g = new THREE.Group();
+  const core = new THREE.Mesh(pickupGeo, new THREE.MeshBasicMaterial({color:P2.color}));
+  const cage = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(0.52,0.52,0.52)),
+    new THREE.LineBasicMaterial({color:P2.color, transparent:true, opacity:0.75}));
+  const halo = new THREE.PointLight(P2.color, 1.1, 3.4, 2);
+  g.add(core, cage, halo);
+  g.userData = {core, cage};
+  return g;
+}
+
+// ── 敵人模型：一個熱源人形 ──
+const botGeoCache = {};
+function botMeshes(type){
+  const T = TYPES[type];
+  if (!botGeoCache[type]){
+    botGeoCache[type] = {
+      torso: new THREE.CapsuleGeometry(T.rad*S*0.9, 0.62, 4, 12),
+      head:  new THREE.SphereGeometry(T.rad*S*0.66, 14, 10),
+      gun:   new THREE.BoxGeometry(0.09, 0.09, type==="lancer" ? 0.95 : 0.55),
+    };
+  }
+  return botGeoCache[type];
+}
+// 幾何體依兵種快取共用。原本每隻敵人都重新建二十幾個幾何體，
+// 一回合七隻就是一百多個——改成共用之後才有餘裕把細節加上去
+// 體型設定：四種敵人要能只靠輪廓分辨，因為在黑暗中你先看到的是剪影。
+// 這也是戰術資訊——衝過來的是哪一種決定你要不要換槍
+const BUILD = {
+  grunt:   {shoulder:1.00, limb:1.00, lean: 0.00, helmet:true,  crest:false, optic:false, pack:1.00},
+  stalker: {shoulder:0.80, limb:1.20, lean: 0.34, helmet:false, crest:true,  optic:false, pack:0.55},
+  lancer:  {shoulder:0.88, limb:1.14, lean: 0.16, helmet:true,  crest:false, optic:true,  pack:0.85},
+  warden:  {shoulder:1.40, limb:0.84, lean:-0.08, helmet:true,  crest:false, optic:false, pack:1.60},
+};
+
+const BOT_GEO = {};
+function botGeo(type){
+  if (BOT_GEO[type]) return BOT_GEO[type];
+  const k = botK(type);
+  const G2 = {
+    pelvis:  new THREE.CylinderGeometry(0.26*k, 0.22*k, 0.22*k, 12),
+    torso:   new THREE.CylinderGeometry(0.25*k, 0.31*k, 0.60*k, 14),
+    chest:   new THREE.CapsuleGeometry(0.22*k, 0.20*k, 3, 12),
+    pack:    new THREE.CapsuleGeometry(0.15*k, 0.26*k, 3, 10),
+    neck:    new THREE.CylinderGeometry(0.085*k, 0.10*k, 0.10*k, 8),
+    head:    new THREE.SphereGeometry(0.185*k, 18, 14),
+    helmet:  new THREE.SphereGeometry(0.205*k, 18, 12, 0, Math.PI*2, 0, Math.PI*0.62),
+    visor:   new THREE.CapsuleGeometry(0.075*k, 0.22*k, 3, 10),
+    shoulder:new THREE.SphereGeometry(0.135*k, 12, 10),
+    upArm:   new THREE.CapsuleGeometry(0.075*k, 0.20*k, 3, 10),
+    joint:   new THREE.SphereGeometry(0.068*k, 10, 8),
+    loArm:   new THREE.CapsuleGeometry(0.062*k, 0.20*k, 3, 10),
+    hand:    new THREE.SphereGeometry(0.072*k, 10, 8),
+    hipBall: new THREE.SphereGeometry(0.105*k, 12, 9),
+    upLeg:   new THREE.CapsuleGeometry(0.098*k, 0.24*k, 3, 10),
+    knee:    new THREE.SphereGeometry(0.088*k, 10, 8),
+    loLeg:   new THREE.CapsuleGeometry(0.080*k, 0.26*k, 3, 10),
+    boot:    new THREE.CapsuleGeometry(0.090*k, 0.13*k, 3, 10),
+    crest:   new THREE.CapsuleGeometry(0.022*k, 0.30*k, 2, 6),
+    optic:   new THREE.CylinderGeometry(0.075*k, 0.090*k, 0.16*k, 12),
+    lens:    new THREE.CylinderGeometry(0.058*k, 0.058*k, 0.02*k, 12),
+  };
+  BOT_GEO[type] = G2;
+  return G2;
+}
+
+function makeBotObject(type){
+  const T = TYPES[type];
+  const k = botK(type);
+  const g = botGeo(type);
+  const B = BUILD[type] || BUILD.grunt;
+  const root = new THREE.Group();
+
+  // 熱源分層：軀幹最燙、四肢次之、裝備是冷的
+  const hot  = new THREE.MeshBasicMaterial({color:T.color});
+  const warm = new THREE.MeshBasicMaterial({color:T.color});
+  warm.color.multiplyScalar(0.62);
+  const limb = new THREE.MeshBasicMaterial({color:T.color});
+  limb.color.multiplyScalar(0.48);
+  const core = new THREE.MeshBasicMaterial({color:0xFFF3D6});
+  const cold = new THREE.MeshBasicMaterial({color:0x0C0820});
+
+  const put = (geo, mat, x, y, z, parent) => {
+    const m = new THREE.Mesh(geo, mat);
+    m.position.set(x, y, z);
+    (parent || root).add(m);
+    return m;
+  };
+
+  const hips = new THREE.Group();
+  hips.position.y = 0.92*k;
+  root.add(hips);
+  // 上半身的前傾：STALKER 壓低身體衝刺，WARDEN 反而挺身把盾推在前面
+  const upper = new THREE.Group();
+  upper.rotation.x = B.lean;
+  hips.add(upper);
+
+  put(g.pelvis, warm, 0, 0.02*k, 0, hips);
+  const torso = put(g.torso, hot, 0, 0.40*k, 0, upper);
+  torso.scale.x = torso.scale.z = B.shoulder*0.5 + 0.5;
+  // 胸甲與背包：冷色的裝備壓在發燙的身體上，層次才出得來
+  const chest = put(g.chest, cold, 0, 0.44*k, -0.10*k, upper);
+  chest.scale.set(1.15*B.shoulder, 0.85, 0.55);
+  const pack = put(g.pack, cold, 0, 0.42*k, 0.20*k, upper);
+  pack.scale.set(1.25*B.pack, B.pack, 0.7*B.pack);
+
+  put(g.neck, warm, 0, 0.74*k, 0, upper);
+  put(g.head, core, 0, 0.90*k, 0, upper);
+  const helm = B.helmet ? put(g.helmet, warm, 0, 0.90*k, 0, upper) : null;
+  if (helm) helm.rotation.x = -0.18;
+  // STALKER 沒有頭盔，頭是裸露的熱源，配一片感測鰭
+  if (B.crest){
+    const cr = put(g.crest, warm, 0, 1.04*k, 0.02*k, upper);
+    cr.rotation.x = 0.35;
+  }
+  // LANCER 側邊掛一顆光學瞄準莢艙，那是它遠距離的來源
+  if (B.optic){
+    const op = put(g.optic, cold, 0.17*k, 0.93*k, -0.02*k, upper);
+    op.rotation.z = Math.PI/2;
+    const ln = put(g.lens, core, 0.25*k, 0.93*k, -0.02*k, upper);
+    ln.rotation.z = Math.PI/2;
+  }
+  // 面罩橫跨眼部，玻璃擋紅外線所以是暗的
+  const visor = put(g.visor, cold, 0, 0.885*k, -0.115*k, upper);
+  visor.rotation.z = Math.PI/2;
+  visor.scale.set(1, 1, 0.55);
+
+  // 四肢：上下兩節之間夾關節球，接合處才不會是斷開的
+  const mkLimb = (up, jointG, lo, endG, upLen0, loLen0) => {
+    const upLen = upLen0 * B.limb, loLen = loLen0 * B.limb;
+    const root2 = new THREE.Group();
+    put(g.joint, warm, 0, 0, 0, root2);
+    const upM = put(up, limb, 0, -upLen*0.5, 0, root2);
+    upM.scale.y = B.limb;
+    const loG = new THREE.Group();
+    loG.position.y = -upLen;
+    root2.add(loG);
+    put(jointG, warm, 0, 0, 0, loG);
+    const loM = put(lo, limb, 0, -loLen*0.5, 0, loG);
+    loM.scale.y = B.limb;
+    put(endG, warm, 0, -loLen, 0, loG);
+    return {up:root2, lo:loG};
+  };
+
+  const armL = mkLimb(g.upArm, g.joint, g.loArm, g.hand, 0.30*k, 0.30*k);
+  const armR = mkLimb(g.upArm, g.joint, g.loArm, g.hand, 0.30*k, 0.30*k);
+  const sw = 0.29*k*B.shoulder;
+  // WARDEN 的護肩特別厚，那是它最好認的特徵
+  const shL = put(g.shoulder, warm, -sw, 0.60*k, 0, upper);
+  const shR = put(g.shoulder, warm,  sw, 0.60*k, 0, upper);
+  shL.scale.setScalar(B.shoulder); shR.scale.setScalar(B.shoulder);
+  armL.up.position.set(-sw, 0.60*k, 0);
+  armR.up.position.set( sw, 0.60*k, 0);
+  upper.add(armL.up, armR.up);
+
+  const legL = mkLimb(g.upLeg, g.knee, g.loLeg, g.boot, 0.34*k, 0.34*k);
+  const legR = mkLimb(g.upLeg, g.knee, g.loLeg, g.boot, 0.34*k, 0.34*k);
+  put(g.hipBall, warm, -0.14*k, 0, 0, hips);
+  put(g.hipBall, warm,  0.14*k, 0, 0, hips);
+  legL.up.position.set(-0.14*k, 0, 0);
+  legR.up.position.set( 0.14*k, 0, 0);
+  hips.add(legL.up, legR.up);
+
+  // 武器：長度對應射程
+  const gunLen = type === "lancer" ? 0.95 : type === "stalker" ? 0.42 : 0.62;
+  const gunGeo = new THREE.BoxGeometry(0.085*k, 0.095*k, gunLen*k);
+  const gun = put(gunGeo, cold, 0.17*k*B.shoulder, 0.50*k, -0.34*k, upper);
+  const gunEdge = new THREE.LineSegments(new THREE.EdgesGeometry(gunGeo),
+    new THREE.LineBasicMaterial({color:0x6A5AA8}));
+  gunEdge.position.copy(gun.position);
+  upper.add(gunEdge);
+
+  // 有正面裝甲的敵人，胸前掛一塊看得出來的盾板
+  if (T.frontArmor){
+    const shieldGeo = new THREE.BoxGeometry(0.62*k, 0.72*k, 0.07*k);
+    const shield = put(shieldGeo, new THREE.MeshBasicMaterial({color:0x6A57C4}),
+                       0, 0.46*k, -0.30*k, upper);
+    const rim = new THREE.LineSegments(new THREE.EdgesGeometry(shieldGeo),
+      new THREE.LineBasicMaterial({color:0xBFA8FF}));
+    rim.position.copy(shield.position);
+    upper.add(rim);
+  }
+
+  // 體溫光暈：永遠面向鏡頭的加法混色貼片，遠處先看到的是一團熱
+  const halo = new THREE.Mesh(
+    new THREE.PlaneGeometry(1.5*k, 2.0*k),
+    new THREE.MeshBasicMaterial({
+      map:DECAL_TEX, color:T.color, transparent:true, opacity:0.32,
+      blending:THREE.AdditiveBlending, depthWrite:false,
+    }));
+  halo.position.y = 1.05*k;
+  root.add(halo);
+
+  root.userData = {hot, core, torso, hips, armL, armR, legL, legR, halo, k, phase:0};
+
+  // 被聲納標記時用的穿牆輪廓
+  const ghostMat = new THREE.MeshBasicMaterial({
+    color:0x7CE0FF, transparent:true, opacity:0.5,
+    depthTest:false, wireframe:true,
+  });
+  const ghost = new THREE.Mesh(new THREE.CapsuleGeometry(0.30*k, 0.85*k, 3, 8), ghostMat);
+  ghost.position.y = 1.15*k;
+  ghost.visible = false;
+  ghost.renderOrder = 999;
+  root.add(ghost);
+  root.userData.ghost = ghost;
+  return root;
+}
+
+// ── 子彈、火光、特效的物件池 ──
+const bulletGeo = new THREE.BoxGeometry(0.05,0.05,0.9);
+const bulletMatFriend = new THREE.MeshBasicMaterial({color:0xFFF4D6});
+const bulletMatFoe    = new THREE.MeshBasicMaterial({color:0xFF6B2B});
+const bulletPool = [];
+const sparkGeo = new THREE.SphereGeometry(0.07, 8, 6);
+
+// ── 彈著點的餘熱 ──
+// 子彈打在牆上會把那一點打熱，然後慢慢冷卻回環境溫度。
+// 這在熱成像裡是真的看得到的現象，拿來當彈痕剛好
+const DECAL_TEX = (() => {
+  const c = document.createElement("canvas");
+  c.width = c.height = 64;
+  const x = c.getContext("2d");
+  const g = x.createRadialGradient(32,32,1, 32,32,31);
+  g.addColorStop(0,   "rgba(255,255,255,1)");
+  g.addColorStop(0.28,"rgba(255,190,90,.9)");
+  g.addColorStop(0.62,"rgba(200,70,40,.45)");
+  g.addColorStop(1,   "rgba(60,20,50,0)");
+  x.fillStyle = g; x.fillRect(0,0,64,64);
+  const t = new THREE.CanvasTexture(c);
+  return t;
+})();
+const decalGeo = new THREE.PlaneGeometry(0.42,0.42);
+const stepGeo  = new THREE.PlaneGeometry(0.30,0.30);
+const steps = [];
+const STEP_MAX = 70;
+function addFootprint(x, y, color){
+  let d;
+  if (steps.length >= STEP_MAX) d = steps.shift();
+  else {
+    d = {mesh:new THREE.Mesh(stepGeo, new THREE.MeshBasicMaterial({
+      map:DECAL_TEX, transparent:true, depthWrite:false,
+      blending:THREE.AdditiveBlending, opacity:0.5,
+    }))};
+    d.mesh.rotation.x = -Math.PI/2;
+    fxLayer.add(d.mesh);
+  }
+  d.mesh.material.color.setHex(color);
+  d.mesh.position.set(x*S, 0.035, y*S);
+  d.mesh.rotation.z = Math.random()*Math.PI;
+  d.life = 7.5; d.max = 7.5;
+  steps.push(d);
+}
+const decals = [];
+const DECAL_MAX = 44;
+
+// 找出這個點落在哪面牆的哪一側，才知道彈痕要貼在哪個平面上
+function wallFaceAt(x,y){
+  for (const w of WALLS){
+    if (x>w.x && x<w.x+w.w && y>w.y && y<w.y+w.h){
+      const dl = x-w.x, dr = w.x+w.w-x, dt = y-w.y, db = w.y+w.h-y;
+      const m = Math.min(dl,dr,dt,db);
+      if (m===dl) return {px:w.x,      py:y,        ry: Math.PI/2};
+      if (m===dr) return {px:w.x+w.w,  py:y,        ry:-Math.PI/2};
+      if (m===dt) return {px:x,        py:w.y,      ry: Math.PI};
+      return              {px:x,        py:w.y+w.h,  ry: 0};
+    }
+  }
+  return null;
+}
+function addDecal(x,y,height){
+  const f = wallFaceAt(x,y);
+  if (!f) return;
+  let d;
+  if (decals.length >= DECAL_MAX){
+    d = decals.shift();                        // 超過上限就回收最舊的
+  } else {
+    d = {mesh:new THREE.Mesh(decalGeo, new THREE.MeshBasicMaterial({
+      map:DECAL_TEX, transparent:true, depthWrite:false,
+      blending:THREE.AdditiveBlending,
+    })), life:0};
+    fxLayer.add(d.mesh);
+  }
+  // 往牆外推一點點，避免跟牆面打架閃爍
+  const off = 0.012;
+  d.mesh.position.set(f.px*S + Math.sin(f.ry)*0 + (f.ry===Math.PI/2?-off:f.ry===-Math.PI/2?off:0),
+                      height,
+                      f.py*S + (f.ry===Math.PI?-off:f.ry===0?off:0));
+  d.mesh.rotation.set(0, f.ry, Math.random()*Math.PI);
+  d.life = 5.5; d.max = 5.5;
+  decals.push(d);
+}
+
+// ── 彈殼 ──
+// 黃銅是熱的（剛從槍膛出來），所以在熱像裡是亮的。
+// 有重力、有空氣阻力、落地會彈跳並損失能量
+const shellGeo = new THREE.CylinderGeometry(0.014, 0.016, 0.052, 6);
+const shellMat = new THREE.MeshBasicMaterial({color:0xFFC46A});
+const shells = [];
+const SHELL_MAX = 26;
+function ejectShell(x, y, h, dirA){
+  let sh;
+  if (shells.length >= SHELL_MAX){
+    sh = shells.shift();
+  } else {
+    sh = { mesh:new THREE.Mesh(shellGeo, shellMat.clone()) };
+    fxLayer.add(sh.mesh);
+  }
+  sh.mesh.visible = true;
+  sh.mesh.material.opacity = 1;
+  sh.mesh.material.transparent = true;
+  sh.x = x; sh.y = y; sh.h = h;
+  // 往右後方拋出（拋殼口在機匣右側）
+  const side = dirA + Math.PI/2;
+  const sp = 70 + Math.random()*45;
+  sh.vx = Math.cos(side)*sp - Math.cos(dirA)*22;
+  sh.vy = Math.sin(side)*sp - Math.sin(dirA)*22;
+  sh.vh = 0.85 + Math.random()*0.5;
+  sh.rx = (Math.random()*2-1)*18;
+  sh.rz = (Math.random()*2-1)*18;
+  sh.life = 3.2; sh.max = 3.2; sh.rest = false;
+  shells.push(sh);
+}
+function updateShells(dt){
+  for (let i=shells.length-1;i>=0;i--){
+    const sh = shells[i];
+    sh.life -= dt;
+    if (sh.life <= 0){ sh.mesh.visible = false; continue; }
+    if (!sh.rest){
+      sh.vh -= 9.8*dt;
+      sh.x += sh.vx*dt; sh.y += sh.vy*dt; sh.h += sh.vh*dt;
+      // 空氣阻力
+      const drag = Math.pow(0.35, dt);
+      sh.vx *= drag; sh.vy *= drag;
+      if (sh.h <= 0.026){
+        sh.h = 0.026;
+        if (sh.vh < -0.45){
+          sh.vh = -sh.vh * 0.30;            // 彈跳並損失能量
+          sh.vx *= 0.55; sh.vy *= 0.55;
+          sh.rx *= 0.5; sh.rz *= 0.5;
+          // 彈殼落地不發聲：它跟槍聲的間隔剛好會被誤認成第二次射擊
+        } else {
+          sh.vh = 0; sh.vx = 0; sh.vy = 0; sh.rest = true;
+          sh.mesh.rotation.x = Math.PI/2;   // 躺平
+        }
+      }
+      if (inWall(sh.x, sh.y)){ sh.vx *= -0.4; sh.vy *= -0.4; }
+      sh.mesh.rotation.x += sh.rx*dt;
+      sh.mesh.rotation.z += sh.rz*dt;
+    }
+    sh.mesh.position.set(sh.x*S, sh.h, sh.y*S);
+    if (sh.life < 0.8) sh.mesh.material.opacity = sh.life/0.8;
+  }
+}
+
+const laserMat = new THREE.LineBasicMaterial({color:0xFF5470, transparent:true, opacity:0.6});
+const sonarMat = new THREE.MeshBasicMaterial({color:0x7CE0FF, transparent:true, opacity:0.4, side:THREE.DoubleSide});
+
+// 敵人開槍時的瞬間光源。只養四盞輪流用，避免同時點太多燈拖慢畫面
+const shotLights = [];
+for (let i=0;i<4;i++){
+  const l = new THREE.PointLight(0xFFAA55, 0, 8, 2);
+  scene.add(l); shotLights.push(l);
+}
+let shotLightIdx = 0;
+function flashLightAt(x, y, power){
+  const l = shotLights[shotLightIdx++ % shotLights.length];
+  l.position.set(x*S, 1.2, y*S);
+  l.intensity = power;
+}
+
+// ── 浮塵 ──
+// 一團跟著玩家走的粒子雲，超出範圍就從另一側繞回來。
+// 它讓空間有「空氣」，光柱裡飄過的顆粒是氣氛的關鍵
+const DUST_N = 420, DUST_R = 9;
+const dustPos = new Float32Array(DUST_N*3);
+const dustVel = new Float32Array(DUST_N*3);
+for (let i=0;i<DUST_N;i++){
+  dustPos[i*3]   = (Math.random()-0.5)*DUST_R*2;
+  dustPos[i*3+1] = Math.random()*WALL_H;
+  dustPos[i*3+2] = (Math.random()-0.5)*DUST_R*2;
+  dustVel[i*3]   = (Math.random()-0.5)*0.09;
+  dustVel[i*3+1] = -0.02 - Math.random()*0.05;
+  dustVel[i*3+2] = (Math.random()-0.5)*0.09;
+}
+const dustGeo = new THREE.BufferGeometry();
+dustGeo.setAttribute("position", new THREE.BufferAttribute(dustPos, 3));
+const DUST_TEX = (() => {
+  const c = document.createElement("canvas"); c.width = c.height = 32;
+  const x = c.getContext("2d");
+  const g2 = x.createRadialGradient(16,16,0, 16,16,15);
+  g2.addColorStop(0,   "rgba(255,255,255,1)");
+  g2.addColorStop(0.35,"rgba(255,210,160,.55)");
+  g2.addColorStop(1,   "rgba(255,180,120,0)");
+  x.fillStyle = g2; x.fillRect(0,0,32,32);
+  return new THREE.CanvasTexture(c);
+})();
+const dust = new THREE.Points(dustGeo, new THREE.PointsMaterial({
+  map:DUST_TEX, color:0xFFC79A, size:0.055, transparent:true, opacity:0.26,
+  blending:THREE.AdditiveBlending, depthWrite:false, sizeAttenuation:true,
+}));
+dust.frustumCulled = false;
+scene.add(dust);
+function updateDust(dt, px, pz){
+  const a = dustGeo.attributes.position.array;
+  for (let i=0;i<DUST_N;i++){
+    const o = i*3;
+    a[o]   += dustVel[o]*dt;
+    a[o+1] += dustVel[o+1]*dt;
+    a[o+2] += dustVel[o+2]*dt;
+    // 以玩家為中心的環形邊界，飄出去就從對面繞回來
+    if (a[o]   - px >  DUST_R) a[o]   -= DUST_R*2;
+    if (a[o]   - px < -DUST_R) a[o]   += DUST_R*2;
+    if (a[o+2] - pz >  DUST_R) a[o+2] -= DUST_R*2;
+    if (a[o+2] - pz < -DUST_R) a[o+2] += DUST_R*2;
+    if (a[o+1] < 0.05) a[o+1] = WALL_H - 0.05;
+    // 貼著鏡頭的顆粒會被透視放大成一團，直接把它挪到遠處
+    const ddx = a[o]-px, ddz = a[o+2]-pz;
+    if (ddx*ddx + ddz*ddz < 1.1){
+      const ang = Math.random()*Math.PI*2;
+      a[o]   = px + Math.cos(ang)*DUST_R*0.85;
+      a[o+2] = pz + Math.sin(ang)*DUST_R*0.85;
+    }
+  }
+  dustGeo.attributes.position.needsUpdate = true;
+}
+
+const botLayer = new THREE.Group();  scene.add(botLayer);
+const bulletLayer = new THREE.Group(); scene.add(bulletLayer);
+const fxLayer = new THREE.Group();   scene.add(fxLayer);
+
+// ─────────────────────────────────────────────
+// 持槍視圖
+// 用獨立的場景與攝影機，在主畫面之後清掉深度緩衝再畫一次，
+// 槍就永遠疊在最上層，不會在貼牆時插進牆裡
+// ─────────────────────────────────────────────
+const vmScene = new THREE.Scene();
+const vmCamera = new THREE.PerspectiveCamera(62, 16/9, 0.01, 10);
+vmScene.add(new THREE.HemisphereLight(0x6A5690, 0x241A40, 1.15));
+const vmKey = new THREE.PointLight(0xFFB478, 2.9, 6, 1.35);
+vmKey.position.set(0.6, 0.75, 0.55);
+vmScene.add(vmKey);
+// 補一盞冷色背光，讓槍的輪廓從黑底裡分出來
+const vmRim = new THREE.PointLight(0xA08CFF, 0.3, 5, 1.6);
+vmRim.position.set(-0.7, 0.2, -0.9);
+vmScene.add(vmRim);
+const vmRoot = new THREE.Group();
+vmScene.add(vmRoot);
+
+// ─────────────────────────────────────────────
+// 後製：自己寫的泛光與調色
+// Three.js 官方的 postprocessing 在 examples 資料夾，CDN 上沒有，
+// 所以整條鏈自己搭。好處是可以把泛光、色差、掃描線、暗角、顆粒
+// 全部合進同一個 shader，只做一次取樣，比疊圖層乾淨也便宜
+// ─────────────────────────────────────────────
+const VERT = `
+varying vec2 vUv;
+void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`;
+
+// 亮部擷取：只有超過門檻的部分才會發光
+const brightMat = new THREE.ShaderMaterial({
+  uniforms:{ tDiffuse:{value:null}, threshold:{value:0.42} },
+  vertexShader:VERT,
+  fragmentShader:`
+    uniform sampler2D tDiffuse; uniform float threshold;
+    varying vec2 vUv;
+    void main(){
+      vec3 c = texture2D(tDiffuse, vUv).rgb;
+      float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
+      float k = max(0.0, l - threshold) / max(l, 0.0001);
+      gl_FragColor = vec4(c * k * 1.35, 1.0);
+    }`,
+});
+
+// 可分離的高斯模糊，橫豎各跑一次
+const blurMat = new THREE.ShaderMaterial({
+  uniforms:{ tDiffuse:{value:null}, dir:{value:new THREE.Vector2()} },
+  vertexShader:VERT,
+  fragmentShader:`
+    uniform sampler2D tDiffuse; uniform vec2 dir;
+    varying vec2 vUv;
+    void main(){
+      vec3 s = vec3(0.0);
+      s += texture2D(tDiffuse, vUv - dir*4.0).rgb * 0.0510;
+      s += texture2D(tDiffuse, vUv - dir*3.0).rgb * 0.0918;
+      s += texture2D(tDiffuse, vUv - dir*2.0).rgb * 0.1225;
+      s += texture2D(tDiffuse, vUv - dir      ).rgb * 0.1531;
+      s += texture2D(tDiffuse, vUv            ).rgb * 0.1633;
+      s += texture2D(tDiffuse, vUv + dir      ).rgb * 0.1531;
+      s += texture2D(tDiffuse, vUv + dir*2.0).rgb * 0.1225;
+      s += texture2D(tDiffuse, vUv + dir*3.0).rgb * 0.0918;
+      s += texture2D(tDiffuse, vUv + dir*4.0).rgb * 0.0510;
+      gl_FragColor = vec4(s, 1.0);
+    }`,
+});
+
+// 合成與調色：泛光疊加、鏡頭色差、暗角、受傷紅暈、掃描線、顆粒
+const compMat = new THREE.ShaderMaterial({
+  uniforms:{
+    tScene:{value:null}, tBloom:{value:null},
+    uBloom:{value:0.85}, uTime:{value:0},
+    uDamage:{value:0}, uLow:{value:0}, uEcho:{value:0},
+    uAberr:{value:1.0}, uGain:{value:1.0}, uRes:{value:new THREE.Vector2(1280,720)},
+  },
+  vertexShader:VERT,
+  fragmentShader:`
+    uniform sampler2D tScene, tBloom;
+    uniform float uBloom, uTime, uDamage, uLow, uEcho, uAberr, uGain;
+    uniform vec2 uRes;
+    varying vec2 vUv;
+    float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453); }
+    // ACES 近似的電影曲線：亮部滾降而不是硬裁，畫面才不會死白一片
+    vec3 aces(vec3 x){
+      const float a = 2.51, b = 0.03, c = 2.43, d = 0.59, e = 0.14;
+      return clamp((x*(a*x+b))/(x*(c*x+d)+e), 0.0, 1.0);
+    }
+    // 色彩分級：暗部往冷藍紫壓、亮部往暖橘推，拉開色溫層次
+    vec3 grade(vec3 c){
+      float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
+      vec3 lo = vec3(0.80, 0.84, 1.14);
+      vec3 hi = vec3(1.10, 0.97, 0.84);
+      return c * mix(lo, hi, smoothstep(0.0, 0.55, l));
+    }
+    void main(){
+      vec2 d = vUv - 0.5;
+      float r = length(d);
+      // 鏡頭色差：越靠畫面邊緣，RGB 分離越明顯
+      float ab = uAberr * (0.0016 + r*r*0.0075);
+      vec3 col;
+      col.r = texture2D(tScene, vUv + d*ab).r;
+      col.g = texture2D(tScene, vUv).g;
+      col.b = texture2D(tScene, vUv - d*ab).b;
+
+      col += texture2D(tBloom, vUv).rgb * uBloom;
+      // 感測器增益：開鏡時把暗部提起來，代價是噪點一起被放大
+      col *= uGain;
+      col = grade(col);
+      col = aces(col * 1.08);
+
+      // 感測器的逐行掃描與緩慢捲動的更新帶
+      col *= 0.93 + 0.07 * sin(vUv.y * uRes.y * 1.6);
+      col += vec3(0.05,0.028,0.012) * smoothstep(0.86,1.0, sin(vUv.y*6.0 - uTime*0.8));
+
+      // 暗角
+      col *= 1.0 - smoothstep(0.30, 1.05, r) * 0.78;
+      // 受傷與低血量
+      col += vec3(1.0,0.10,0.16) * uDamage * smoothstep(0.15,0.85,r);
+      col += vec3(1.0,0.08,0.14) * uLow * smoothstep(0.30,0.95,r);
+      // Echo 觸發的瞬間紫閃
+      col += vec3(0.55,0.40,1.0) * uEcho;
+
+      // 感測器噪點
+      col += (hash(vUv*uRes + uTime*60.0) - 0.5) * (0.045 + (uGain-1.0)*0.055);
+      gl_FragColor = vec4(col, 1.0);
+    }`,
+});
+
+// 全螢幕方塊：後製的每一個 pass 都畫在它上面
+const fsScene = new THREE.Scene();
+const fsCam = new THREE.Camera();
+const fsQuad = new THREE.Mesh(new THREE.PlaneGeometry(2,2), brightMat);
+fsQuad.frustumCulled = false;
+fsScene.add(fsQuad);
+
+let rtScene = null, rtA = null, rtB = null;
+function makeTargets(w,h){
+  const opt = {minFilter:THREE.LinearFilter, magFilter:THREE.LinearFilter,
+               format:THREE.RGBAFormat, type:THREE.UnsignedByteType};
+  if (rtScene) { rtScene.dispose(); rtA.dispose(); rtB.dispose(); }
+  // 場景緩衝要開多重取樣。渲染器的 antialias 只作用在預設畫布上，
+  // 一旦改成離屏渲染就完全失效，所有邊緣線都會變鋸齒
+  rtScene = new THREE.WebGLRenderTarget(w, h,
+    Object.assign({}, opt, {samples: renderer.capabilities.isWebGL2 ? 4 : 0}));
+  const bw = Math.max(2, Math.floor(w/3)), bh = Math.max(2, Math.floor(h/3));
+  rtA = new THREE.WebGLRenderTarget(bw, bh, opt);
+  rtB = new THREE.WebGLRenderTarget(bw, bh, opt);
+  compMat.uniforms.uRes.value.set(w,h);
+}
+function blit(mat, target){
+  fsQuad.material = mat;
+  renderer.setRenderTarget(target || null);
+  renderer.clear();
+  renderer.render(fsScene, fsCam);
+}
+// 把主場景 + 持槍視圖跑完整條後製鏈
+function renderPosted(){
+  renderer.setRenderTarget(rtScene);
+  renderer.clear();
+  renderer.render(scene, camera);
+  renderer.clearDepth();
+  renderer.render(vmScene, vmCamera);
+
+  brightMat.uniforms.tDiffuse.value = rtScene.texture;
+  blit(brightMat, rtA);
+  // 兩輪橫豎模糊，光暈才夠柔
+  for (let i=0;i<2;i++){
+    blurMat.uniforms.tDiffuse.value = rtA.texture;
+    blurMat.uniforms.dir.value.set(1.15/rtA.width, 0);
+    blit(blurMat, rtB);
+    blurMat.uniforms.tDiffuse.value = rtB.texture;
+    blurMat.uniforms.dir.value.set(0, 1.15/rtA.height);
+    blit(blurMat, rtA);
+  }
+  compMat.uniforms.tScene.value = rtScene.texture;
+  compMat.uniforms.tBloom.value = rtA.texture;
+  blit(compMat, null);
+  renderer.setRenderTarget(null);
+}
+
+const vm = {
+  models:{}, currentKey:null, muzzleZ:-0.42,
+  swayX:0, swayY:0, bobT:0, recoil:0, swap:0, inspect:0, stepDist:0,
+  heatParts:[],
+};
+let mouseDX = 0, mouseDY = 0;
+
+// 槍身上的實體彈藥顯示器：把彈量做在槍上而不是只有 HUD，
+// 低於三成轉紅。只有數字變動時才重畫貼圖
+function makeAmmoPanel(){
+  const c = document.createElement("canvas");
+  c.width = 128; c.height = 64;
+  const ctx2 = c.getContext("2d");
+  const tex = new THREE.CanvasTexture(c);
+  tex.minFilter = THREE.LinearFilter;
+  return {canvas:c, ctx:ctx2, tex, last:-1, lastMax:-1};
+}
+function drawAmmoPanel(d, cur, max){
+  if (d.last === cur && d.lastMax === max) return;
+  d.last = cur; d.lastMax = max;
+  const x = d.ctx, low = cur / max <= 0.3;
+  const ink = low ? "#FF5A47" : "#4DE0B0";
+  x.fillStyle = "#050E12"; x.fillRect(0,0,128,64);
+  x.strokeStyle = low ? "rgba(255,90,71,.35)" : "rgba(77,224,176,.3)";
+  x.lineWidth = 3; x.strokeRect(3,3,122,58);
+  x.fillStyle = ink;
+  x.font = '700 42px "IBM Plex Mono", monospace';
+  x.textAlign = "right"; x.textBaseline = "middle";
+  x.fillText(String(cur).padStart(2,"0"), 84, 33);
+  // 右側的彈量長條
+  const n = 8, on = Math.round(n * cur / max);
+  for (let i=0;i<n;i++){
+    x.fillStyle = i < on ? ink : "rgba(255,255,255,.10)";
+    x.fillRect(96, 54 - i*6, 24, 4);
+  }
+  d.tex.needsUpdate = true;
+}
+
+function buildGun(kind){
+  const g = new THREE.Group();
+  const body  = new THREE.MeshStandardMaterial({color:0x241B3E, roughness:0.55, metalness:0.72});
+  const dark  = new THREE.MeshStandardMaterial({color:0x120D22, roughness:0.42, metalness:0.85});
+  const steel = new THREE.MeshStandardMaterial({color:0x3A2F68, roughness:0.32, metalness:0.9});
+  const grip  = new THREE.MeshStandardMaterial({color:0x1A1330, roughness:0.95, metalness:0.05});
+  const heat  = new THREE.MeshBasicMaterial({color:0xFF7A20, transparent:true, opacity:0});
+  const glow  = new THREE.MeshBasicMaterial({color:0x4DE0B0});
+  const lens  = new THREE.MeshBasicMaterial({color:0x7CE0FF, transparent:true, opacity:0.8});
+  const edge  = new THREE.LineBasicMaterial({color:0xD86A34, transparent:true, opacity:0.45});
+  const heats = [], cells = [];
+
+  // 建件：方塊自動附邊緣線，發光件不附
+  const mk = (parent, w,h,d, mat, x,y,z) => {
+    const geo = new THREE.BoxGeometry(w,h,d);
+    const m = new THREE.Mesh(geo, mat);
+    m.position.set(x,y,z); parent.add(m);
+    if (mat !== heat && mat !== glow && mat !== lens){
+      const e = new THREE.LineSegments(new THREE.EdgesGeometry(geo), edge);
+      e.position.set(x,y,z); parent.add(e);
+    }
+    return m;
+  };
+  const cyl = (parent, r1,r2,len, mat, x,y,z, seg) => {
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(r1,r2,len, seg||12), mat);
+    m.rotation.x = Math.PI/2; m.position.set(x,y,z); parent.add(m);
+    return m;
+  };
+  const rail = (z0, z1, y, w) => { for (let z=z0; z<z1; z+=0.028) mk(g, w,0.016,0.016, steel, 0, y, z); };
+  // 散熱鰭：隨槍管溫度發亮
+  const vents = (z0, n, y, w) => {
+    for (let i=0;i<n;i++) heats.push(mk(g, w, 0.008, 0.016, heat, 0, y, z0 + i*0.032));
+  };
+
+  // 可動部件掛在各自的群組上，動畫才有東西可以推
+  const mag = new THREE.Group();     g.add(mag);
+  const charge = new THREE.Group();  g.add(charge);
+  const panel = makeAmmoPanel();
+
+  if (kind === "vector"){
+    mk(g, 0.080,0.108,0.36, body,  0, 0, -0.01);
+    mk(g, 0.072,0.070,0.20, steel, 0,-0.055, 0.02);
+    cyl(g, 0.020,0.020,0.30, dark,  0, 0.012, -0.32);
+    cyl(g, 0.032,0.032,0.16, steel, 0, 0.012, -0.44);
+    cyl(g, 0.034,0.028,0.03, glow,  0, 0.012, -0.515);
+    heats.push(mk(g, 0.050,0.050,0.26, heat, 0, 0.012, -0.34));
+    vents(-0.26, 4, 0.045, 0.062);
+    mk(mag, 0.058,0.22,0.078, dark,  0,-0.150, 0.03);
+    mk(mag, 0.048,0.035,0.070, steel,0,-0.255, 0.03);
+    cells.push(mk(mag, 0.020,0.15,0.012, glow, 0.032,-0.150, 0.03));
+    mk(g, 0.056,0.140,0.066, grip,  0,-0.108, 0.125);
+    for (let i=0;i<4;i++) mk(g, 0.060,0.008,0.010, dark, 0,-0.072-i*0.022, 0.148);
+    mk(g, 0.062,0.018,0.10, steel, 0,-0.052, 0.075);
+    mk(g, 0.052,0.078,0.10, body,  0, 0.004, 0.215);
+    mk(g, 0.062,0.096,0.10, body,  0, 0.004, 0.300);
+    mk(g, 0.092,0.030,0.13, body,  0,-0.038,-0.16);
+    mk(charge, 0.030,0.030,0.10, steel, 0.052, 0.010,-0.02);
+    rail(-0.18, 0.10, 0.068, 0.034);
+    mk(g, 0.034,0.046,0.040, dark, 0, 0.100, -0.10);
+    mk(g, 0.012,0.012,0.008, glow, 0, 0.100, -0.122);
+    vm.muzzleZ = -0.56;
+  } else if (kind === "breach"){
+    mk(g, 0.098,0.118,0.38, body,  0, 0, -0.01);
+    cyl(g, 0.036,0.036,0.42, dark,  0, 0.016, -0.40);
+    cyl(g, 0.026,0.026,0.36, steel, 0,-0.040, -0.37);
+    cyl(g, 0.044,0.044,0.07, steel, 0, 0.016, -0.60);
+    cyl(g, 0.046,0.038,0.03, glow,  0, 0.016, -0.645);
+    heats.push(mk(g, 0.078,0.078,0.36, heat, 0, 0.016, -0.40));
+    vents(-0.30, 4, 0.058, 0.084);
+    // 泵動護木掛在 charge 上，換彈時前後滑動
+    mk(charge, 0.090,0.072,0.22, body, 0,-0.014, -0.24);
+    for (let i=0;i<4;i++) mk(charge, 0.096,0.010,0.012, steel, 0,-0.014, -0.30+i*0.035);
+    mk(g, 0.058,0.145,0.066, grip,  0,-0.110, 0.125);
+    mk(g, 0.064,0.018,0.10, steel, 0,-0.055, 0.075);
+    mk(g, 0.058,0.100,0.24, body,  0,-0.004, 0.28);
+    mk(g, 0.034,0.056,0.10, dark,  0.058, 0.022, 0.01);
+    cells.push(mk(g, 0.012,0.020,0.20, glow, -0.050,-0.040, -0.30));
+    mk(g, 0.020,0.040,0.020, steel, 0, 0.078, -0.16);
+    vm.muzzleZ = -0.70;
+  } else {
+    mk(g, 0.078,0.106,0.54, body,  0, 0, -0.02);
+    cyl(g, 0.019,0.019,0.66, dark,  0, 0.012, -0.60);
+    cyl(g, 0.030,0.026,0.13, steel, 0, 0.012, -0.96);
+    cyl(g, 0.032,0.024,0.03, glow,  0, 0.012, -1.03);
+    heats.push(mk(g, 0.046,0.046,0.62, heat, 0, 0.012, -0.60));
+    vents(-0.52, 5, 0.040, 0.056);
+    cyl(g, 0.046,0.046,0.34, dark,  0, 0.128, -0.06);
+    cyl(g, 0.054,0.046,0.06, dark,  0, 0.128, -0.24);
+    cyl(g, 0.041,0.041,0.012, lens, 0, 0.128, -0.272);
+    mk(g, 0.024,0.062,0.034, steel, 0, 0.082, -0.17);
+    mk(g, 0.024,0.062,0.034, steel, 0, 0.082, 0.05);
+    mk(mag, 0.056,0.18,0.072, dark,  0,-0.128, -0.03);
+    cells.push(mk(mag, 0.018,0.12,0.012, glow, 0.031,-0.128, -0.03));
+    mk(g, 0.058,0.140,0.066, grip, 0,-0.108, 0.145);
+    mk(g, 0.064,0.018,0.10, steel, 0,-0.052, 0.095);
+    mk(g, 0.056,0.105,0.26, body, 0,-0.006, 0.34);
+    mk(g, 0.070,0.045,0.12, body, 0, 0.052, 0.30);
+    mk(g, 0.016,0.016,0.22, steel, 0.030,-0.052,-0.52);
+    mk(g, 0.016,0.016,0.22, steel,-0.030,-0.052,-0.52);
+    // 旋轉後拉的槍機拉柄
+    mk(charge, 0.024,0.024,0.09, steel, 0.050, 0.015, 0.06);
+    mk(charge, 0.022,0.022,0.05, steel, 0.074, 0.015, 0.09);
+    rail(-0.30, -0.24, 0.066, 0.032);
+    vm.muzzleZ = -1.10;
+  }
+
+  // 彈藥顯示器：貼在機匣左側，那一面剛好朝向鏡頭
+  const disp = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.105, 0.052),
+    new THREE.MeshBasicMaterial({map:panel.tex, transparent:true}));
+  disp.rotation.y = -Math.PI/2;
+  disp.position.set(-0.042, 0.012, kind === "lance" ? 0.06 : 0.02);
+  g.add(disp);
+
+  // 槍口火焰：白熱核心 + 外層花瓣 + 側向衝擊波
+  const flash = new THREE.Group();
+  const core = new THREE.Mesh(
+    new THREE.ConeGeometry(0.075, 0.24, 7),
+    new THREE.MeshBasicMaterial({color:0xFFFFFF, transparent:true, opacity:0,
+                                 blending:THREE.AdditiveBlending, depthWrite:false}));
+  core.rotation.x = -Math.PI/2;
+  const petal = new THREE.Mesh(
+    new THREE.ConeGeometry(0.17, 0.16, 5),
+    new THREE.MeshBasicMaterial({color:0xFFB24D, transparent:true, opacity:0,
+                                 blending:THREE.AdditiveBlending, depthWrite:false}));
+  petal.rotation.x = -Math.PI/2;
+  petal.position.z = 0.04;
+  const wave = new THREE.Mesh(
+    new THREE.RingGeometry(0.05, 0.16, 14),
+    new THREE.MeshBasicMaterial({color:0xFFD9A0, transparent:true, opacity:0,
+                                 blending:THREE.AdditiveBlending, depthWrite:false,
+                                 side:THREE.DoubleSide}));
+  flash.add(core, petal, wave);
+  flash.position.set(0, 0.012, vm.muzzleZ - 0.06);
+  g.add(flash);
+
+  g.userData = {heats, cells, flash, core, petal, wave, mag, charge, panel,
+                muzzleZ: vm.muzzleZ};
+  return g;
+}
+
+// 動畫小工具：把整體進度 t 映射到某個區間的 0..1
+function seg(t, a, b){ return Math.max(0, Math.min(1, (t - a) / (b - a))); }
+// 五次平滑：頭尾的加速度都是零，所以看不到起停的稜角。
+// 二次緩動在段落交界處會有可見的速度跳變，那就是動作「卡」的來源
+function ease(x){ return x*x*x*(x*(x*6 - 15) + 10); }
+// 帶輕微過衝的收尾。頭尾的速度都必須是零，否則段落的起點會瞬間彈出、
+// 終點會被硬生生夾停——兩者都會看到卡頓。
+// 所以用五次平滑打底，過衝項用 sin² 包絡（頭尾導數皆為零）並靠 x^5 壓在尾段
+function easeBack(x){
+  const w = Math.sin(x*Math.PI);
+  return ease(x) + w*w * Math.pow(x, 5) * 0.62;
+}
+// 去而復返的鐘形曲線。冪次讓它前段快、後段慢，符合手的實際動作
+function pulse(t, a, b, skew){
+  return Math.sin(Math.pow(seg(t, a, b), skew || 1) * Math.PI);
+}
+
+// 掉落的彈匣：換彈時真的會有一個彈匣掉到地上
+const dropGeo = new THREE.BoxGeometry(0.075, 0.21, 0.055);
+const dropMat = new THREE.MeshStandardMaterial({color:0x17112C, roughness:0.5, metalness:0.7});
+const drops = [];
+function dropMag(x, y, h, dirA){
+  let d;
+  if (drops.length >= 6) d = drops.shift();
+  else { d = {mesh:new THREE.Mesh(dropGeo, dropMat)}; fxLayer.add(d.mesh); }
+  d.mesh.visible = true;
+  d.x = x; d.y = y; d.h = h;
+  const side = dirA + Math.PI/2;
+  d.vx = Math.cos(side)*18 + Math.cos(dirA)*12;
+  d.vy = Math.sin(side)*18 + Math.sin(dirA)*12;
+  d.vh = -0.4;
+  d.rx = (Math.random()*2-1)*6;
+  d.rz = (Math.random()*2-1)*6;
+  d.life = 6; d.rest = false;
+  drops.push(d);
+}
+function updateDrops(dt){
+  for (let i=drops.length-1;i>=0;i--){
+    const d = drops[i];
+    d.life -= dt;
+    if (d.life <= 0){ d.mesh.visible = false; continue; }
+    if (!d.rest){
+      d.vh -= 9.8*dt;
+      d.x += d.vx*dt; d.y += d.vy*dt; d.h += d.vh*dt;
+      const drag = Math.pow(0.3, dt);
+      d.vx *= drag; d.vy *= drag;
+      if (d.h <= 0.045){
+        d.h = 0.045;
+        if (d.vh < -0.6){ d.vh = -d.vh*0.22; d.vx *= 0.4; d.vy *= 0.4; d.rx *= 0.4; d.rz *= 0.4; }
+        else { d.vh = 0; d.vx = 0; d.vy = 0; d.rest = true; d.mesh.rotation.set(Math.PI/2, d.mesh.rotation.y, 0); }
+      }
+      if (inWall(d.x, d.y)){ d.vx *= -0.35; d.vy *= -0.35; }
+      d.mesh.rotation.x += d.rx*dt;
+      d.mesh.rotation.z += d.rz*dt;
+    }
+    d.mesh.position.set(d.x*S, d.h, d.y*S);
+  }
+}
+
+// 每把槍的換彈編排。t 是 0..1 的整體進度，
+// 各部件在不同時間區間動作，組合起來就是一套有節奏的動畫
+function reloadPose(kind, t, ud, out){
+  const mag = ud.mag, ch = ud.charge;
+  mag.position.set(0,0,0); mag.rotation.set(0,0,0);
+  ch.position.set(0,0,0);  ch.rotation.set(0,0,0);
+
+  // 預備動作：真正的大動作之前先往反方向帶一點點，
+  // 這一下讓後面的主動作看起來有力量，是動畫的基本功
+  const anticip = pulse(t, 0.00, 0.13) * -0.10;
+
+  if (kind === "vector"){
+    // 側傾 → 退彈匣 → 上新彈匣（兩者交疊）→ 拉柄 → 回正
+    const tilt = pulse(t, 0.00, 1.00, 0.82);
+    out.rx = tilt*0.50 + anticip; out.rz = tilt*0.58; out.y = -tilt*0.09;
+    // 退匣還沒結束，新匣就已經在路上，兩段重疊看起來才連貫
+    const outMag = ease(seg(t, 0.04, 0.26));
+    const inMag  = easeBack(seg(t, 0.22, 0.56));
+    mag.position.y = -(outMag - inMag) * 0.45;
+    mag.rotation.x = (outMag - inMag) * 0.45;
+    // 拉柄跟著上匣的尾巴走，不等它完全停住
+    ch.position.z = pulse(t, 0.52, 0.78, 0.7)*0.085;
+    out.rz += pulse(t, 0.54, 0.80)*0.06;          // 拉柄帶動的槍身跟隨
+  } else if (kind === "lance"){
+    // 拉槍機 → 推回 → 換彈匣，三段首尾交疊
+    const tilt = pulse(t, 0.00, 1.00, 0.85);
+    out.rx = tilt*0.38 + anticip; out.rz = tilt*0.46; out.y = -tilt*0.07;
+    const back = ease(seg(t, 0.03, 0.20)), fwd = ease(seg(t, 0.17, 0.36));
+    ch.rotation.z = -(ease(seg(t,0.00,0.08)) - ease(seg(t,0.34,0.44)))*0.9;
+    ch.position.z = (back - fwd)*0.12;
+    const outMag = ease(seg(t, 0.36, 0.56));
+    const inMag  = easeBack(seg(t, 0.52, 0.86));
+    mag.position.y = -(outMag - inMag)*0.40;
+    out.rx += pulse(t, 0.02, 0.22)*0.10;           // 拉槍機的反作用
+  } else {
+    // 泵動霰彈：四次壓彈的節奏互相重疊，最後一次泵動收尾
+    const tilt = pulse(t, 0.00, 0.96, 0.85);
+    out.rx = tilt*0.46 + anticip; out.rz = tilt*0.64; out.y = -tilt*0.08;
+    let feed = 0;
+    for (let i=0;i<4;i++) feed += pulse(t, 0.06 + i*0.115, 0.20 + i*0.115);
+    out.rx += feed*0.11;
+    out.z  += feed*0.012;
+    ch.position.z = pulse(t, 0.60, 0.92, 0.75)*0.16;
+    out.rz += pulse(t, 0.62, 0.94)*0.07;           // 泵動帶動的槍身跟隨
+  }
+}
+
+// 檢視動作：把槍轉過來看一眼，純粹是給玩家看的
+function inspectPose(t, out){
+  const lift = pulse(t, 0.00, 1.00, 0.8);
+  out.y  += lift*0.045;
+  out.z  += lift*0.10;
+  out.rx += lift*0.28 - pulse(t, 0.00, 0.12)*0.08;   // 先壓一下再舉起
+  // 轉過去與轉回來用平滑曲線，中間有一段停留讓你看清楚
+  out.ry += (-ease(seg(t, 0.04, 0.40)) + ease(seg(t, 0.60, 0.96))) * 1.5;
+  out.rz += pulse(t, 0.06, 0.94, 0.85)*0.55;
+}
+
+function selectGun(key){
+  if (vm.currentKey === key) return;
+  if (!vm.models[key]) vm.models[key] = buildGun(key);
+  vmRoot.clear();
+  vmRoot.add(vm.models[key]);
+  vm.currentKey = key;
+  vm.muzzleZ = vm.models[key].userData.muzzleZ;
+}
+
+// 兩把槍的靜止位置不同：狙擊比較長，要往前推一點、往中間靠
+const VM_BASE = {
+  vector:{x:0.185, y:-0.170, z:-0.42, ry:-0.17, rx:0.05},
+  lance: {x:0.145, y:-0.155, z:-0.34, ry:-0.12, rx:0.035},
+  breach:{x:0.180, y:-0.168, z:-0.40, ry:-0.16, rx:0.05},
+};
+// 舉槍瞄準時的位置：對齊畫面中線，槍身回正
+const VM_ADS = {
+  vector:{x:0.0, y:-0.118, z:-0.50, ry:0, rx:0},
+  lance: {x:0.0, y:-0.105, z:-0.46, ry:0, rx:0},
+  breach:{x:0.0, y:-0.115, z:-0.48, ry:0, rx:0},
+};
+const VM_SCALE = 0.46;
+
+function updateViewModel(dt){
+  const p = G.player, g = gun();
+  selectGun(g.key);
+  // 靜止姿勢與瞄準姿勢之間內插
+  const b0 = VM_BASE[g.key], b1 = VM_ADS[g.key], t = G.adsT;
+  const lerp = (a,b) => a + (b-a)*t;
+  const base = {
+    x: lerp(b0.x,b1.x), y: lerp(b0.y,b1.y), z: lerp(b0.z,b1.z),
+    ry: lerp(b0.ry,b1.ry), rx: lerp(b0.rx,b1.rx),
+  };
+  const model = vm.models[g.key];
+  // 倍率鏡舉起來之後，槍身會擋住整個鏡頭，所以直接淡掉換成鏡框遮罩
+  const hide = g.scope ? t : 0;
+  vmRoot.visible = hide < 0.92;
+  vmRoot.traverse(o => {
+    if (o.material && !Array.isArray(o.material)){
+      if (o.material.transparent === false && hide > 0) o.material.transparent = true;
+      if (o.material.__baseOpacity === undefined) o.material.__baseOpacity = o.material.opacity;
+      if (hide > 0 || o.material.opacity !== o.material.__baseOpacity){
+        o.material.opacity = o.material.__baseOpacity * (1 - hide);
+      }
+    }
+  });
+
+  // 滑鼠帶動的延遲擺動：槍跟不上視角，會慢半拍
+  const tSwayX = Math.max(-1, Math.min(1, -mouseDX*0.035));
+  const tSwayY = Math.max(-1, Math.min(1, -mouseDY*0.035));
+  vm.swayX += (tSwayX - vm.swayX) * Math.min(1, dt*7);
+  vm.swayY += (tSwayY - vm.swayY) * Math.min(1, dt*7);
+
+  // 走路擺動：振幅與頻率都跟著鏡頭用同一個連續值，
+  // 原本是布林硬切，停下的瞬間槍會跟著跳一下
+  const walk = G.bobAmp;
+  vm.bobT += dt * (2.0 + walk*7.5);
+  const amp = 0.22 + walk*0.78;
+  const steady = 1 - G.adsT*0.82;      // 舉槍時手會穩下來
+  const bobX = Math.sin(vm.bobT) * 0.012 * amp * steady;
+  const bobY = Math.abs(Math.cos(vm.bobT)) * 0.010 * amp * steady;
+
+  // 後座與換彈、換槍的動作
+  vm.recoil = Math.max(0, vm.recoil - dt*6.5);
+  vm.swap   = Math.max(0, vm.swap - dt/P.swapTime);
+  vm.inspect = Math.max(0, vm.inspect - dt/1.6);
+
+  // 姿勢累加器：換彈與檢視各自往上疊，最後一次套用
+  const pose = {x:0, y:0, z:0, rx:0, ry:0, rz:0};
+  // 衝刺時把槍壓低斜放——跑起來卻端著槍瞄準是最出戲的一件事
+  const sp = G.sprintT * (1 - G.adsT);
+  pose.y  -= sp*0.10;
+  pose.z  += sp*0.06;
+  pose.rx += sp*0.55;
+  pose.rz -= sp*0.42;
+  pose.ry += sp*0.30;
+  // 站定時的呼吸，跟鏡頭同一個節奏但略微落後
+  const idle = (1 - G.bobAmp) * (1 - G.adsT*0.7);
+  pose.y += Math.sin(G.t*1.15 - 0.4) * 0.006 * idle;
+  pose.rx += Math.sin(G.t*0.83) * 0.012 * idle;
+  const ud0 = model.userData;
+  if (p.reloading > 0){
+    reloadPose(g.key, 1 - p.reloading/g.reload, ud0, pose);
+  } else {
+    ud0.mag.position.set(0,0,0); ud0.mag.rotation.set(0,0,0);
+    ud0.charge.position.set(0,0,0); ud0.charge.rotation.set(0,0,0);
+  }
+  if (vm.inspect > 0) inspectPose(1 - vm.inspect, pose);
+
+  vmRoot.scale.setScalar(VM_SCALE);
+  vmRoot.position.set(
+    base.x + vm.swayX*0.045*steady + bobX + pose.x,
+    base.y + vm.swayY*0.035*steady + bobY + pose.y - vm.swap*0.22,
+    base.z + vm.recoil*0.075 + pose.z
+  );
+  vmRoot.rotation.set(
+    base.rx - vm.swayY*0.10 - vm.recoil*0.30 + pose.rx + vm.swap*0.5,
+    base.ry + vm.swayX*0.14 + pose.ry,
+    vm.swayX*0.06 + pose.rz
+  );
+
+  // 槍管熱度：連射越久越紅，跟熱成像的設定一致
+  for (const h of model.userData.heats) h.material.opacity = p.heat*0.85;
+  // 彈匣側面的存量燈：剩彈越少越暗，低於三成轉紅
+  const frac = p.mags[g.key] / g.mag;
+  for (const c of model.userData.cells){
+    c.material.color.setHex(frac <= 0.3 ? 0xFF5A47 : 0x4DE0B0);
+    c.scale.y = Math.max(0.06, frac);
+    c.position.y = c.userData.baseY !== undefined
+      ? c.userData.baseY - (1-frac)*0.5*0.15
+      : c.position.y;
+  }
+  // 槍身上的彈量顯示器
+  drawAmmoPanel(model.userData.panel, p.mags[g.key], g.mag);
+  // 槍口火焰
+  const ud = model.userData;
+  const f = Math.max(0, vm.recoil*1.7 - 0.45);
+  ud.core.material.opacity  = f;
+  ud.petal.material.opacity = f*0.8;
+  ud.wave.material.opacity  = f*0.55;
+  const fs = 0.65 + vm.recoil*1.0;
+  ud.core.scale.set(fs, 0.8+vm.recoil*0.9, fs);
+  ud.petal.scale.set(fs*1.2, 1, fs*1.2);
+  ud.wave.scale.setScalar(0.6 + (1.4-vm.recoil)*1.1);
+  ud.flash.rotation.z = Math.random()*Math.PI;
+}
+
+// ─────────────────────────────────────────────
+// 遊戲狀態
+// ─────────────────────────────────────────────
+let G = null, best = 0;
+let yaw = 0, pitch = 0, locked = false;
+// 後座造成的瞄準偏移。它會疊在 yaw/pitch 之上，
+// 而且是「實際的準心方向」——子彈真的會往那裡飛，不是只有畫面晃
+let rcPitch = 0, rcYaw = 0, rcHold = 0;
+function aimPitch(){ return pitch + rcPitch; }
+function aimYaw(){ return yaw + rcYaw; }
+const keys = new Set();
+const mouse = {down:false};
+let scale = 1;
+try { best = parseInt(localStorage.getItem("echo3d.best")||"0",10)||0; } catch(e){}
+
+function newGame(){
+  yaw = -Math.PI/2; pitch = 0;  // 出生在左側開闊處，面向地圖中央（+x 方向）
+  rcPitch = 0; rcYaw = 0; rcHold = 0;
+  return {
+    mode:"break", t:0, timer:2.2,
+    round:0, score:0, kills:0, shots:0, hits:0,
+    player:{
+      x:250, y:190, rad:P.rad, angle:0,
+      hp:P.maxHp, cool:0, reloading:0,
+      gun:"vector", mags:{vector:GUNS.vector.mag, lance:GUNS.lance.mag, breach:GUNS.breach.mag},
+      firedThisPress:false, bloom:0, iframe:0, heat:0,
+      z:0, vz:0, grounded:true, vx:0, vy:0,
+      sonarCd:0, echoCd:0, trail:[],
+    },
+    bots:[], bullets:[], rings:[],
+    kick:0, vignette:0, hitMark:0, headMark:0, tookDamage:false,
+    fps:0, fpsAcc:0, fpsN:0,
+    moved:0, moving:false, sprinting:false, crouching:false, crouchT:0, strafe:0,
+    bobT:0, bobAmp:0, lean:0, deadT:0,
+    ads:false, adsT:0, adsOn:false, landDip:0, sprintT:0,
+    pops:[], feed:[], corpses:[], shocks:[], pickups:[], echoFlash:0, lowBeat:0,
+    streak:0, streakT:0,
+    dmgArcs:[], flashLine:"", flashSub:"", flashT:0,
+    seenTypes:new Set(),
+  };
+}
+
+function rosterFor(round){
+  const n = Math.min(1 + round, 7);
+  const list = [];
+  for (let i=0;i<n;i++){
+    if      (round >= 7 && i === 0) list.push("warden");
+    else if (round >= 3 && i === 1) list.push("stalker");
+    else if (round >= 5 && i === 2) list.push("lancer");
+    else if (round >= 4 && i === 3) list.push("stalker");
+    else if (round >= 6 && i === 4) list.push("lancer");
+    else list.push("grunt");
+  }
+  return list;
+}
+function banner(text, sub){ G.flashLine = text; G.flashSub = sub||""; G.flashT = sub ? 3.2 : 1.6; }
+
+function spawnRound(){
+  G.round++;
+  const roster = rosterFor(G.round);
+  const n = roster.length, p = G.player;
+  const pool = SPAWNS.filter(s => Math.hypot(s.x-p.x,s.y-p.y) > 330 && !hasLOS(p.x,p.y,s.x,s.y));
+  const src = pool.length >= n ? pool : SPAWNS.filter(s => Math.hypot(s.x-p.x,s.y-p.y) > 300);
+  const picked = src.slice().sort(()=>Math.random()-0.5).slice(0,n);
+  for (let i=0;i<n;i++){
+    const s = picked[i % picked.length];
+    const type = roster[i], T = TYPES[type];
+    const obj = makeBotObject(type);
+    botLayer.add(obj);
+    G.bots.push({
+      type, obj,
+      x:s.x+(Math.random()*30-15), y:s.y+(Math.random()*30-15),
+      rad:T.rad, hp:T.hp, maxHp:T.hp, angle:Math.random()*Math.PI*2,
+      cool:Math.random()*0.5, burst:T.burstSize, see:0,
+      lastX:s.x, lastY:s.y, goalX:s.x, goalY:s.y,
+      strafe:Math.random()<0.5?1:-1, stuck:0, px:s.x, py:s.y,
+      revealed:0, flash:0, laser:null,
+    });
+  }
+  // 每回合補給重置，放在離玩家遠且沒有視線的位置
+  for (const u of G.pickups) fxLayer.remove(u.obj);
+  G.pickups.length = 0;
+  const far = SPAWNS.filter(sp => Math.hypot(sp.x-p.x, sp.y-p.y) > 380);
+  const picks = far.sort(()=>Math.random()-0.5).slice(0,2);
+  const kinds = ["cell","ammo"];
+  for (let i=0;i<picks.length;i++){
+    const obj = makePickup(kinds[i]);
+    obj.position.set(picks[i].x*S, 0.6, picks[i].y*S);
+    fxLayer.add(obj);
+    G.pickups.push({kind:kinds[i], x:picks[i].x, y:picks[i].y, obj, taken:false});
+  }
+
+  G.tookDamage = false;
+  const fresh = roster.find(t => t !== "grunt" && !G.seenTypes.has(t));
+  if (fresh){
+    G.seenTypes.add(fresh);
+    const hint = {
+      stalker:"高速近戰，會直接衝進你的臉，別站在原地",
+      lancer:"射程超過你的感測距離，開火前有紅色雷射預警",
+      warden:"正面裝甲擋掉九成傷害——必須繞到它側面或背後才打得動",
+    }[fresh];
+    banner("NEW · " + TYPES[fresh].name, hint);
+  } else banner("ROUND " + G.round);
+}
+
+// ── 特效 ──
+// 火花池：材質與 Mesh 在開場一次建好，之後只切換 visible。
+// 原本每顆火花都 new 一個材質又從不釋放，一場下來會漏掉上千個，
+// 累積的垃圾回收就是走路時偶爾卡一下的主因
+const SPARK_MAX = 160;
+const sparkPool = [];
+for (let i=0;i<SPARK_MAX;i++){
+  const m = new THREE.Mesh(sparkGeo, new THREE.MeshBasicMaterial({color:0xffffff, transparent:true}));
+  m.visible = false;
+  fxLayer.add(m);
+  sparkPool.push({m, life:0, max:1, vx:0, vy:0, vz:0});
+}
+let sparkHead = 0;
+function spawnSpark(x, y, color, n){
+  for (let i=0;i<n;i++){
+    const q = sparkPool[sparkHead++ % SPARK_MAX];
+    q.m.visible = true;
+    q.m.material.color.setHex(color);
+    q.m.material.opacity = 1;
+    q.m.position.set(x*S, 0.9 + (Math.random()-0.5)*0.5, y*S);
+    const a = Math.random()*Math.PI*2, sp = 1.2 + Math.random()*2.6;
+    q.vx = Math.cos(a)*sp; q.vy = (Math.random()-0.2)*2.2; q.vz = Math.sin(a)*sp;
+    q.life = 0.32; q.max = 0.32;
+  }
+}
+
+// ── 射擊 ──
+function gun(){ return GUNS[G.player.gun]; }
+function playerShoot(){
+  const p = G.player, g = gun();
+  if (p.reloading > 0 || p.cool > 0) return false;
+  if (p.mags[g.key] <= 0){ startReload(); return false; }
+  p.mags[g.key]--; p.cool = g.fireGap;
+  G.shots += (g.pellets || 1);
+  const pellets = g.pellets || 1;
+  const h0 = eyeH();
+  // 瞄準時散布往 adsSpread 收，中間狀態用線性內插
+  const baseSpr = g.spread + (g.adsSpread - g.spread) * G.adsT;
+  for (let i=0;i<pellets;i++){
+    const spr = baseSpr + p.bloom * (1 - G.adsT*0.75);
+    const a  = p.angle + (Math.random()*2-1)*spr;
+    // 俯仰角同樣吃散布，垂直方向才不會永遠是一條線
+    const pit = aimPitch() + (Math.random()*2-1)*spr;
+    const ch = Math.cos(pit), sh = Math.sin(pit);
+    G.bullets.push({
+      x:p.x+Math.cos(a)*8, y:p.y+Math.sin(a)*8, h:h0 + 8*S*sh,
+      vx:Math.cos(a)*g.spd*ch, vy:Math.sin(a)*g.spd*ch,
+      vh:g.spd*sh*S,                      // 水平用像素、垂直用公尺，換算在這裡
+      dmg:g.dmg, friendly:true, life:g.pellets ? 0.42 : 1.4, mesh:null,
+    });
+  }
+  p.bloom = Math.min(g.bloomMax, p.bloom + g.bloomRate);
+  p.heat = Math.min(1, p.heat + (g.auto ? 0.16 : 0.55));
+  ejectShell(p.x, p.y, eyeH() - 0.42, p.angle);
+  G.kick = Math.min(0.07, G.kick + (g.auto ? 0.016 : g.pellets ? 0.06 : 0.045));
+  vm.recoil = Math.min(1.4, vm.recoil + (g.auto ? 0.42 : g.pellets ? 1.35 : 1.1));
+  // 後座：垂直往上爬，水平隨機偏。瞄準時手比較穩，收 35%
+  const rcK = 1 - G.adsT*0.35;
+  rcPitch += g.rcV * rcK * (0.85 + Math.random()*0.3);
+  rcYaw   += (Math.random()*2-1) * g.rcH * rcK;
+  rcHold   = 0.12;
+  muzzleLight.intensity = g.auto ? 3.2 : 7;
+  if (g.auto){ sfx("square",320,0.06,0.05,90); sfxNoise(0.05,0.035,2400); }
+  else if (g.pellets){ sfx("square",120,0.22,0.08,40); sfxNoise(0.2,0.085,900); }
+  else       { sfx("square",170,0.17,0.07,52); sfxNoise(0.14,0.06,1400); }
+  return true;
+}
+// 檢視只在閒著的時候能做
+function canInspect(){
+  const p = G.player;
+  return p.reloading <= 0 && !G.adsOn && !G.sprinting && vm.inspect <= 0;
+}
+function startReload(){
+  const p = G.player, g = gun();
+  if (p.reloading > 0 || p.mags[g.key] === g.mag) return;
+  p.reloading = g.reload;
+  vm.inspect = 0;
+  sfx("sine",180,0.09,0.04,120);
+  sfxNoise(0.05, 0.02, 900);
+  // 彈匣式的槍才會掉彈匣，泵動霰彈是逐發壓彈
+  if (g.key !== "breach"){
+    setTimeout(() => {
+      if (G && G.player.reloading > 0) dropMag(G.player.x, G.player.y, eyeH()-0.55, G.player.angle);
+    }, g.reload*180);
+  }
+}
+function swapGun(to){
+  const p = G.player;
+  if (p.gun === to) return;
+  p.gun = to; p.reloading = 0; p.bloom = 0;
+  G.adsOn = false;
+  p.cool = Math.max(p.cool, P.swapTime);
+  vm.swap = 1;
+  sfx("sine",420,0.07,0.035,640);
+}
+function botShoot(b){
+  const p = G.player, T = TYPES[b.type];
+  const a = Math.atan2(p.y-b.y, p.x-b.x) + (Math.random()*2-1)*T.spread;
+  const bh = 1.15 * botK(b.type);                 // 槍口高度
+  const dist = Math.max(1, Math.hypot(p.x-b.x, p.y-b.y));
+  const aimH = eyeH() - 0.30 + (Math.random()*2-1)*0.14;   // 瞄胸口，帶一點垂直散布
+  // 飛行時間要有下限：貼身時距離趨近零，除下去垂直速度會爆成每秒數百公尺，
+  // 子彈等於垂直射向天花板
+  const flight = Math.max(0.05, dist / T.bulletSpd);
+  const vh = Math.max(-6, Math.min(6, (aimH - bh) / flight));
+  // 出膛點不能推出玩家的判定圈外，否則貼臉時子彈是從你身體外側生出來的
+  const off = Math.min(18, dist*0.55);
+  G.bullets.push({
+    x:b.x+Math.cos(a)*off, y:b.y+Math.sin(a)*off, h:bh,
+    vx:Math.cos(a)*T.bulletSpd, vy:Math.sin(a)*T.bulletSpd,
+    vh,
+    dmg:T.dmg, friendly:false, life:1.6, srcX:b.x, srcY:b.y, mesh:null,
+  });
+  b.flash = 0.07;
+  spawnSpark(b.x + Math.cos(a)*20, b.y + Math.sin(a)*20, 0xFFC27A, 3);
+  flashLightAt(b.x, b.y, b.type === "lancer" ? 7 : 4.2);
+  if (b.type === "lancer"){ sfxAt(b.x,b.y,"sawtooth",120,0.2,0.5,45); sfxNoiseAt(b.x,b.y,0.16,0.4,1100); }
+  else { sfxAt(b.x,b.y,"sawtooth",210,0.07,0.28,70); sfxNoiseAt(b.x,b.y,0.06,0.22,2200); }
+}
+
+// ── 技能 ──
+function useSonar(){
+  const p = G.player;
+  if (p.sonarCd > 0) return;
+  p.sonarCd = P.sonarCd;
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.1,0.35,48), sonarMat.clone());
+  ring.rotation.x = -Math.PI/2;
+  ring.position.set(p.x*S, 0.06, p.y*S);
+  fxLayer.add(ring);
+  G.rings.push({x:p.x,y:p.y,r:0,prev:0,max:700,spd:900,mesh:ring});
+  sfx("sine",900,0.5,0.05,260);
+  banner("SONAR");
+}
+function echoShock(x,y){
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.1,0.3,40),
+    new THREE.MeshBasicMaterial({color:0xA277FF, transparent:true, opacity:0.75,
+                                 side:THREE.DoubleSide, blending:THREE.AdditiveBlending}));
+  ring.rotation.x = -Math.PI/2;
+  ring.position.set(x*S, 0.2, y*S);
+  fxLayer.add(ring);
+  G.shocks.push({mesh:ring, life:0.7, max:0.7});
+}
+function useEcho(){
+  const p = G.player;
+  if (p.echoCd > 0 || p.trail.length < 4) return;
+  let target = p.trail[0];
+  for (const s of p.trail){ if (G.t - s.t <= P.echoBack){ target = s; break; } }
+
+  // 沿著走過的路徑留下一串自己的殘影，把「時間倒帶」畫出來
+  const step = Math.max(1, Math.floor(p.trail.length/9));
+  for (let i=0;i<p.trail.length;i+=step){
+    const t = p.trail[i];
+    const gm = new THREE.Mesh(
+      new THREE.CapsuleGeometry(0.34, 0.6, 3, 8),
+      new THREE.MeshBasicMaterial({color:0xA277FF, transparent:true, opacity:0.4,
+                                   blending:THREE.AdditiveBlending, depthWrite:false}));
+    gm.position.set(t.x*S, 1.0, t.y*S);
+    fxLayer.add(gm);
+    G.shocks.push({mesh:gm, life:0.55 + i/p.trail.length*0.5, max:1.05, ghost:true});
+  }
+  echoShock(p.x, p.y);
+  spawnSpark(p.x, p.y, 0xA277FF, 14);
+
+  p.x = target.x; p.y = target.y;
+  p.hp = Math.max(p.hp, target.hp);
+  p.iframe = 0.45; p.echoCd = P.echoCd; p.trail.length = 0;
+  echoShock(p.x, p.y);
+  spawnSpark(p.x, p.y, 0xA277FF, 18);
+  G.kick = 0.09;
+  G.echoFlash = 1;
+  sfx("triangle",180,0.45,0.07,720);
+  sfx("sine",1200,0.35,0.04,180);
+  banner("ECHO");
+}
+
+// ─────────────────────────────────────────────
+// 每幀更新（純 2D 邏輯，跟 3D 版本完全共用）
+// ─────────────────────────────────────────────
+function update(dt){
+  G.t += dt;
+  // 幀率取半秒平均，數字才不會一直跳
+  G.fpsAcc += dt; G.fpsN++;
+  if (G.fpsAcc >= 0.5){ G.fps = G.fpsN/G.fpsAcc; G.fpsAcc = 0; G.fpsN = 0; }
+  const p = G.player;
+
+  if (G.flashT > 0) G.flashT -= dt;
+  G.kick *= Math.pow(0.004, dt);
+  G.landDip *= Math.pow(0.00004, dt);   // 落地下沉很快彈回來
+  mouseDX *= Math.pow(0.0008, dt); mouseDY *= Math.pow(0.0008, dt);
+  // 停火後才開始回正，所以連射時槍口會一路往上爬
+  if (rcHold > 0) rcHold -= dt;
+  else {
+    const back = Math.pow(0.0025, dt * (GUNS[G.player.gun].rcBack / 6));
+    rcPitch *= back; rcYaw *= back;
+    if (Math.abs(rcPitch) < 1e-5) rcPitch = 0;
+    if (Math.abs(rcYaw)   < 1e-5) rcYaw = 0;
+  }
+  G.vignette = Math.max(0, G.vignette - dt*1.6);
+  // 低血量心跳：越虛弱跳得越快
+  if (G.mode !== "dead" && G.player.hp < 38 && G.player.hp > 0){
+    G.lowBeat -= dt;
+    if (G.lowBeat <= 0){
+      G.lowBeat = 0.42 + (G.player.hp/38)*0.42;
+      sfx("sine", 54, 0.16, 0.055, 30);
+    }
+  } else G.lowBeat = 0;
+  G.hitMark  = Math.max(0, G.hitMark - dt*4);
+  G.headMark = Math.max(0, G.headMark - dt*2.2);
+  muzzleLight.intensity *= Math.pow(0.00002, dt);
+  for (const l of shotLights) l.intensity *= Math.pow(0.000004, dt);
+
+  if (G.mode === "break"){
+    G.timer -= dt;
+    if (G.timer <= 0){ G.mode = "fight"; spawnRound(); }
+  }
+
+  if (G.mode !== "dead"){
+    // 視角決定朝向：先由 yaw 推回 2D 的角度
+    p.angle = Math.atan2(-Math.cos(aimYaw()), -Math.sin(aimYaw()));
+    // 相對於視角的移動
+    const ay = aimYaw();
+    const fwdX = -Math.sin(ay), fwdY = -Math.cos(ay);
+    const rgtX =  Math.cos(ay), rgtY = -Math.sin(ay);
+    let mf = (keys.has("w")?1:0) - (keys.has("s")?1:0);
+    let mr = (keys.has("d")?1:0) - (keys.has("a")?1:0);
+    G.strafe = mr;
+    // 瞄準是切換式的。換彈、衝刺、失去鎖定時強制退出，
+    // 而且把切換狀態一起關掉，不然條件解除後會自己彈回瞄準
+    if (G.adsOn && (!locked || G.mode !== "fight" || p.reloading > 0 || G.sprinting)){
+      G.adsOn = false;
+    }
+    const wantAds = G.adsOn;
+    G.ads = wantAds;
+    // 衝刺的權重平滑變化，視野與持槍姿勢都吃它
+    G.sprintT += ((G.sprinting ? 1 : 0) - G.sprintT) * Math.min(1, dt*6);
+    G.adsT += ((wantAds ? 1 : 0) - G.adsT) * Math.min(1, dt*11);
+    if (G.adsT < 0.002) G.adsT = 0;
+
+    // 跳躍與重力
+    if (keys.has(" ") && p.grounded && !G.crouching && G.mode !== "dead"){
+      p.vz = P.jumpV; p.grounded = false;
+      sfxNoise(0.05, 0.02, 380);
+    }
+    if (!p.grounded){
+      p.vz -= P.gravity*dt;
+      p.z  += p.vz*dt;
+      // 別撞到天花板
+      if (p.z > WALL_H - EYE - 0.25){ p.z = WALL_H - EYE - 0.25; p.vz = Math.min(0, p.vz); }
+      if (p.z <= 0){
+        const impact = -p.vz;
+        p.z = 0; p.vz = 0; p.grounded = true;
+        // 落地會吃掉動能：越重的落地下沉越深、水平速度損失越多
+        G.landDip = Math.min(0.20, impact*0.040);
+        const keep = Math.max(0.55, 1 - impact*0.07);
+        p.vx *= keep; p.vy *= keep;
+        if (impact > 1.5){ sfxNoise(0.09, 0.035 + impact*0.006, 300); sfx("sine", 55, 0.10, 0.03, 38); }
+        else sfxNoise(0.05, 0.016, 420);
+      }
+      // 在空中槍口會散開，跳起來亂射不划算
+      p.bloom = Math.min(0.16, p.bloom + dt*0.55);
+    }
+
+    // 蹲下：視線壓低，而且槍口更穩（空中不能蹲）
+    G.crouching = keys.has("control") && p.grounded && G.mode !== "dead";
+    G.crouchT += ((G.crouching ? 1 : 0) - G.crouchT) * Math.min(1, dt*11);
+    if (G.crouching) p.bloom = Math.max(0, p.bloom - dt*0.25);
+    const bx = p.x, by = p.y;
+
+    // 衝刺只在往前、地面、非瞄準時生效，而且會讓槍口散開
+    const sprint = keys.has("shift") && mf > 0 && p.reloading <= 0 &&
+                   !G.crouching && p.grounded && G.adsT < 0.2;
+    G.sprinting = sprint;
+    if (sprint) p.bloom = Math.min(0.14, p.bloom + dt*0.5);
+
+    let maxSpd = P.speed * (sprint ? P.sprintMul : 1);
+    if (G.crouching) maxSpd *= P.crouchMul;
+    if (!p.grounded) maxSpd *= P.airMul;
+    maxSpd *= 1 - (1 - P.adsMul) * G.adsT;      // 瞄準時移動變慢
+
+    // 想走的方向（單位向量）
+    let wx = fwdX*mf + rgtX*mr, wy = fwdY*mf + rgtY*mr;
+    const wl = Math.hypot(wx,wy);
+    if (wl){ wx /= wl; wy /= wl; }
+
+    // 地面摩擦：放開按鍵後靠它把速度磨掉，所以停下來是滑一小段而不是瞬停
+    if (p.grounded){
+      const sp = Math.hypot(p.vx, p.vy);
+      if (sp > 0){
+        const drop = Math.max(sp, P.stopSpeed) * P.friction * dt;
+        const k = Math.max(0, sp - drop) / sp;
+        p.vx *= k; p.vy *= k;
+      }
+    }
+    // 加速：只補到目標速度為止，起步因此有一段加速過程；
+    // 空中加速度只有地面的七分之一，跳出去之後幾乎改不了方向
+    if (wl){
+      const cur = p.vx*wx + p.vy*wy;
+      const add = maxSpd - cur;
+      if (add > 0){
+        const acc = (p.grounded ? P.accel : P.airAccel) * maxSpd * dt;
+        p.vx += wx*Math.min(acc, add);
+        p.vy += wy*Math.min(acc, add);
+      }
+    }
+    const hitAx = moveWithCollision(p, p.vx*dt, p.vy*dt);
+    if (hitAx.x) p.vx = 0;     // 撞牆就把該方向的速度吃掉，否則會沿牆累積
+    if (hitAx.y) p.vy = 0;
+
+    // 實際位移（撞牆時會小於預期），拿來驅動頭部晃動與腳步聲
+    G.moved = Math.hypot(p.x-bx, p.y-by);
+    G.moving = G.moved > P.speed*dt*0.18;
+    vm.stepDist += G.moved;
+    if (vm.stepDist > 62){
+      vm.stepDist = 0;
+      sfxNoise(0.07, 0.022, 520);
+      sfx("sine", 68, 0.07, 0.02, 44);
+    }
+
+    p.cool    = Math.max(0, p.cool - dt);
+    p.sonarCd = Math.max(0, p.sonarCd - dt);
+    p.echoCd  = Math.max(0, p.echoCd - dt);
+    p.iframe  = Math.max(0, p.iframe - dt);
+    p.bloom   = Math.max(0, p.bloom - dt*0.14);
+    p.heat    = Math.max(0, p.heat - dt*0.42);
+    if (p.reloading > 0){
+      p.reloading -= dt;
+      if (p.reloading <= 0){ p.mags[p.gun] = gun().mag; sfx("sine",320,0.08,0.045,460); }
+    }
+    if (mouse.down && locked && G.mode === "fight" && (gun().auto || !p.firedThisPress)){
+      if (playerShoot()) p.firedThisPress = true;
+    }
+
+    p.trail.push({x:p.x,y:p.y,hp:p.hp,t:G.t});
+    while (p.trail.length && G.t - p.trail[0].t > P.echoBack + 0.25) p.trail.shift();
+
+    for (const b of G.bots){
+      const T = TYPES[b.type];
+      b.revealed = Math.max(0, b.revealed - dt);
+      b.flash    = Math.max(0, b.flash - dt);
+      b.cool     = Math.max(0, b.cool - dt);
+
+      const d = Math.hypot(p.x-b.x, p.y-b.y);
+      const los = d < T.range && hasLOS(b.x,b.y,p.x,p.y);
+      if (los){ b.see += dt; b.lastX = p.x; b.lastY = p.y; } else b.see = 0;
+
+      let tx, ty;
+      if (los){ tx = p.x; ty = p.y; }
+      else if (Math.hypot(b.lastX-b.x, b.lastY-b.y) > 40){ tx = b.lastX; ty = b.lastY; }
+      else {
+        if (Math.hypot(b.goalX-b.x, b.goalY-b.y) < 40){
+          const s = SPAWNS[(Math.random()*SPAWNS.length)|0];
+          b.goalX = s.x; b.goalY = s.y;
+        }
+        tx = b.goalX; ty = b.goalY;
+      }
+      let ax = tx-b.x, ay = ty-b.y;
+      const al = Math.hypot(ax,ay) || 1;
+      ax /= al; ay /= al;
+      if (los && d < T.keepDist){ ax = -ax; ay = -ay; }
+      if (los && T.keepDist > 0 && Math.abs(d - T.keepDist) < 90){
+        const t2 = Math.atan2(p.y-b.y, p.x-b.x) + Math.PI/2*b.strafe;
+        ax = Math.cos(t2); ay = Math.sin(t2);
+      }
+      if (b.stuck > 0.3){
+        const t2 = Math.atan2(ay,ax) + Math.PI/2*b.strafe;
+        ax = Math.cos(t2); ay = Math.sin(t2);
+        if (b.stuck > 0.95){ b.stuck = 0; b.strafe *= -1; }
+      }
+      b.px = b.x; b.py = b.y;
+      moveWithCollision(b, ax*T.speed*dt, ay*T.speed*dt);
+      const bmoved = Math.hypot(b.x-b.px, b.y-b.py);
+      b.moved = bmoved;
+      b.stuck = bmoved < T.speed*dt*0.4 ? b.stuck + dt : 0;
+      // 腳步聲：跑得快的踩得密，隔著牆會悶掉但還聽得見
+      b.step = (b.step || 0) + bmoved;
+      if (b.step > 58){
+        b.step = 0;
+        addFootprint(b.x, b.y, T.color);
+        sfxNoiseAt(b.x, b.y, 0.06, 0.30, 430);
+        sfxAt(b.x, b.y, "sine", 62, 0.06, 0.22, 40);
+      }
+
+      // 分離：敵人不能站進玩家身體裡。少了這個，貼臉的 STALKER 會直接
+      // 疊在你身上，它的子彈就從你的判定圈外側生出來，永遠打不到
+      const sx = b.x - p.x, sy = b.y - p.y;
+      const sd = Math.hypot(sx, sy), minD = p.rad + b.rad;
+      if (sd < minD){
+        if (sd > 0.01) moveWithCollision(b, sx/sd*(minD-sd), sy/sd*(minD-sd));
+        else moveWithCollision(b, minD, 0);
+      }
+
+      b.angle = los ? Math.atan2(p.y-b.y, p.x-b.x) : Math.atan2(ay,ax);
+      if (los && b.see > T.reaction && b.cool <= 0 && G.mode === "fight"){
+        botShoot(b);
+        b.burst--;
+        if (b.burst > 0) b.cool = T.burstGap;
+        else { b.burst = T.burstSize; b.cool = T.burstRest*(0.8+Math.random()*0.45); }
+      }
+    }
+
+    // 敵人彼此也要分開，疊在一起的話等於共用一個判定圈、看起來也像穿模
+    for (let i=0;i<G.bots.length;i++){
+      const A = G.bots[i];
+      for (let j=i+1;j<G.bots.length;j++){
+        const B = G.bots[j];
+        const dx2 = B.x-A.x, dy2 = B.y-A.y;
+        const d2 = Math.hypot(dx2, dy2), need = A.rad + B.rad;
+        if (d2 < need && d2 > 0.01){
+          const push = (need - d2) * 0.5;
+          moveWithCollision(A, -dx2/d2*push, -dy2/d2*push);
+          moveWithCollision(B,  dx2/d2*push,  dy2/d2*push);
+        }
+      }
+    }
+  }
+
+  // 子彈
+  for (let i=G.bullets.length-1;i>=0;i--){
+    const bl = G.bullets[i];
+    bl.life -= dt;
+    let dead = bl.life <= 0;
+    bl.vh -= BULLET_G * dt;                       // 彈道下墜
+    // 速度越快分段越多，否則高速彈會直接穿過敵人
+    const travel = Math.hypot(bl.vx, bl.vy) * dt;
+    const STEP = Math.max(3, Math.ceil(travel / 7));
+    for (let s=0;s<STEP && !dead;s++){
+      bl.x += bl.vx*dt/STEP; bl.y += bl.vy*dt/STEP;
+      bl.h += bl.vh*dt/STEP;
+      // 打到地板或天花板
+      if (bl.h <= 0.02 || bl.h >= WALL_H-0.02){
+        spawnSpark(bl.x,bl.y,0x9B6BE8,3);
+        sfxNoiseAt(bl.x,bl.y,0.04,0.055,3200);
+        dead = true; break;
+      }
+      if (inWall(bl.x,bl.y)){
+        spawnSpark(bl.x,bl.y,0x9B6BE8,4);
+        addDecal(bl.x, bl.y, bl.h);
+        sfxNoiseAt(bl.x,bl.y,0.05,0.16,1600);
+        dead = true; break;
+      }
+      if (bl.friendly){
+        for (const b of G.bots){
+          if (b.hp <= 0) continue;
+          const z = zonesOf(b.type);
+          if (bl.h > z.headTop || bl.h < 0) continue;      // 從頭上飛過去
+          // 頭比身體窄很多，所以橫向判定也要跟著收緊
+          const isHead = bl.h > z.torsoTop;
+          const reach = isHead ? b.rad*0.55 : b.rad;
+          if (Math.hypot(bl.x-b.x, bl.y-b.y) < reach){
+            const TT = TYPES[b.type];
+            const zone = isHead ? "head" : (bl.h > z.legTop ? "torso" : "leg");
+            let dealt = Math.round(bl.dmg * ZONE[zone]);
+            let blocked = false;
+            if (TT.frontArmor && zone !== "head"){
+              // 正面來的子彈被盾擋掉，但盾護不到頭
+              const incoming = Math.atan2(-bl.vy, -bl.vx);
+              const diff = Math.abs(((incoming - b.angle + Math.PI*3) % (Math.PI*2)) - Math.PI);
+              if (diff < 1.31){ dealt = Math.round(dealt*TT.frontArmor); blocked = true; }
+            }
+            b.hp -= dealt; b.flash = 0.1;
+            G.hits++;
+            spawnSpark(bl.x, bl.y,
+              blocked ? 0x9AA8FF : zone === "head" ? 0xFFFFFF : TT.color,
+              blocked ? 3 : zone === "head" ? 10 : 6);
+            G.pops.push({x:bl.x, y:bl.y, h:bl.h + 0.25,
+                         text: blocked ? "BLOCKED" : String(dealt),
+                         life:0.9, max:0.9, blocked, zone,
+                         kill:(b.hp<=0)});
+            G.hitMark = 1;
+            if (zone === "head") G.headMark = 1;
+            dead = true;
+            if (zone === "head") sfx("square",900,0.07,0.055,420);
+            else if (zone === "leg") sfx("square",380,0.05,0.03,240);
+            else sfx("square",540,0.05,0.04,300);
+            break;
+          }
+        }
+      } else {
+        const p2 = G.player;
+        const topH = eyeH() + 0.16;
+        if (p2.iframe <= 0 && bl.h > 0.05 && bl.h < topH &&
+            Math.hypot(bl.x-p2.x, bl.y-p2.y) < p2.rad){
+          p2.hp -= bl.dmg;
+          G.vignette = 1; G.kick = Math.min(0.12, G.kick+0.05); G.tookDamage = true;
+          G.dmgArcs.push({
+            angle: Math.atan2((bl.srcY ?? bl.y)-p2.y, (bl.srcX ?? bl.x)-p2.x),
+            life:1.3, max:1.3,
+          });
+          dead = true;
+          sfx("sawtooth",130,0.13,0.05,60);
+          break;
+        }
+      }
+    }
+    if (dead){
+      if (bl.mesh){ bulletLayer.remove(bl.mesh); bulletPool.push(bl.mesh); }
+      G.bullets.splice(i,1);
+    }
+  }
+
+  // 陣亡結算
+  for (let i=G.bots.length-1;i>=0;i--){
+    const b = G.bots[i];
+    if (b.hp <= 0){
+      spawnSpark(b.x,b.y,TYPES[b.type].color,20);
+      if (b.laser){ fxLayer.remove(b.laser); b.laser = null; }
+      // 屍體留在原地倒下、體溫慢慢散掉，而不是憑空消失
+      G.corpses.push({obj:b.obj, life:2.6, max:2.6,
+                      spin:(Math.random()<0.5?-1:1)*(0.9+Math.random()*0.5)});
+      G.bots.splice(i,1);
+      G.kills++;
+      // 三秒內接著再殺會疊加，最多三倍
+      G.streakT = 3.0;
+      G.streak = Math.min(8, G.streak + 1);
+      const mult = 1 + Math.min(2, (G.streak-1)*0.35);
+      const gained = Math.round(TYPES[b.type].score * mult);
+      G.score += gained;
+      G.feed.unshift({text:TYPES[b.type].name, score:gained,
+                      mult:(mult>1 ? mult.toFixed(2)+"x" : ""), life:3.4, max:3.4});
+      if (G.feed.length > 5) G.feed.pop();
+      sfxAt(b.x,b.y,"triangle",420,0.22,0.5,110);
+    }
+  }
+  if (G.mode === "fight" && G.bots.length === 0){
+    G.score += 200 + (G.tookDamage ? 0 : 300);
+    if (!G.tookDamage) banner("FLAWLESS  +300");
+    G.player.hp = Math.min(P.maxHp, G.player.hp + 45);
+    G.player.mags = {vector:GUNS.vector.mag, lance:GUNS.lance.mag, breach:GUNS.breach.mag};
+    G.player.reloading = 0;
+    G.mode = "break"; G.timer = 2.6;
+  }
+  if (G.player.hp <= 0 && G.mode !== "dead"){
+    G.mode = "dead";
+    G.deadT = 0;
+    G.kick = 0.16;
+    sfx("sawtooth",90,0.9,0.08,40);
+    sfx("sine",120,1.4,0.06,28);
+    endGame();
+  }
+  if (G.mode === "dead") G.deadT += dt;
+
+  // 聲納環
+  for (let i=G.rings.length-1;i>=0;i--){
+    const r = G.rings[i];
+    r.prev = r.r; r.r += r.spd*dt;
+    for (const b of G.bots){
+      const d = Math.hypot(b.x-r.x, b.y-r.y);
+      if (d > r.prev && d <= r.r) b.revealed = 3;
+    }
+    const rr = r.r*S;
+    r.mesh.scale.set(rr/0.35, rr/0.35, 1);
+    r.mesh.material.opacity = 0.42*(1 - r.r/r.max);
+    if (r.r > r.max){ fxLayer.remove(r.mesh); G.rings.splice(i,1); }
+  }
+
+  // 火花：整池掃一次，不做任何配置或場景圖增刪
+  for (const q of sparkPool){
+    if (q.life <= 0) continue;
+    q.life -= dt;
+    if (q.life <= 0){ q.m.visible = false; continue; }
+    q.m.position.x += q.vx*dt*S*30;
+    q.m.position.z += q.vz*dt*S*30;
+    q.m.position.y += q.vy*dt;
+    q.vy -= 5.5*dt;
+    const f = q.life/q.max;
+    q.m.material.opacity = f;
+    const sc = 0.3 + 0.7*f;
+    q.m.scale.set(sc,sc,sc);
+  }
+
+  // 補給品：旋轉浮動，走過去就撿起來
+  for (let i=G.pickups.length-1;i>=0;i--){
+    const u = G.pickups[i];
+    u.obj.rotation.y += dt*1.5;
+    u.obj.position.y = 0.55 + Math.sin(G.t*2.4 + i)*0.09;
+    if (G.mode === "dead") continue;
+    if (Math.hypot(G.player.x-u.x, G.player.y-u.y) < 34){
+      const info = PICKUPS[u.kind];
+      if (u.kind === "cell") G.player.hp = Math.min(P.maxHp, G.player.hp + 35);
+      else { G.player.mags = {vector:GUNS.vector.mag, lance:GUNS.lance.mag, breach:GUNS.breach.mag}; G.player.reloading = 0; }
+      G.feed.unshift({text:info.label, score:0, life:2.2, max:2.2, pickup:true});
+      if (G.feed.length > 5) G.feed.pop();
+      spawnSpark(u.x, u.y, info.color, 12);
+      sfx("sine", 620, 0.12, 0.05, 1100);
+      fxLayer.remove(u.obj);
+      G.pickups.splice(i,1);
+    }
+  }
+  for (let i=G.dmgArcs.length-1;i>=0;i--){
+    G.dmgArcs[i].life -= dt;
+    if (G.dmgArcs[i].life <= 0) G.dmgArcs.splice(i,1);
+  }
+  for (let i=G.corpses.length-1;i>=0;i--){
+    const c = G.corpses[i];
+    c.life -= dt;
+    if (c.life <= 0){ botLayer.remove(c.obj); G.corpses.splice(i,1); continue; }
+    const f = c.life/c.max;
+    c.obj.rotation.z = c.spin * (1-f) * Math.PI/2 * 1.05;   // 倒下
+    c.obj.position.y = -(1-f)*0.25;
+    c.obj.traverse(o => {
+      if (o.material && o.material.transparent !== undefined && o !== c.obj){
+        o.material.transparent = true;
+        o.material.opacity = Math.min(1, f*1.6);
+      }
+    });
+  }
+  G.echoFlash = Math.max(0, G.echoFlash - dt*2.2);
+  if (G.streakT > 0){ G.streakT -= dt; if (G.streakT <= 0) G.streak = 0; }
+  for (let i=G.shocks.length-1;i>=0;i--){
+    const k = G.shocks[i];
+    k.life -= dt;
+    if (k.life <= 0){ fxLayer.remove(k.mesh); G.shocks.splice(i,1); continue; }
+    const f = k.life/k.max;
+    k.mesh.material.opacity = f * (k.ghost ? 0.45 : 0.8);
+    if (!k.ghost){
+      const sc = 1 + (1-f)*26;
+      k.mesh.scale.set(sc,sc,1);
+    } else {
+      k.mesh.position.y = 1.0 + (1-f)*0.5;
+    }
+  }
+  for (let i=steps.length-1;i>=0;i--){
+    const d = steps[i];
+    d.life -= dt;
+    if (d.life <= 0){ d.mesh.visible = false; continue; }
+    d.mesh.visible = true;
+    const f = d.life/d.max;
+    d.mesh.material.opacity = f*f*0.42;        // 體溫指數式散掉
+  }
+  for (let i=decals.length-1;i>=0;i--){
+    const d = decals[i];
+    d.life -= dt;
+    if (d.life <= 0){ d.mesh.visible = false; continue; }
+    d.mesh.visible = true;
+    const f = d.life/d.max;
+    d.mesh.material.opacity = f*f;             // 餘熱指數式散掉
+    const sc = 0.75 + (1-f)*0.5;
+    d.mesh.scale.set(sc,sc,1);
+  }
+  for (let i=G.pops.length-1;i>=0;i--){
+    G.pops[i].life -= dt;
+    G.pops[i].h += dt*0.55;
+    if (G.pops[i].life <= 0) G.pops.splice(i,1);
+  }
+  for (let i=G.feed.length-1;i>=0;i--){
+    G.feed[i].life -= dt;
+    if (G.feed[i].life <= 0) G.feed.splice(i,1);
+  }
+}
+
+// ─────────────────────────────────────────────
+// 把 2D 狀態同步到 3D 場景
+// ─────────────────────────────────────────────
+function sync(dtLast){
+  const p = G.player;
+  const onGround = p.grounded;
+  // 晃動強度依實際速度連續變化。用 G.moving 這種布林值硬切的話，
+  // 速度衰減穿過門檻時鏡頭高度會瞬間歸零，走走停停就會看到跳動
+  const spd = Math.hypot(p.vx, p.vy);
+  const bobTarget = onGround ? Math.min(1, spd / (P.speed*0.7)) : 0;
+  G.bobAmp += (bobTarget - G.bobAmp) * Math.min(1, dtLast*9);
+  G.bobT += G.moved*0.055;
+  const headY = Math.abs(Math.sin(G.bobT)) * 0.028 * G.bobAmp;
+  const headX = Math.sin(G.bobT*0.5) * 0.012 * G.bobAmp;
+  // 站定時的呼吸：幅度很小，但少了它角色會像是被釘在原地的攝影機
+  const still = 1 - G.bobAmp;
+  const breath = Math.sin(G.t*1.15) * 0.0075 * still;
+  camera.position.set(p.x*S + headX*Math.cos(yaw),
+                      EYE - G.crouchT*0.55 + p.z + G.kick*0.5 + headY + breath - G.landDip,
+                      p.y*S - headX*Math.sin(yaw));
+  // 瞄準的變焦
+  const gAds = GUNS[G.player.gun];
+  // 衝刺時視野外擴，這是最直接的速度感來源
+  const wantFov = SET.fov + (gAds.adsFov - SET.fov) * G.adsT + G.sprintT*(1-G.adsT)*8;
+  if (Math.abs(camera.fov - wantFov) > 0.01){
+    camera.fov = wantFov; camera.updateProjectionMatrix();
+  }
+  camera.rotation.y = aimYaw();
+  camera.rotation.x = aimPitch() + G.kick;
+  if (G.mode === "dead"){
+    // 倒地：視線沉到地板高度並往側面翻，比直接跳結算畫面有重量
+    const f = Math.min(1, G.deadT/1.5);
+    const e = 1 - Math.pow(1-f, 3);
+    camera.position.y = (EYE - G.crouchT*0.55) * (1 - e*0.78);
+    camera.rotation.x = aimPitch()*(1-e) - e*0.55;
+    camera.rotation.z = e*1.05;
+    return;
+  }
+  // 橫向移動時輕微側傾
+  G.lean += ((-G.strafe*0.025) - G.lean) * Math.min(1, dtLast*8);
+  camera.rotation.z = G.lean + Math.sin(G.bobT)*0.006*G.bobAmp;
+
+  for (const b of G.bots){
+    b.obj.position.set(b.x*S, 0, b.y*S);
+    b.obj.rotation.y = yawOf(b.angle);
+    // 走路循環：相位由實際走過的距離推進，速度不同擺動頻率自然不同
+    const ud = b.obj.userData;
+    if (ud.legL){
+      ud.phase += (b.moved || 0) * 0.055;
+      const amp = Math.min(1, (b.moved || 0) / 2.2);
+      const sw = Math.sin(ud.phase) * 0.62 * amp;
+      const sw2 = Math.cos(ud.phase) * 0.30 * amp;
+      ud.legL.up.rotation.x =  sw;
+      ud.legR.up.rotation.x = -sw;
+      ud.legL.lo.rotation.x = Math.max(0, -sw*0.85);
+      ud.legR.lo.rotation.x = Math.max(0,  sw*0.85);
+      ud.armL.up.rotation.x = -sw*0.42;
+      ud.armR.up.rotation.x =  sw*0.42 - 0.85;   // 右手持槍，固定端起來
+      ud.armL.up.rotation.z =  0.25;
+      ud.armR.up.rotation.z = -0.30;
+      ud.hips.position.y = (0.92 + Math.abs(sw2)*0.09) * ud.k;
+      ud.hips.rotation.z = sw2 * 0.06;
+    }
+    if (ud.halo){
+      // 公告板：抵銷掉本體的旋轉，永遠正對鏡頭
+      ud.halo.rotation.y = camera.rotation.y - b.obj.rotation.y;
+    }
+    b.obj.userData.hot.color.setHex(b.flash > 0 ? 0xFFFFFF : TYPES[b.type].color);
+    b.obj.userData.ghost.visible = b.revealed > 0;
+    if (b.obj.userData.ghost.visible){
+      b.obj.userData.ghost.material.opacity = 0.28 + 0.24*Math.sin(G.t*9);
+    }
+    // LANCER 的雷射預警
+    const needLaser = b.type === "lancer" && b.see > 0.2 && G.mode === "fight";
+    if (needLaser){
+      const f = Math.min(1, (b.see - 0.2)/(TYPES.lancer.reaction - 0.2));
+      if (!b.laser){
+        // 固定兩個頂點的緩衝，之後每幀就地改數值。
+        // setFromPoints 會每幀重建整個 BufferAttribute，那是純粹的垃圾
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(6), 3));
+        b.laser = new THREE.Line(geo, laserMat.clone());
+        b.laser.frustumCulled = false;
+        fxLayer.add(b.laser);
+      }
+      const arr = b.laser.geometry.attributes.position.array;
+      arr[0] = b.x*S; arr[1] = 1.2;  arr[2] = b.y*S;
+      arr[3] = p.x*S; arr[4] = EYE;  arr[5] = p.y*S;
+      b.laser.geometry.attributes.position.needsUpdate = true;
+      b.laser.material.opacity = 0.15 + f*0.65;
+    } else if (b.laser){
+      fxLayer.remove(b.laser); b.laser = null;
+    }
+  }
+
+  for (const bl of G.bullets){
+    if (!bl.mesh){
+      bl.mesh = bulletPool.pop() || new THREE.Mesh(bulletGeo, bulletMatFriend);
+      bl.mesh.material = bl.friendly ? bulletMatFriend : bulletMatFoe;
+      bulletLayer.add(bl.mesh);
+    }
+    bl.mesh.position.set(bl.x*S, bl.h, bl.y*S);
+    // 曳光彈模型長 0.9 公尺，但出膛點只離視線 0.24 公尺——
+    // 剛生成的一兩幀會有一大半穿過視點，看起來就是畫面中央一根白棒。
+    // 飛得夠遠才顯示
+    const ddx = bl.mesh.position.x - camera.position.x;
+    const ddy = bl.mesh.position.y - camera.position.y;
+    const ddz = bl.mesh.position.z - camera.position.z;
+    bl.mesh.visible = (ddx*ddx + ddy*ddy + ddz*ddz) > 1.6*1.6;
+    if (!bl.mesh.visible) continue;
+    // 彈道有垂直分量，曳光彈要跟著傾斜，否則斜射時是橫的
+    bl.mesh.rotation.set(0, yawOf(Math.atan2(bl.vy, bl.vx)), 0);
+    bl.mesh.rotateX(-Math.atan2(bl.vh, Math.hypot(bl.vx, bl.vy) * S));
+  }
+}
+
+// ─────────────────────────────────────────────
+// 2D 疊層：準心、受擊方向、小地圖、數值
+// ─────────────────────────────────────────────
+const _pv = new THREE.Vector3();
+function projectToScreen(wx, wh, wy, sw, sh){
+  _pv.set(wx*S, wh, wy*S).project(camera);
+  if (_pv.z > 1) return null;                 // 在鏡頭背後
+  return {x:(_pv.x*0.5+0.5)*sw, y:(-_pv.y*0.5+0.5)*sh};
+}
+
+function drawUI(){
+  const w = uiCanvas.width/scale, h = uiCanvas.height/scale;
+  uctx.setTransform(scale,0,0,scale,0,0);
+  uctx.clearRect(0,0,w,h);
+  const p = G.player, g = gun();
+  const cx = w/2, cy = h/2;
+
+  // 倍率鏡：圓形鏡框 + 分劃板。畫在 2D 疊層，邊緣才夠銳利
+  const gAim = gun();
+  if (gAim.scope && G.adsT > 0.02){
+    const a = Math.min(1, (G.adsT - 0.02) / 0.6);
+    const rad = Math.min(w, h) * 0.40;
+    uctx.save();
+    uctx.globalAlpha = a;
+    // 鏡框外的黑色遮罩
+    uctx.beginPath();
+    uctx.rect(0,0,w,h);
+    uctx.arc(cx, cy, rad, 0, Math.PI*2, true);
+    uctx.fillStyle = "#04030A";
+    uctx.fill("evenodd");
+    // 鏡片邊緣的暈影
+    const vg = uctx.createRadialGradient(cx,cy,rad*0.55, cx,cy,rad);
+    vg.addColorStop(0,"rgba(4,3,10,0)");
+    vg.addColorStop(1,"rgba(4,3,10,.85)");
+    uctx.fillStyle = vg;
+    uctx.beginPath(); uctx.arc(cx,cy,rad,0,Math.PI*2); uctx.fill();
+    // 鏡框
+    uctx.strokeStyle = "rgba(255,138,43,.55)"; uctx.lineWidth = 2;
+    uctx.beginPath(); uctx.arc(cx,cy,rad,0,Math.PI*2); uctx.stroke();
+    uctx.strokeStyle = "rgba(20,14,40,.9)"; uctx.lineWidth = 8;
+    uctx.beginPath(); uctx.arc(cx,cy,rad+5,0,Math.PI*2); uctx.stroke();
+
+    // 分劃板：中央留空，四向粗線，下方帶測距刻度
+    uctx.strokeStyle = "rgba(242,236,255,.8)"; uctx.lineWidth = 1.6;
+    uctx.beginPath();
+    uctx.moveTo(cx-rad, cy); uctx.lineTo(cx-14, cy);
+    uctx.moveTo(cx+14, cy); uctx.lineTo(cx+rad, cy);
+    uctx.moveTo(cx, cy-rad); uctx.lineTo(cx, cy-14);
+    uctx.moveTo(cx, cy+14); uctx.lineTo(cx, cy+rad);
+    uctx.stroke();
+    uctx.strokeStyle = "rgba(242,236,255,.55)"; uctx.lineWidth = 1.3;
+    uctx.beginPath();
+    for (let i=1;i<=4;i++){
+      const yy = cy + i*(rad*0.16), len = i%2 ? 7 : 12;
+      uctx.moveTo(cx-len, yy); uctx.lineTo(cx+len, yy);
+    }
+    uctx.stroke();
+    // 中心點
+    uctx.fillStyle = "#FF8A2B";
+    uctx.fillRect(cx-1.5, cy-1.5, 3, 3);
+    uctx.restore();
+  }
+
+  if (G.mode !== "dead"){
+    // 準心：瞄準時淡出，倍率鏡直接不畫。
+    // 開口大小直接對應當下的散布錐（含瞄準內插與 bloom），
+    // 玩家才看得出「這把槍腰射不準、要開鏡」
+    const curSpread = gAim.spread + (gAim.adsSpread - gAim.spread) * G.adsT
+                    + p.bloom * (1 - G.adsT*0.75);
+    const sp = 6 + curSpread * 420;
+    const chA = gAim.scope ? (1 - Math.min(1, G.adsT*2.2)) : 1;
+    if (chA > 0.02){
+      uctx.globalAlpha = chA;
+      uctx.strokeStyle = G.hitMark>0 ? "#FF4D5E" : "rgba(242,236,255,.9)";
+      uctx.lineWidth = 1.8;
+      uctx.beginPath();
+      for (const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){
+        uctx.moveTo(cx+dx*sp, cy+dy*sp);
+        uctx.lineTo(cx+dx*(sp+8), cy+dy*(sp+8));
+      }
+      uctx.stroke();
+      uctx.fillStyle = "rgba(242,236,255,.85)";
+      uctx.fillRect(cx-1,cy-1,2,2);
+      uctx.globalAlpha = 1;
+    }
+
+    // 命中標記：爆頭給明顯不同的回饋，打中哪裡要一眼看得出來
+    if (G.hitMark > 0){
+      const head = G.headMark > 0;
+      uctx.strokeStyle = head
+        ? `rgba(255,242,205,${G.headMark.toFixed(2)})`
+        : `rgba(255,77,94,${G.hitMark.toFixed(2)})`;
+      uctx.lineWidth = head ? 2.6 : 1.8;
+      const r0 = head ? 7 : 5, r1 = head ? 17 : 11;
+      uctx.beginPath();
+      for (const [dx,dy] of [[1,1],[-1,-1],[1,-1],[-1,1]]){
+        uctx.moveTo(cx+dx*r0, cy+dy*r0);
+        uctx.lineTo(cx+dx*r1, cy+dy*r1);
+      }
+      uctx.stroke();
+    }
+
+    // 受擊方向：以準心為中心，指向開槍的人
+    for (const d of G.dmgArcs){
+      const a = d.life/d.max;
+      const rel = d.angle - p.angle;   // 轉成相對於視線的方位
+      uctx.save();
+      uctx.translate(cx,cy); uctx.rotate(rel + Math.PI/2);
+      uctx.strokeStyle = `rgba(255,77,94,${(a*0.85).toFixed(3)})`;
+      uctx.lineWidth = 5;
+      uctx.beginPath();
+      uctx.arc(0,0, 78 + (1-a)*16, -Math.PI/2-0.35, -Math.PI/2+0.35);
+      uctx.stroke();
+      uctx.restore();
+    }
+  }
+
+  uctx.textBaseline = "middle";
+  // 血量
+  const hp = Math.max(0,p.hp);
+  uctx.textAlign = "left";
+  uctx.fillStyle = "rgba(0,0,0,.45)"; uctx.fillRect(28,h-52,220,11);
+  uctx.fillStyle = hp>35 ? "#FF8A2B" : "#FF4D5E";
+  uctx.fillRect(28,h-52,220*(hp/P.maxHp),11);
+  uctx.strokeStyle = "rgba(242,236,255,.18)"; uctx.lineWidth = 1;
+  uctx.strokeRect(28.5,h-52.5,219,12);
+  uctx.fillStyle = "#F2ECFF";
+  uctx.font = '600 22px "IBM Plex Mono", ui-monospace, monospace';
+  uctx.fillText(String(Math.ceil(hp)).padStart(3," "), 28, h-70);
+  uctx.fillStyle = "#9184B4";
+  uctx.font = '600 10px "Chakra Petch", system-ui';
+  uctx.fillText("INTEGRITY", 80, h-69);
+
+  // 技能
+  drawAbility(uctx, 292, h-46, "Q", p.sonarCd, P.sonarCd, "#7CE0FF");
+  drawAbility(uctx, 348, h-46, "E", p.echoCd,  P.echoCd,  "#A277FF");
+
+  // 武器與彈藥
+  uctx.textAlign = "right";
+  for (let i=0;i<GUN_ORDER.length;i++){
+    const k = GUN_ORDER[i], on = k === g.key;
+    const yy = h - 138 + i*19;
+    uctx.fillStyle = on ? "#FF8A2B" : "rgba(145,132,180,.45)";
+    uctx.font = on ? '700 14px "Chakra Petch", system-ui'
+                   : '600 11px "Chakra Petch", system-ui';
+    uctx.fillText((i+1) + "   " + GUNS[k].name, w-28, yy);
+    if (!on){
+      uctx.fillStyle = "rgba(145,132,180,.32)";
+      uctx.font = '600 10px "IBM Plex Mono", ui-monospace, monospace';
+      uctx.fillText(p.mags[k] + "/" + GUNS[k].mag, w-104, yy);
+    }
+  }
+  uctx.fillStyle = p.reloading>0 ? "#9184B4" : "#F2ECFF";
+  uctx.font = '600 30px "IBM Plex Mono", ui-monospace, monospace';
+  uctx.fillText(String(p.mags[g.key]), w-76, h-56);
+  uctx.fillStyle = "#9184B4";
+  uctx.font = '600 15px "IBM Plex Mono", ui-monospace, monospace';
+  uctx.fillText("/ " + g.mag, w-28, h-52);
+  if (p.reloading > 0){
+    const f = 1 - p.reloading/g.reload;
+    uctx.fillStyle = "rgba(0,0,0,.45)"; uctx.fillRect(w-156,h-34,128,4);
+    uctx.fillStyle = "#FF8A2B"; uctx.fillRect(w-156,h-34,128*f,4);
+  } else if (p.mags[g.key] === 0){
+    uctx.fillStyle = "#FF4D5E";
+    uctx.font = '700 11px "Chakra Petch", system-ui';
+    uctx.fillText("PRESS  R", w-28, h-30);
+  }
+
+  // 回合與分數
+  uctx.textAlign = "center";
+  uctx.fillStyle = "#9184B4";
+  uctx.font = '600 11px "Chakra Petch", system-ui';
+  uctx.fillText("ROUND " + Math.max(1,G.round), cx, 26);
+  for (let i=0;i<G.bots.length;i++){
+    const x = cx - (G.bots.length-1)*7 + i*14;
+    uctx.fillStyle = "#" + TYPES[G.bots[i].type].color.toString(16).padStart(6,"0");
+    uctx.beginPath(); uctx.arc(x,44,3.6,0,Math.PI*2); uctx.fill();
+  }
+  uctx.textAlign = "right";
+  uctx.fillStyle = "#9184B4";
+  uctx.font = '600 10px "Chakra Petch", system-ui';
+  uctx.fillText("SCORE", w-28, 24);
+  uctx.fillStyle = "#F2ECFF";
+  uctx.font = '600 25px "IBM Plex Mono", ui-monospace, monospace';
+  uctx.fillText(String(G.score).padStart(5,"0"), w-28, 46);
+
+  // 飄起來的傷害數字
+  for (const q of G.pops){
+    const sp = projectToScreen(q.x, q.h, q.y, w, h);
+    if (!sp) continue;
+    const a = Math.min(1, q.life/q.max*1.8);
+    uctx.textAlign = "center";
+    uctx.globalAlpha = a;
+    uctx.fillStyle = q.blocked         ? "#9AA8FF"
+                   : q.zone === "head"  ? "#FFFFFF"
+                   : q.zone === "leg"   ? "#B7A9D8"
+                   : q.kill             ? "#FFF3D6" : "#FFB870";
+    uctx.font = q.blocked         ? '600 12px "Chakra Petch", system-ui'
+              : q.zone === "head" ? '700 26px "IBM Plex Mono", ui-monospace, monospace'
+              : q.zone === "leg"  ? '600 14px "IBM Plex Mono", ui-monospace, monospace'
+              : q.kill            ? '700 24px "IBM Plex Mono", ui-monospace, monospace'
+                                  : '600 17px "IBM Plex Mono", ui-monospace, monospace';
+    uctx.fillText(q.text, sp.x, sp.y);
+    if (q.zone === "head" && !q.blocked){
+      uctx.fillStyle = "rgba(255,255,255,.7)";
+      uctx.font = '700 10px "Chakra Petch", system-ui';
+      uctx.fillText("HEADSHOT", sp.x, sp.y - 21);
+    }
+    uctx.globalAlpha = 1;
+  }
+
+  // 擊殺列表
+  uctx.textAlign = "right";
+  for (let i=0;i<G.feed.length;i++){
+    const f = G.feed[i];
+    const a = Math.min(1, f.life/0.5);
+    uctx.globalAlpha = a;
+    uctx.fillStyle = "#9184B4";
+    uctx.font = '600 11px "Chakra Petch", system-ui';
+    if (!f.pickup) uctx.fillText("ELIMINATED", w-88, 76 + i*19);
+    uctx.fillStyle = f.pickup ? "#3FE0C8" : "#FF8A2B";
+    uctx.font = '700 12px "Chakra Petch", system-ui';
+    uctx.fillText(f.text, w-28, 76 + i*19);
+    if (f.mult){
+      uctx.fillStyle = "#FFD24D";
+      uctx.font = '700 11px "IBM Plex Mono", ui-monospace, monospace';
+      uctx.fillText(f.mult, w-152, 76 + i*19);
+    }
+    uctx.globalAlpha = 1;
+  }
+
+  // 衝刺時準心散開，順便提示狀態
+  if (G.sprinting || G.crouching || !p.grounded){
+    uctx.textAlign = "center";
+    const label = !p.grounded ? "AIRBORNE" : G.crouching ? "CROUCH" : "SPRINT";
+    uctx.fillStyle = !p.grounded ? "rgba(255,200,120,.6)"
+                   : G.crouching ? "rgba(124,224,255,.65)" : "rgba(255,138,43,.6)";
+    uctx.font = '600 10px "Chakra Petch", system-ui';
+    uctx.fillText(label, w/2, h/2 + 54);
+  }
+
+  // 幀率：右下角一行小字，卡頓時一眼就看得出來
+  uctx.textAlign = "right";
+  uctx.fillStyle = G.fps < 45 ? "rgba(255,120,90,.75)" : "rgba(145,132,180,.42)";
+  uctx.font = '600 10px "IBM Plex Mono", ui-monospace, monospace';
+  uctx.fillText(Math.round(G.fps) + " FPS", w-28, h-14);
+
+  if (G.streak >= 2 && G.streakT > 0){
+    uctx.textAlign = "center";
+    uctx.globalAlpha = Math.min(1, G.streakT/0.6);
+    uctx.fillStyle = "#FFD24D";
+    uctx.font = '700 15px "Chakra Petch", system-ui';
+    uctx.fillText(G.streak + " STREAK  ·  " + (1+Math.min(2,(G.streak-1)*0.35)).toFixed(2) + "x", w/2, h/2 + 82);
+    uctx.globalAlpha = 1;
+  }
+
+  drawMinimap(uctx, 28, 28, 150);
+
+  // 中央提示
+  if (G.mode === "break"){
+    uctx.textAlign = "center";
+    uctx.fillStyle = "#9184B4";
+    uctx.font = '600 12px "Chakra Petch", system-ui';
+    uctx.fillText("NEXT WAVE IN", cx, cy-110);
+    uctx.fillStyle = "#FF8A2B";
+    uctx.font = '700 50px "IBM Plex Mono", ui-monospace, monospace';
+    uctx.fillText(Math.ceil(G.timer).toFixed(0), cx, cy-64);
+  } else if (G.flashT > 0){
+    uctx.textAlign = "center";
+    uctx.globalAlpha = Math.min(1, G.flashT/0.6);
+    uctx.fillStyle = "#F2ECFF";
+    uctx.font = '700 24px "Chakra Petch", system-ui';
+    uctx.fillText(G.flashLine, cx, cy-130);
+    if (G.flashSub){
+      uctx.fillStyle = "#9184B4";
+      uctx.font = '600 13px "Chakra Petch", system-ui';
+      uctx.fillText(G.flashSub, cx, cy-106);
+    }
+    uctx.globalAlpha = 1;
+  }
+}
+
+function drawAbility(x, cx, cy, label, cd, cdMax, color){
+  const r = 20, ready = cd <= 0;
+  x.save(); x.translate(cx,cy);
+  x.fillStyle = "rgba(8,6,20,.8)";
+  x.beginPath(); x.arc(0,0,r,0,Math.PI*2); x.fill();
+  x.strokeStyle = ready ? color : "rgba(145,132,180,.4)";
+  x.lineWidth = 2;
+  x.beginPath(); x.arc(0,0,r,0,Math.PI*2); x.stroke();
+  if (!ready){
+    x.strokeStyle = color; x.lineWidth = 3;
+    x.beginPath(); x.arc(0,0,r,-Math.PI/2,-Math.PI/2+Math.PI*2*(1-cd/cdMax)); x.stroke();
+  }
+  x.textAlign = "center"; x.textBaseline = "middle";
+  x.fillStyle = ready ? color : "#9184B4";
+  x.font = '700 16px "Chakra Petch", system-ui';
+  x.fillText(label,0,1);
+  if (!ready){
+    x.fillStyle = "#9184B4";
+    x.font = '600 10px "IBM Plex Mono", ui-monospace, monospace';
+    x.fillText(Math.ceil(cd)+"s", 0, r+11);
+  }
+  x.restore();
+}
+
+// 第一人稱最大的代價是失去方位感，所以補一張只顯示地形的小地圖
+function drawMinimap(x, ox, oy, size){
+  const k = size / W, mh = H*k;
+  x.save();
+  x.globalAlpha = 0.9;
+  x.fillStyle = "rgba(6,5,16,.72)";
+  x.fillRect(ox,oy,size,mh);
+  x.strokeStyle = "rgba(196,86,42,.35)"; x.lineWidth = 1;
+  x.strokeRect(ox+.5,oy+.5,size-1,mh-1);
+  x.fillStyle = "rgba(196,86,42,.34)";
+  for (const w of WALLS) x.fillRect(ox+w.x*k, oy+w.y*k, w.w*k, w.h*k);
+
+  // 只畫被聲納標記到的敵人，否則等於作弊
+  for (const b of G.bots){
+    if (b.revealed <= 0) continue;
+    x.fillStyle = "#7CE0FF";
+    x.beginPath(); x.arc(ox+b.x*k, oy+b.y*k, 2.6, 0, Math.PI*2); x.fill();
+  }
+
+  for (const u of G.pickups){
+    x.fillStyle = u.kind === "cell" ? "#3FE0C8" : "#FFD24D";
+    x.fillRect(ox+u.x*k-2.4, oy+u.y*k-2.4, 4.8, 4.8);
+  }
+
+  const p = G.player;
+  const px = ox+p.x*k, py = oy+p.y*k;
+  x.fillStyle = "rgba(255,138,43,.22)";
+  x.beginPath();
+  x.moveTo(px,py);
+  x.arc(px,py, 22, p.angle-0.68, p.angle+0.68);
+  x.closePath(); x.fill();
+  x.fillStyle = "#FF8A2B";
+  x.beginPath(); x.arc(px,py,3,0,Math.PI*2); x.fill();
+  x.restore();
+}
+
+// ─────────────────────────────────────────────
+// 流程
+// ─────────────────────────────────────────────
+function clearScene(){
+  if (!G) return;
+  for (const b of G.bots){ botLayer.remove(b.obj); if (b.laser) fxLayer.remove(b.laser); }
+  for (const bl of G.bullets) if (bl.mesh) bulletLayer.remove(bl.mesh);
+  for (const q of sparkPool){ q.m.visible = false; q.life = 0; }
+  for (const r of G.rings) fxLayer.remove(r.mesh);
+  for (const c of G.corpses) botLayer.remove(c.obj);
+  for (const k of G.shocks) fxLayer.remove(k.mesh);
+  for (const u of G.pickups) fxLayer.remove(u.obj);
+  for (const sh of shells) sh.mesh.visible = false;
+  shells.length = 0;
+  for (const d of drops) d.mesh.visible = false;
+  drops.length = 0;
+  for (const d of steps) d.mesh.visible = false;
+  for (const d of decals) d.mesh.visible = false;
+  steps.length = 0; decals.length = 0;
+}
+function endGame(){
+  if (G.score > best){
+    best = G.score;
+    try { localStorage.setItem("echo3d.best", String(best)); } catch(e){}
+  }
+  document.getElementById("dScore").textContent = G.score;
+  document.getElementById("dRound").textContent = G.round;
+  document.getElementById("dKills").textContent = G.kills;
+  document.getElementById("dAcc").textContent =
+    (G.shots ? Math.round(G.hits/G.shots*100) : 0) + "%";
+  document.getElementById("dBest").textContent  = best;
+  document.exitPointerLock?.();
+  setTimeout(()=>{ overDead.hidden = false; }, 800);
+}
+function startGame(){
+  clearScene();
+  G = newGame();
+  overStart.hidden = true; overDead.hidden = true; overPause.hidden = true;
+  audioOn();
+  try{ glCanvas.requestPointerLock?.()?.catch?.(()=>{}); }catch(e){}
+}
+
+function layout(){
+  const stage = document.getElementById("stage");
+  const availW = stage.clientWidth - 32, availH = stage.clientHeight - 32;
+  let w = availW, h = w*9/16;
+  if (h > availH){ h = availH; w = h*16/9; }
+  w = Math.max(320, Math.floor(w)); h = Math.max(180, Math.floor(h));
+  frame.style.width = w+"px"; frame.style.height = h+"px";
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  renderer.setPixelRatio(dpr);
+  renderer.setSize(w,h,false);
+  camera.aspect = w/h; camera.fov = SET ? SET.fov : 78; camera.updateProjectionMatrix();
+  vmCamera.aspect = w/h; vmCamera.updateProjectionMatrix();
+  makeTargets(Math.floor(w*dpr), Math.floor(h*dpr));
+  uiCanvas.width = Math.floor(w*dpr); uiCanvas.height = Math.floor(h*dpr);
+  scale = dpr;
+}
+addEventListener("resize", layout);
+
+// ── 輸入 ──
+const HANDLED = new Set(["w","a","s","d","q","e","r","f","1","2","3"," ","shift","control"]);
+addEventListener("keydown", ev => {
+  const k = ev.key.toLowerCase();
+  if (HANDLED.has(k)) ev.preventDefault();
+  if (ev.repeat) return;
+  keys.add(k);
+  if (!G || G.mode === "dead" || !locked) return;
+  if (k === "r") startReload();
+  if (k === "f" && canInspect()) vm.inspect = 1;
+  if (k === "q") useSonar();
+  if (k === "e") useEcho();
+  if (k === "1") swapGun("vector");
+  if (k === "2") swapGun("lance");
+  if (k === "3") swapGun("breach");
+});
+addEventListener("keyup", ev => keys.delete(ev.key.toLowerCase()));
+addEventListener("blur", () => { keys.clear(); mouse.down = false; });
+
+glCanvas.addEventListener("mousedown", ev => {
+  ev.preventDefault();
+  audioOn();
+  if (!locked){ try{ glCanvas.requestPointerLock?.()?.catch?.(()=>{}); }catch(e){} return; }  // 第一下只負責鎖定，不會誤射
+  if (ev.button === 2){ if (G) G.adsOn = !G.adsOn; return; }   // 右鍵切換瞄準
+  if (ev.button !== 0) return;
+  mouse.down = true;
+  if (G) G.player.firedThisPress = false;
+});
+addEventListener("mouseup", ev => {
+  if (ev.button !== 2) mouse.down = false;
+});
+glCanvas.addEventListener("contextmenu", ev => ev.preventDefault());
+
+let wheelAcc = 0, wheelNext = 0;
+addEventListener("wheel", ev => {
+  if (!locked || !G || G.mode === "dead") return;
+  ev.preventDefault();
+  // 冷卻用真實時鐘，不用遊戲的 dt——輸入的節流不該受遊戲迴圈快慢影響
+  const now = performance.now();
+  if (now < wheelNext) return;
+  wheelAcc += ev.deltaY;
+  const step = wheelAcc >= 50 ? 1 : wheelAcc <= -50 ? -1 : 0;
+  if (!step) return;
+  wheelAcc = 0;
+  wheelNext = now + 140;
+  const i = GUN_ORDER.indexOf(G.player.gun);
+  swapGun(GUN_ORDER[(i + step + GUN_ORDER.length) % GUN_ORDER.length]);
+}, {passive:false});
+
+document.addEventListener("pointerlockchange", () => {
+  locked = document.pointerLockElement === glCanvas;
+  if (!locked){
+    mouse.down = false; keys.clear();
+    if (G && G.mode !== "dead" && overStart.hidden && overDead.hidden) overPause.hidden = false;
+  } else {
+    overPause.hidden = true;
+  }
+});
+// 指標鎖定模式下，瀏覽器偶爾會回報異常巨大的位移——驅動程式、高回報率滑鼠、
+// 或畫面卡頓後累積的位移都會觸發。照單全收的話視角會瞬間甩開，看起來就是瞬移
+const MOVE_BOGUS = 700;   // 超過這個值視為雜訊，整筆丟棄
+const MOVE_CLAMP = 280;   // 正常的快速甩頭也不該超過這個量
+addEventListener("mousemove", ev => {
+  if (!locked) return;
+  if (Math.abs(ev.movementX) > MOVE_BOGUS || Math.abs(ev.movementY) > MOVE_BOGUS) return;
+  // 瞄準時依變焦倍率降低靈敏度，否則鏡頭裡的移動會被放大到無法控制
+  const zoomK = (G && G.adsT > 0)
+    ? (1 - G.adsT) + G.adsT * (GUNS[G.player.gun].adsFov / SET.fov)
+    : 1;
+  const mx = Math.max(-MOVE_CLAMP, Math.min(MOVE_CLAMP, ev.movementX));
+  const my = Math.max(-MOVE_CLAMP, Math.min(MOVE_CLAMP, ev.movementY));
+  yaw   -= mx * 0.0022 * SET.sens * zoomK;
+  pitch -= my * 0.0022 * SET.sens * zoomK;
+  mouseDX += mx; mouseDY += my;
+  const lim = Math.PI/2 - 0.08;
+  pitch = Math.max(-lim, Math.min(lim, pitch));
+});
+frame.addEventListener("click", (ev) => {
+  if (ev.target.closest(".settings") || ev.target.closest(".fsbtn")) return;   // 在調設定，不要把滑鼠鎖回去
+  if (!locked && G && G.mode !== "dead" && overStart.hidden && overDead.hidden){
+    try{ glCanvas.requestPointerLock?.()?.catch?.(()=>{}); }catch(e){}
+  }
+});
+
+// ── 設定：存在瀏覽器本機，下次開還在 ──
+const SET = {sens:1, fov:78, music:0.35};
+try {
+  const raw = localStorage.getItem("echo3d.set");
+  if (raw) Object.assign(SET, JSON.parse(raw));
+} catch(e){}
+function saveSettings(){
+  try { localStorage.setItem("echo3d.set", JSON.stringify(SET)); } catch(e){}
+}
+const elSens = document.getElementById("setSens");
+const elFov  = document.getElementById("setFov");
+const elMusic = document.getElementById("setMusic");
+const valSens = document.getElementById("valSens");
+const valFov  = document.getElementById("valFov");
+const valMusic = document.getElementById("valMusic");
+function applySettings(){
+  elSens.value = SET.sens; valSens.textContent = Number(SET.sens).toFixed(2);
+  elFov.value  = SET.fov;  valFov.textContent  = SET.fov;
+  elMusic.value = SET.music;
+  valMusic.textContent = Number(SET.music).toFixed(2);
+  if (userTrack) userTrack.volume = musicGain();
+  camera.fov = SET.fov; camera.updateProjectionMatrix();
+}
+elSens.addEventListener("input", () => { SET.sens = parseFloat(elSens.value); applySettings(); saveSettings(); });
+elFov.addEventListener("input",  () => { SET.fov  = parseInt(elFov.value,10); applySettings(); saveSettings(); });
+elMusic.addEventListener("input", () => { SET.music = parseFloat(elMusic.value); applySettings(); saveSettings(); });
+
+const elTrack = document.getElementById("setTrack");
+elTrack.addEventListener("change", () => {
+  const f = elTrack.files && elTrack.files[0];
+  if (!f) return;
+  attachTrack(f, f.name, true);
+  saveTrack(f, f.name);
+  audioOn();
+});
+document.getElementById("btnClearTrack").addEventListener("click", clearTrack);
+loadStoredTrack();
+applySettings();
+
+// ── 全螢幕 ──
+// 進出全螢幕會讓視窗尺寸改變，必須重算版面與 render target；
+// 而且瀏覽器在切換時會解除滑鼠鎖定，遊戲進行中要自己接回來
+function toggleFullscreen(){
+  try {
+    if (!document.fullscreenElement){
+      const r = document.documentElement.requestFullscreen?.();
+      if (r && r.catch) r.catch(()=>{});
+    } else {
+      const r = document.exitFullscreen?.();
+      if (r && r.catch) r.catch(()=>{});
+    }
+  } catch(e){}
+}
+function updateFsLabel(){
+  const on = !!document.fullscreenElement;
+  for (const b of document.querySelectorAll(".fsbtn")) b.textContent = on ? "離開全螢幕" : "全螢幕";
+}
+for (const b of document.querySelectorAll(".fsbtn")){
+  b.addEventListener("click", ev => { ev.stopPropagation(); toggleFullscreen(); });
+}
+document.addEventListener("fullscreenchange", () => {
+  updateFsLabel();
+  layout();
+  // 尺寸在轉場結束後才穩定，再補算一次
+  setTimeout(layout, 120);
+  if (G && G.mode !== "dead" && overStart.hidden && overDead.hidden && overPause.hidden){
+    try{ glCanvas.requestPointerLock?.()?.catch?.(()=>{}); }catch(e){}
+  }
+});
+updateFsLabel();
+
+document.getElementById("btnStart").addEventListener("click", startGame);
+document.getElementById("btnRetry").addEventListener("click", startGame);
+
+// ── 主迴圈 ──
+let last = performance.now();
+let cineT = 0;
+function loop(now){
+  const dt = Math.min(0.05, (now-last)/1000);
+  last = now;
+  if (G){
+    const inMenu = !overStart.hidden;
+    if (inMenu){
+      // 選單運鏡：沿著地圖中心緩慢繞行，讓第一眼就看得到這個空間
+      cineT += dt*0.085;
+      const r = 7.5;
+      camera.position.set(W*S/2 + Math.cos(cineT)*r, 2.0 + Math.sin(cineT*0.7)*0.35, H*S/2 + Math.sin(cineT)*r*0.55);
+      camera.rotation.set(0, 0, 0);
+      camera.lookAt(W*S/2 + Math.cos(cineT+2.4)*3, 1.5, H*S/2 + Math.sin(cineT+2.4)*2);
+      updateDust(dt, camera.position.x, camera.position.z);
+      compMat.uniforms.uTime.value = cineT*4;
+      compMat.uniforms.uDamage.value = 0;
+      compMat.uniforms.uLow.value = 0;
+      compMat.uniforms.uEcho.value = 0;
+      compMat.uniforms.uGain.value = 1;
+      renderPosted();
+      uctx.setTransform(1,0,0,1,0,0);
+      uctx.clearRect(0,0,uiCanvas.width,uiCanvas.height);
+      requestAnimationFrame(loop);
+      return;
+    }
+    update(dt);
+    sync(dt);
+    updateViewModel(dt);
+    updateDust(dt, G.player.x*S, G.player.y*S);
+    updateShells(dt);
+    updateDrops(dt);
+    compMat.uniforms.uTime.value   = G.t;
+    compMat.uniforms.uDamage.value = G.vignette*0.5;
+    compMat.uniforms.uEcho.value   = G.echoFlash*0.35;
+    compMat.uniforms.uGain.value   = 1 + G.adsT * (gun().scope ? 1.45 : 0.35);
+    compMat.uniforms.uLow.value =
+      (G.mode !== "dead" && G.player.hp < 38 && G.player.hp > 0)
+        ? (1 - G.player.hp/38) * (0.10 + 0.14*(0.5+0.5*Math.sin(G.t*7.5)))
+        : 0;
+    renderPosted();
+    drawUI();
+  }
+  requestAnimationFrame(loop);
+}
+
+// 預熱著色器。Three.js 是在材質第一次被畫到時才編譯程式，
+// 那會停頓數十毫秒——而且發生在遊戲中途（第一次打到牆、第一個腳印、第一顆彈殼），
+// 卡頓期間累積的滑鼠位移又會在下一個事件一次套用，看起來就是視角突然甩開
+(() => {
+  // 敵人的材質要先進場景才編得到，所以每種先造一隻、編完再移除
+  const warm = [];
+  for (const t of Object.keys(TYPES)){
+    const o = makeBotObject(t);
+    o.visible = false;
+    botLayer.add(o);
+    warm.push(o);
+  }
+  try {
+    renderer.compile(scene, camera);
+    renderer.compile(vmScene, vmCamera);
+    // 三把槍的模型也要先建好並編譯
+    for (const k of GUN_ORDER){ selectGun(k); renderer.compile(vmScene, vmCamera); }
+    selectGun("vector");
+  } catch(e){ /* 預熱失敗不影響遊戲，只是第一次會卡一下 */ }
+  for (const o of warm) botLayer.remove(o);
+})();
+
+layout();
+G = newGame();
+G.mode = "break"; G.timer = 9e9;    // 開場停在簡報畫面
+requestAnimationFrame(loop);
+
+})();
+</script>
+</body>
+</html>

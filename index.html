@@ -1008,6 +1008,64 @@ for (const w of WALLS){
   }
 }
 
+// 共線牆段之間的長開口就是主要通道，從間隙推導門框才不會和碰撞牆錯位
+function addDoorFrame(cx, cz, opening, depth, rotY){
+  const g = new THREE.Group();
+  g.position.set(cx*S, 0, cz*S);
+  g.rotation.y = rotY;
+  const postW = 0.16, frameH = 2.48;
+  const postGeo = new THREE.BoxGeometry(postW, frameH, depth + 0.12);
+  const beamGeo = new THREE.BoxGeometry(opening + postW*2, postW, depth + 0.12);
+  const postY = frameH/2;
+  const beamY = frameH - postW/2;
+  const putFrame = (geo, x, y, z) => {
+    const m = new THREE.Mesh(geo, trimMat);
+    m.position.set(x,y,z); g.add(m);
+  };
+  putFrame(postGeo, -opening/2-postW/2, postY, 0);
+  putFrame(postGeo,  opening/2+postW/2, postY, 0);
+  putFrame(beamGeo, 0, beamY, 0);
+
+  const glow = 0.035, inner = 0.055;
+  const glowPostGeo = new THREE.BoxGeometry(glow, frameH-0.18, glow);
+  const glowBeamGeo = new THREE.BoxGeometry(opening+inner*2, glow, glow);
+  for (const z of [-(depth/2+0.075), depth/2+0.075]){
+    const addGlow = (geo, x, y) => {
+      const m = new THREE.Mesh(geo, stripMat);
+      m.position.set(x,y,z); g.add(m);
+    };
+    addGlow(glowPostGeo, -opening/2-inner, (frameH-0.18)/2);
+    addGlow(glowPostGeo,  opening/2+inner, (frameH-0.18)/2);
+    addGlow(glowBeamGeo, 0, frameH-0.14);
+  }
+  scene.add(g);
+}
+
+function addDoorFrames(){
+  for (let i=0;i<WALLS.length;i++){
+    const a = WALLS[i];
+    for (let j=i+1;j<WALLS.length;j++){
+      const b = WALLS[j];
+      if (a.x === b.x && a.w === b.w){
+        const first = a.y < b.y ? a : b, second = first === a ? b : a;
+        const gap = second.y - (first.y + first.h);
+        if (gap >= 48 && gap <= 180 && Math.min(first.h,second.h) >= 100){
+          addDoorFrame((a.x+a.w/2), first.y+first.h+gap/2,
+                       gap*S, a.w*S, Math.PI/2);
+        }
+      } else if (a.y === b.y && a.h === b.h){
+        const first = a.x < b.x ? a : b, second = first === a ? b : a;
+        const gap = second.x - (first.x + first.w);
+        if (gap >= 48 && gap <= 180 && Math.min(first.w,second.w) >= 100){
+          addDoorFrame(first.x+first.w+gap/2, (a.y+a.h/2),
+                       gap*S, a.h*S, 0);
+        }
+      }
+    }
+  }
+}
+addDoorFrames();
+
 // ── 牆面外掛件 ──
 // 大面積的平牆再怎麼貼圖都會顯得空，掛一些管線、通風口、電箱
 // 讓輪廓有起伏，走過去時的視差才有東西可看
@@ -1698,11 +1756,15 @@ const compMat = new THREE.ShaderMaterial({
       col.g = texture2D(tScene, vUv).g;
       col.b = texture2D(tScene, vUv - d*ab).b;
 
+      // 感測器增益：只抬暗部，中間調以上維持原樣。
+      // 全域 gamma 會把中間調一起拉高（0.5 變 0.75）讓整個畫面泛白；
+      // 而且必須在加泛光之前做，否則連泛光一起被放大
+      if (uGain > 1.001){
+        float lum = dot(col, vec3(0.2126, 0.7152, 0.0722));
+        vec3 lifted = pow(max(col, vec3(0.0)), vec3(1.0 / uGain));
+        col = mix(lifted, col, smoothstep(0.12, 0.55, lum));
+      }
       col += texture2D(tBloom, vUv).rgb * uBloom;
-      // 感測器增益：用 gamma 提暗部，不是線性放大。
-      // 線性乘法會把本來就很亮的熱源直接推爆成一團白，
-      // gamma 則是暗處大幅提亮、已經是白的維持在白
-      col = pow(max(col, vec3(0.0)), vec3(1.0 / uGain));
       col = grade(col);
       col = aces(col * 1.08);
 
@@ -3695,6 +3757,7 @@ function loop(now){
       compMat.uniforms.uLow.value = 0;
       compMat.uniforms.uEcho.value = 0;
       compMat.uniforms.uGain.value = 1;
+      compMat.uniforms.uBloom.value = 0.85;
       renderPosted();
       uctx.setTransform(1,0,0,1,0,0);
       uctx.clearRect(0,0,uiCanvas.width,uiCanvas.height);
@@ -3710,7 +3773,9 @@ function loop(now){
     compMat.uniforms.uTime.value   = G.t;
     compMat.uniforms.uDamage.value = G.vignette*0.5;
     compMat.uniforms.uEcho.value   = G.echoFlash*0.35;
-    compMat.uniforms.uGain.value   = 1 + G.adsT * (gun().scope ? 1.45 : 0.35);
+    compMat.uniforms.uGain.value   = 1 + G.adsT * (gun().scope ? 0.75 : 0.22);
+    // 放大之後亮部佔的畫面比例變高，泛光要跟著收，否則整片糊成白的
+    compMat.uniforms.uBloom.value  = 0.85 * (1 - G.adsT*0.4);
     compMat.uniforms.uLow.value =
       (G.mode !== "dead" && G.player.hp < 38 && G.player.hp > 0)
         ? (1 - G.player.hp/38) * (0.10 + 0.14*(0.5+0.5*Math.sin(G.t*7.5)))

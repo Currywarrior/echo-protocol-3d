@@ -1684,8 +1684,10 @@ const compMat = new THREE.ShaderMaterial({
       col.b = texture2D(tScene, vUv - d*ab).b;
 
       col += texture2D(tBloom, vUv).rgb * uBloom;
-      // 感測器增益：開鏡時把暗部提起來，代價是噪點一起被放大
-      col *= uGain;
+      // 感測器增益：用 gamma 提暗部，不是線性放大。
+      // 線性乘法會把本來就很亮的熱源直接推爆成一團白，
+      // gamma 則是暗處大幅提亮、已經是白的維持在白
+      col = pow(max(col, vec3(0.0)), vec3(1.0 / uGain));
       col = grade(col);
       col = aces(col * 1.08);
 
@@ -3013,6 +3015,10 @@ function sync(dtLast){
     if (ud.halo){
       // 公告板：抵銷掉本體的旋轉，永遠正對鏡頭
       ud.halo.rotation.y = camera.rotation.y - b.obj.rotation.y;
+      // 熱暈是給遠處辨識用的。近距離還疊上去，會把本來就亮的身體
+      // 推過曝成一團白，反而看不出兵種與頭部位置
+      const halod = Math.hypot(b.x - p.x, b.y - p.y) * S;
+      ud.halo.material.opacity = Math.min(0.38, 0.015 + halod*0.036);
     }
     b.obj.userData.hot.color.setHex(b.flash > 0 ? 0xFFFFFF : TYPES[b.type].color);
     b.obj.userData.ghost.visible = b.revealed > 0;

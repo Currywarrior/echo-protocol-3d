@@ -2747,6 +2747,7 @@ function update(dt){
               if (diff < 1.31){ dealt = Math.round(dealt*TT.frontArmor); blocked = true; }
             }
             b.hp -= dealt; b.flash = 0.1;
+            if (b.hp <= 0) b.deathAngle = Math.atan2(bl.vy, bl.vx);
             G.hits++;
             spawnSpark(bl.x, bl.y,
               blocked ? 0x9AA8FF : zone === "head" ? 0xFFFFFF : TT.color,
@@ -2794,8 +2795,15 @@ function update(dt){
       spawnSpark(b.x,b.y,TYPES[b.type].color,20);
       if (b.laser){ fxLayer.remove(b.laser); b.laser = null; }
       // 屍體留在原地倒下、體溫慢慢散掉，而不是憑空消失
+      const fallAngle = b.deathAngle ?? b.angle;
+      const fallDelta = fallAngle - b.angle;
+      const fallDirX = Math.sin(fallDelta);
+      const fallDirZ = -Math.cos(fallDelta);
       G.corpses.push({obj:b.obj, life:2.6, max:2.6,
-                      spin:(Math.random()<0.5?-1:1)*(0.9+Math.random()*0.5)});
+                      baseQuat:new THREE.Quaternion().setFromEuler(
+                        new THREE.Euler(0, yawOf(b.angle), 0)),
+                      fallAxis:new THREE.Vector3(fallDirZ, 0, -fallDirX),
+                      tiltQuat:new THREE.Quaternion()});
       G.bots.splice(i,1);
       G.kills++;
       // 三秒內接著再殺會疊加，最多三倍
@@ -2884,7 +2892,9 @@ function update(dt){
     c.life -= dt;
     if (c.life <= 0){ botLayer.remove(c.obj); G.corpses.splice(i,1); continue; }
     const f = c.life/c.max;
-    c.obj.rotation.z = c.spin * (1-f) * Math.PI/2 * 1.05;   // 倒下
+    // 受擊方向決定倒下軸，命中方向才會和倒地方向有因果關係
+    c.obj.quaternion.copy(c.baseQuat).multiply(
+      c.tiltQuat.setFromAxisAngle(c.fallAxis, (1-f)*Math.PI/2*1.05));
     c.obj.position.y = -(1-f)*0.25;
     c.obj.traverse(o => {
       if (o.material && o.material.transparent !== undefined && o !== c.obj){

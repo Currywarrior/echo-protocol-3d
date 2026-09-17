@@ -2900,10 +2900,26 @@ function update(dt){
         const B = G.bots[j];
         const dx2 = B.x-A.x, dy2 = B.y-A.y;
         const d2 = Math.hypot(dx2, dy2), need = A.rad + B.rad;
-        if (d2 < need && d2 > 0.01){
+        if (d2 < need){
+          // 兩隻敵人被牆同時推回原位時可能完全重合；不能讓零距離跳過分離，
+          // 否則兩個同型敵人的頭會互相穿插，熱成像看起來就像殘影閃爍
+          let nx, ny;
+          if (d2 > 0.01){
+            nx = dx2/d2; ny = dy2/d2;
+          } else {
+            const a = A.angle + (i+j+1)*Math.PI*0.25;
+            nx = Math.cos(a); ny = Math.sin(a);
+          }
           const push = (need - d2) * 0.5;
-          moveWithCollision(A, -dx2/d2*push, -dy2/d2*push);
-          moveWithCollision(B,  dx2/d2*push,  dy2/d2*push);
+          moveWithCollision(A, -nx*push, -ny*push);
+          moveWithCollision(B,  nx*push,  ny*push);
+          // 如果第一個方向貼著牆，換一個軸再推一次，避免仍然重疊
+          const rx = B.x-A.x, ry = B.y-A.y;
+          if (Math.hypot(rx, ry) < need*0.85){
+            const sx = -ny, sy = nx;
+            moveWithCollision(A, -sx*push, -sy*push);
+            moveWithCollision(B,  sx*push,  sy*push);
+          }
         }
       }
     }

@@ -31,6 +31,10 @@
 - 兩個技能：Q 聲納穿牆標記、E 回溯（回到三秒前的位置與血量）
 - 四種敵人：GRUNT / STALKER（貼臉）/ LANCER（超遠射程有雷射預警）/ WARDEN（正面裝甲需繞背）
 - 部位傷害：爆頭 2.5 倍、軀幹 1 倍、腿 0.6 倍
+- 兩種模式：生存（波次敵人）/ 訓練場（Apex Firing Range 式假人、統計、壓槍分析、12 課身法槍法教學）
+- 四張地圖：COLUMN FOREST / DEAD SIGNAL（室內）、HIGH NOON / RIDGE TOWN（露天；RIDGE TOWN 是 Apex 尺度的建築群，
+  世界 60x42m，用 `size` 指定，換圖時 `resizeWorld()` 重建地板、天空與陰影範圍）
+- 移動與射擊一比一照 Apex Legends（見下方決定表）；按鍵全部可重新綁定（`ACTIONS` / `BINDS`）
 
 ---
 
@@ -79,6 +83,9 @@ r150+ 棄用 UMD、r160 移除。而發布平台的 CSP 只放行 cdnjs 與 jsde
 | 音樂音量**不隨戰況變動** | 只由設定滑桿控制 |
 | **不內嵌任何有版權的音樂** | 遊戲提供「讀取玩家自選本機音檔」的功能，檔案存在 IndexedDB，不進專案 |
 | **移動一比一照 Apex**（2026-09-24，取代原本的 CS/Valorant） | Leo 在玩 Apex，要求全部模式一比一照它。常數在 `P` 與 `SLIDE`，直接用 hu 換算（`HU` = 每 hu 幾像素，1hu = 2.54cm），來源 apexmovement.tech。wiki 沒公開的（地面加速、摩擦、重力、滑鏟減速）是用它的實測結果回推，推法寫在註解裡；stopspeed 刻意取 60 不用 Source 預設 100，否則蹲走（80hu/s）會走不動。跳躍是按下觸發、按住不連跳。不要改回 CS/Valorant 的數值 |
+| **牆上技術照 Apex**（2026-09-24） | 攀牆、翻越、蹬牆跳、Superglide、lurch、跳躍疲勞，常數在 `WT`，每個數字都標了「wiki」或「自訂」。攀牆不需要按前進（wiki 原文），否則蹬牆跳（撞牆前放開前進）不可能成立。露天圖的高牆頂站得上去（`standable`），玩家座標會夾在地圖範圍內 |
+| **後座力是固定圖形**（2026-09-24） | `RECOIL` 每把槍第 n 發往哪裡跳是固定的（只帶 ±8% 隨機），才能練壓槍；VECTOR 照 R-301 的形狀。平滑射擊（`RC`）：準心穩定單向橫移時垂直後座力變小、走位時橫向變小，門檻與倍率是自訂的（wiki 沒數字）。不要改回純隨機後座 |
+| **按鍵可重新綁定、滾輪預設前進與跳**（2026-09-24） | Leo 要求。綁定存 `KeyboardEvent.code`，滾輪一格等於按下一幀（`wheelTap`）。全螢幕時用 Keyboard Lock API 借走按鍵，否則 Ctrl+W（蹲+前進）會關掉分頁——Leo 實際遇過 |
 | **訓練場模式**（2026-09-24） | 選單「模式」切換，三張圖都能用；Leo 要在看地圖時不被打、練定點與移動靶。仿 Apex Firing Range：假人 100 血＋可調 Evo 護盾（無/白/藍/紫/紅）、頭盔只削爆頭加成、平移速度照 Apex 蹲走/走/衝刺。假人放在 `G.bots`（`dummy:true`），AI 與開槍在 update 裡 `continue` 掉 |
 
 有個共通模式值得記住：這遊戲的核心是黑暗中的資訊判讀，
@@ -86,19 +93,20 @@ r150+ 棄用 UMD、r160 移除。而發布平台的 CSP 只放行 cdnjs 與 jsde
 
 ---
 
-## 驗證上的限制（很重要）
+## 驗證方法（很重要）
 
-**瀏覽器分頁在背景會被降頻到約 1fps**，所以用瀏覽器自動化幾乎驗不到實際玩法：
-敵人不會生成、模擬的按鍵推不動遊戲迴圈、程式觸發的點擊不算使用者手勢
-（所以 AudioContext 啟動不了，聲音完全測不到）。
+Playwright MCP 開的是背景分頁，會被降頻到約 1fps，推不動遊戲迴圈。
+**改用 Python 版 playwright 自己開 headless Chrome**（`channel="chrome"`，參數
+`--use-angle=d3d11 --enable-gpu --ignore-gpu-blocklist`）：只有單一分頁、不降頻，遊戲迴圈真的會跑，
+移動、攀牆、射擊、敵人 AI 都驗得到。作法：
 
-能做的驗證：
-- 載入後有無 console 錯誤
-- 靜態畫面截圖
-- **用 Node 離線模擬**物理與平衡數學（這個最有用，過去抓到好幾個真 bug）
-
-要測敵人生成流程時的作法：複製一份測試版，把回合倒數 `timer:2.2` 改成 `0.02`，
-需要時再拿掉 pointer lock 的限制。**測完記得刪掉測試檔。**
+- 在 scratchpad 複製一份測試版，於 `applyAtmo(); layout(); G = newGame();` 前掛
+  `window.__dbg = {getG, keys, setYaw, setPitch, setLocked, walls, rc, ...}`，用 `python -m http.server` 起服務（Playwright 擋 file:）
+- 按鍵用 code 名稱（`KeyW`、`ShiftLeft`、`ControlLeft`、`Mouse0`）加進 `keys`；跳躍是按下觸發，要設 `G.jumpPress = true`
+- `inputDown` 與射擊要求 `locked`，測試要 `setLocked(true)`；每 0.1 秒把 `overPause.hidden = true`（沒滑鼠鎖定會跳暫停）
+- 要在「某個狀態發生的那一幀」做事（例如翻越剩 0.1 秒時按跳），在頁面裡掛 requestAnimationFrame 的條件觸發
+- 改地圖配置後一定要跑敵人模擬：生存模式第 6 波，每 0.5 秒記位置與 `see`，找「4 秒沒動又看不到玩家」的敵人
+- headless 的幀率不能拿來判斷效能；聲音測不到
 
 手感、聲音、平衡一律要 Leo 自己測。不要宣稱驗證過沒驗證過的東西。
 

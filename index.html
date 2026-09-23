@@ -1251,28 +1251,35 @@ function buildFloorSurface(){
 // 石砌牆（ashlar）：錯縫排列的切石，灰縫凹下、石面中央微凸、邊角有缺口。
 // 輸出灰階，顏色交給主題染，和 WALL_GRAY 的用法一樣。
 // 一張貼圖約 2.4m（牆的 UV 密度 0.42），排 8 皮，每皮約 0.3m 高
-function buildAshlarSurface(){
-  const N = 1024, rows = 8, rh = N/rows, mortar = 7;
+// 同一個產生器也拿來畫石板鋪面：皮數、石塊寬度、灰縫寬度與種子由參數決定
+function buildAshlarSurface(opt){
+  const o = Object.assign({rows:8, minW:0.18, spanW:0.2, mortar:7, seed:20260923}, opt);
+  const N = 1024, rows = o.rows, rh = N/rows, mortar = o.mortar;
   const c = mkCanvas(N), x = c.getContext("2d");
   const h = mkCanvas(N), hx = h.getContext("2d");
+  // 粗糙度：灰縫最粗（白），石面依塊略有差異
+  const rc = mkCanvas(N), rx = rc.getContext("2d");
   // 固定種子：每次載入長得一樣
-  let seed = 20260923;
+  let seed = o.seed;
   const R = () => (seed = (seed*1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
   x.fillStyle = "rgb(118,118,118)"; x.fillRect(0,0,N,N);
   hx.fillStyle = "#303030"; hx.fillRect(0,0,N,N);
+  rx.fillStyle = "#FFFFFF"; rx.fillRect(0,0,N,N);
   for (let r=0; r<rows; r++){
     const y0 = r*rh;
     // 每一皮從不同位置開始切，接縫才不會上下對齊
     let px = -R()*N*0.12;
     while (px < N){
-      const bw = N*(0.18 + R()*0.2);
-      const v = 150 + R()*46;
+      const bw = N*(o.minW + R()*o.spanW);
+      const v = 150 + R()*46, rv = (170 + R()*50)|0;
       // 同一塊石頭畫兩次（本身與 +N 位移），左右接得起來
       for (const off of [0, -N, N]){
         const bx = px + off;
         if (bx + bw < 0 || bx > N) continue;
         x.fillStyle = `rgb(${v|0},${v|0},${v|0})`;
         x.fillRect(bx + mortar/2, y0 + mortar/2, bw - mortar, rh - mortar);
+        rx.fillStyle = `rgb(${rv},${rv},${rv})`;
+        rx.fillRect(bx + mortar/2, y0 + mortar/2, bw - mortar, rh - mortar);
         // 高度：石面中央高、邊緣模糊成斜角
         hx.save(); hx.filter = "blur(4px)";
         hx.fillStyle = `hsl(0,0%,${58 + R()*10}%)`;
@@ -1304,10 +1311,12 @@ function buildAshlarSurface(){
     gr.addColorStop(1, "rgba(0,0,0,0)");
     x.fillStyle = gr; x.fillRect(px-rad, py-rad, rad*2, rad*2);
   }
-  return {color:c, normal:heightToNormal(h, 3.2)};
+  return {color:c, normal:heightToNormal(h, 3.2), rough:rc};
 }
-let STONE_SURF = null;
+let STONE_SURF = null, PAVE_SURF = null;
 function stoneSurf(){ return STONE_SURF || (STONE_SURF = buildAshlarSurface()); }
+// 地板貼圖一張約 4m：6 皮、每塊石板 0.5～1.1m，灰縫較寬，是廣場鋪面的尺度
+function paveSurf(){ return PAVE_SURF || (PAVE_SURF = buildAshlarSurface({rows:6, minW:0.13, spanW:0.15, mortar:10, seed:4471})); }
 
 const WALL_SURF  = buildWallSurface();
 const FLOOR_SURF = buildFloorSurface();
@@ -1343,6 +1352,9 @@ const floorMat = new THREE.MeshStandardMaterial({
   color:0x9C86FF, roughness:1.0, metalness:0.30,
 });
 floorMat.normalScale.set(0.85,0.85);
+// 原本的地板貼圖留著：地板材質跨地圖共用，換到石板鋪面的地圖後，換回來時要還原
+const FLOOR_ORIG = {normal:floorMat.normalMap, rough:floorMat.roughnessMap, metal:floorMat.metalness};
+let floorPave = null;
 const floor = new THREE.Mesh(new THREE.PlaneGeometry(W*S, H*S), floorMat);
 floor.rotation.x = -Math.PI/2;
 floor.position.set(W*S/2, 0, H*S/2);
@@ -1525,6 +1537,14 @@ const WALL_VARIANTS = [
 const WALL_COL = theme.ashlar ? stoneSurf().color : theme.neutral ? WALL_GRAY : WALL_SURF.color;
 const WALL_NRM = theme.ashlar ? stoneSurf().normal : WALL_SURF.normal;
 floorMat.map = theme.neutral ? floorGrayTex : floorColorTex;
+floorMat.normalMap = FLOOR_ORIG.normal; floorMat.roughnessMap = FLOOR_ORIG.rough; floorMat.metalness = FLOOR_ORIG.metal;
+// ashlar 主題的地板是石板鋪面，不再是鋼格柵與花紋鋼板
+if (theme.ashlar){
+  const ps = paveSurf();
+  floorPave = floorPave || {map:texFrom(ps.color, W*S/4, H*S/4), normal:texFrom(ps.normal, W*S/4, H*S/4), rough:texFrom(ps.rough, W*S/4, H*S/4)};
+  floorMat.map = floorPave.map; floorMat.normalMap = floorPave.normal; floorMat.roughnessMap = floorPave.rough;
+  floorMat.metalness = 0;
+}
 const wallMap = texFrom(WALL_COL), wallNormal = texFrom(WALL_NRM);
 // 牆腳髒污：貼圖每 2.4m 重複一次，底邊對不到牆腳，所以改在 shader 裡依世界高度壓暗。
 // 髒污線的高度隨水平位置起伏，才不會是一條尺畫的水平線

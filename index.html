@@ -351,7 +351,7 @@ const MAPS = {
       sunColor:0xFFD6A0, sunI:1.85, sunDir:[0.62,0.55,0.42],
       skyTop:0x5A92DA, skyHorizon:0xF8D4A8,
       // 清晰度：露天圖不需要感測器的色差、掃描線與顆粒，另外加一點銳化
-      aberr:0, scan:0, noise:0.01, sharp:0.35,
+      aberr:0, scan:0, noise:0.01, sharp:0.35, ao:1, env:true,
     },
     walls:[
       {x:0,y:0,w:W,h:24},{x:0,y:H-24,w:W,h:24},
@@ -404,6 +404,10 @@ const ATMO_DEFAULT = {
   sunColor:0xFFFFFF, sunI:0, sunDir:[0.5,1,0.3], skyTop:0x000000, skyHorizon:0x000000,
   // 後製的感測器質感：色差、掃描線、噪點，以及露天圖用的銳化
   aberr:1, scan:0.07, noise:0.045, sharp:0,
+  // 環境光遮蔽的強度
+  ao:0.8,
+  // 露天地圖用天空生成環境貼圖（IBL）
+  env:false,
 };
 function atmo(){ return Object.assign({}, ATMO_DEFAULT, activeMap.atmo || {}); }
 let WALLS = activeMap.walls;
@@ -1894,9 +1898,46 @@ function useMap(id){
   rebuildSegments();
   buildMapGeometry();
   applyAtmo();
+  // 有沒有環境貼圖是兩套不同的 shader，換圖時先編好，免得第一波敵人出場時卡一下
+  const warm = Object.keys(TYPES).map(t => { const o = makeBotObject(t); o.visible = false; botLayer.add(o); return o; });
+  try { renderer.compile(scene, camera); } catch(e){}
+  for (const o of warm) botLayer.remove(o);
 }
 // 霧、背景、環境光、泛光、暗角：這些決定一張圖是陰鬱還是明亮
 let ATMO = ATMO_DEFAULT;
+// 環境貼圖（IBL）：用這張圖的天空、地平線與地面反光顏色生成一張預濾波的環境貼圖，
+// 金屬與槍身才有天空可以反射，背光面也會吃到從天空方向來的柔和環境光。
+// 只給露天地圖；室內地圖的世界本來就是暗的，給了反而破壞氣氛。
+// 也只掛在敵人與槍上：整個場景都吃的話，地板會反射藍天，把暖色調沖掉
+let ENV_TEX = null;
+const pmrem = new THREE.PMREMGenerator(renderer);
+let envRT = null;
+function buildEnv(A){
+  const es = new THREE.Scene();
+  const m = new THREE.ShaderMaterial({
+    uniforms:{
+      uTop:{value:new THREE.Color(A.skyTop)}, uHorizon:{value:new THREE.Color(A.skyHorizon)},
+      uGround:{value:new THREE.Color(A.hemiGround)}, uSun:{value:new THREE.Color(A.sunColor)},
+      uSunDir:{value:new THREE.Vector3().fromArray(A.sunDir).normalize()},
+    },
+    vertexShader:`varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+    fragmentShader:`
+      uniform vec3 uTop, uHorizon, uGround, uSun, uSunDir; varying vec3 vDir;
+      void main(){
+        vec3 d = normalize(vDir);
+        vec3 col = d.y > 0.0 ? mix(uHorizon, uTop, pow(d.y, 0.35)) : mix(uHorizon, uGround*0.55, pow(-d.y, 0.4));
+        col += uSun * pow(max(dot(d, uSunDir), 0.0), 180.0) * 6.0;
+        gl_FragColor = vec4(col, 1.0);
+      }`,
+    side:THREE.BackSide,
+  });
+  es.add(new THREE.Mesh(new THREE.SphereGeometry(10, 32, 16), m));
+  if (envRT) envRT.dispose();
+  envRT = pmrem.fromScene(es, 0.02);
+  m.dispose();
+  return envRT.texture;
+}
+
 function applyAtmo(){
   ATMO = atmo();
   renderer.setClearColor(ATMO.bg, 1);
@@ -1915,6 +1956,7 @@ function applyAtmo(){
   compMat.uniforms.uScan.value  = ATMO.scan;
   compMat.uniforms.uNoise.value = ATMO.noise;
   compMat.uniforms.uSharp.value = ATMO.sharp;
+  compMat.uniforms.uAO.value = ATMO.ao;
   const out = !!activeMap.outdoor;
   ceil.visible = !out;
   sky.visible = out;
@@ -1931,6 +1973,7 @@ function applyAtmo(){
     // 陰影貼圖不會自動更新，換圖之後要手動要求重畫一次
     renderer.shadowMap.needsUpdate = true;
   }
+  ENV_TEX = (out && ATMO.env) ? buildEnv(ATMO) : null;
 }
 
 // ── 補給品：給你「離開掩體」的理由 ──
@@ -2287,7 +2330,7 @@ function makeBotObject(type){
   root.scale.setScalar(k);
 
   // 材質每隻獨立：屍體淡出時會逐一把材質改成半透明，共用的話活著的也會跟著變透明
-  const std = o => new THREE.MeshStandardMaterial(o);
+  const std = o => new THREE.MeshStandardMaterial(Object.assign({envMap:ENV_TEX, envMapIntensity:0.55}, o));
   const M = {
     camo:  std({map:tex.camo[type], normalMap:tex.fabricN, roughness:0.92}),
     vest:  std({map:tex.vest, normalMap:tex.vestN, color:C.vest, roughness:0.85}),
@@ -2297,7 +2340,8 @@ function makeBotObject(type){
     eye:   std({color:0x1A1410, roughness:0.2}),
     shell: std({map:tex.camo[type], color:0xC8C0B0, roughness:0.65, metalness:0.05}),
     poly:  std({color:0x202124, roughness:0.62, metalness:0.1}),
-    metal: std({color:0x2C2E31, roughness:0.38, metalness:0.75}),
+    // 磷化處理的槍身：霧面、偏粗糙的深灰金屬，不是會照出天空的鏡面
+    metal: std({color:0x2A2B2D, roughness:0.58, metalness:0.6}),
     lens:  std({color:0x203040, roughness:0.05, metalness:0.9}),
     glass: std({color:0x121418, roughness:0.08, metalness:0.6}),
     // 臂章是唯一保留兵種色的地方，微微自發光，暗處也認得出是哪一種
@@ -2786,10 +2830,104 @@ const blurMat = new THREE.ShaderMaterial({
     }`,
 });
 
+// ── 環境光遮蔽（SSAO） ──
+// 牆角、牆腳、腋下、腳底這些被周圍擋住天光的地方本來就比較暗。
+// 少了這層，所有表面一樣亮，物體看起來像浮在場景上。
+// 做法：從深度重建每個像素的視空間位置與法線，在法線半球內撒一把取樣點，
+// 投影回螢幕比對深度，被擋住的比例就是遮蔽程度
+const AO_N = 14;
+const AO_KERNEL = (() => {
+  const out = [];
+  let a = 1337;
+  const R = () => (a = (a*1103515245+12345) & 0x7fffffff) / 0x7fffffff;
+  for (let i=0;i<AO_N;i++){
+    const v = new THREE.Vector3(R()*2-1, R()*2-1, R()*0.9+0.1).normalize();
+    // 取樣點往中心集中：近處的遮擋比遠處重要
+    const t = i/AO_N;
+    v.multiplyScalar(0.12 + 0.88*t*t);
+    out.push(v);
+  }
+  return out;
+})();
+const DEPTH_GLSL = `
+  uniform float uNear, uFar, uTanH, uAspect;
+  float viewZ(float d){ return (uNear*uFar) / ((uFar-uNear)*d - uFar); }
+  vec3 viewPos(vec2 uv, float d){
+    float z = viewZ(d);
+    vec2 ndc = uv*2.0 - 1.0;
+    return vec3(ndc.x*uTanH*uAspect*(-z), ndc.y*uTanH*(-z), z);
+  }`;
+const aoMat = new THREE.ShaderMaterial({
+  uniforms:{
+    tDepth:{value:null}, uTexel:{value:new THREE.Vector2()}, uRadius:{value:0.55},
+    uNear:{value:0.1}, uFar:{value:120}, uTanH:{value:1}, uAspect:{value:1.78},
+    uKernel:{value:AO_KERNEL},
+  },
+  vertexShader:VERT,
+  fragmentShader:`
+    uniform sampler2D tDepth; uniform vec2 uTexel; uniform float uRadius;
+    uniform vec3 uKernel[${AO_N}];
+    ${DEPTH_GLSL}
+    varying vec2 vUv;
+    float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
+    vec3 posAt(vec2 uv){ return viewPos(uv, texture2D(tDepth, uv).x); }
+    void main(){
+      float d = texture2D(tDepth, vUv).x;
+      if (d >= 0.99999){ gl_FragColor = vec4(1.0); return; }   // 天空
+      vec3 P = viewPos(vUv, d);
+      // 法線：左右、上下各取深度差比較小的那一側，物體邊緣才不會算出歪掉的法線
+      vec3 pr = posAt(vUv + vec2(uTexel.x,0.0)), pl = posAt(vUv - vec2(uTexel.x,0.0));
+      vec3 pu = posAt(vUv + vec2(0.0,uTexel.y)), pd = posAt(vUv - vec2(0.0,uTexel.y));
+      vec3 dx = abs(pr.z-P.z) < abs(P.z-pl.z) ? pr-P : P-pl;
+      vec3 dy = abs(pu.z-P.z) < abs(P.z-pd.z) ? pu-P : P-pd;
+      vec3 N = normalize(cross(dx, dy));
+      // 每個像素把取樣組隨機轉一個角度，把條紋換成之後能模糊掉的細噪點
+      float h = hash(gl_FragCoord.xy) * 6.2831853;
+      vec3 rv = vec3(cos(h), sin(h), 0.0);
+      vec3 T = normalize(rv - N*dot(rv, N));
+      vec3 B = cross(N, T);
+      float occ = 0.0;
+      for (int i=0;i<${AO_N};i++){
+        vec3 k = uKernel[i];
+        vec3 Q = P + (T*k.x + B*k.y + N*k.z) * uRadius;
+        vec2 q = vec2(Q.x / (-Q.z*uTanH*uAspect), Q.y / (-Q.z*uTanH)) * 0.5 + 0.5;
+        float sz = viewZ(texture2D(tDepth, q).x);
+        // 距離太遠的遮擋物（例如背景的牆擋在前景人物前面）不算
+        float range = smoothstep(0.0, 1.0, uRadius / abs(P.z - sz));
+        occ += step(Q.z + 0.02, sz) * range;
+      }
+      float ao = 1.0 - occ / float(${AO_N});
+      gl_FragColor = vec4(vec3(ao*ao), 1.0);
+    }`,
+});
+// 依深度加權的模糊：只混合深度相近的鄰居，遮蔽才不會溢出物體邊緣變成一圈光暈
+const aoBlurMat = new THREE.ShaderMaterial({
+  uniforms:{
+    tAO:{value:null}, tDepth:{value:null}, uTexel:{value:new THREE.Vector2()},
+    uNear:{value:0.1}, uFar:{value:120}, uTanH:{value:1}, uAspect:{value:1.78},
+  },
+  vertexShader:VERT,
+  fragmentShader:`
+    uniform sampler2D tAO, tDepth; uniform vec2 uTexel;
+    ${DEPTH_GLSL}
+    varying vec2 vUv;
+    void main(){
+      float cz = viewZ(texture2D(tDepth, vUv).x);
+      float sum = 0.0, wsum = 0.0;
+      for (int x=-2;x<2;x++) for (int y=-2;y<2;y++){
+        vec2 uv = vUv + (vec2(float(x), float(y)) + 0.5) * uTexel;
+        float w = 1.0 / (0.002 + abs(viewZ(texture2D(tDepth, uv).x) - cz) * 6.0);
+        sum += texture2D(tAO, uv).r * w;
+        wsum += w;
+      }
+      gl_FragColor = vec4(vec3(sum / wsum), 1.0);
+    }`,
+});
+
 // 合成與調色：泛光疊加、鏡頭色差、暗角、受傷紅暈、掃描線、顆粒
 const compMat = new THREE.ShaderMaterial({
   uniforms:{
-    tScene:{value:null}, tBloom:{value:null},
+    tScene:{value:null}, tBloom:{value:null}, tAO:{value:null}, tDepth:{value:null}, uAO:{value:0},
     uBloom:{value:0.85}, uTime:{value:0},
     uDamage:{value:0}, uLow:{value:0}, uEcho:{value:0},
     uAberr:{value:1.0}, uGain:{value:1.0}, uVig:{value:0.78}, uGrade:{value:1.0},
@@ -2797,7 +2935,8 @@ const compMat = new THREE.ShaderMaterial({
   },
   vertexShader:VERT,
   fragmentShader:`
-    uniform sampler2D tScene, tBloom;
+    uniform sampler2D tScene, tBloom, tAO, tDepth;
+    uniform float uAO;
     uniform float uBloom, uTime, uDamage, uLow, uEcho, uAberr, uGain, uVig, uGrade, uScan, uNoise, uSharp;
     uniform vec2 uRes;
     varying vec2 vUv;
@@ -2825,6 +2964,10 @@ const compMat = new THREE.ShaderMaterial({
       col.r = texture2D(tScene, vUv + d*ab).r;
       col.g = texture2D(tScene, vUv).g;
       col.b = texture2D(tScene, vUv - d*ab).b;
+      // 環境光遮蔽。畫完槍模之後深度緩衝只剩槍的部分（其餘被清成 1），
+      // 剛好拿來當遮罩：槍模不吃場景的遮蔽
+      float worldPx = step(0.99999, texture2D(tDepth, vUv).x);
+      col *= mix(1.0, texture2D(tAO, vUv).r, uAO * worldPx);
       // 銳化（反銳化遮罩）：原圖減掉上下左右四鄰的平均，把邊緣的反差拉回來，
       // 抵銷多重取樣與貼圖過濾造成的些微柔焦
       if (uSharp > 0.0){
@@ -2871,11 +3014,11 @@ const fsQuad = new THREE.Mesh(new THREE.PlaneGeometry(2,2), brightMat);
 fsQuad.frustumCulled = false;
 fsScene.add(fsQuad);
 
-let rtScene = null, rtA = null, rtB = null;
+let rtScene = null, rtA = null, rtB = null, rtAO1 = null, rtAO2 = null;
 function makeTargets(w,h){
   const opt = {minFilter:THREE.LinearFilter, magFilter:THREE.LinearFilter,
                format:THREE.RGBAFormat, type:THREE.UnsignedByteType};
-  if (rtScene) { rtScene.dispose(); rtA.dispose(); rtB.dispose(); }
+  if (rtScene) { rtScene.dispose(); rtA.dispose(); rtB.dispose(); rtAO1.dispose(); rtAO2.dispose(); }
   // 場景緩衝要開多重取樣。渲染器的 antialias 只作用在預設畫布上，
   // 一旦改成離屏渲染就完全失效，所有邊緣線都會變鋸齒
   // 深度也要指定成 24 位元：r147 的多重取樣緩衝預設只配 16 位元深度，
@@ -2887,6 +3030,12 @@ function makeTargets(w,h){
   const bw = Math.max(2, Math.floor(w/3)), bh = Math.max(2, Math.floor(h/3));
   rtA = new THREE.WebGLRenderTarget(bw, bh, opt);
   rtB = new THREE.WebGLRenderTarget(bw, bh, opt);
+  // 遮蔽用半解析度算，模糊後再放大疊回去
+  const aw = Math.max(2, Math.floor(w/2)), ah = Math.max(2, Math.floor(h/2));
+  rtAO1 = new THREE.WebGLRenderTarget(aw, ah, opt);
+  rtAO2 = new THREE.WebGLRenderTarget(aw, ah, opt);
+  aoMat.uniforms.uTexel.value.set(1/w, 1/h);
+  aoBlurMat.uniforms.uTexel.value.set(1/aw, 1/ah);
   compMat.uniforms.uRes.value.set(w,h);
 }
 function blit(mat, target){
@@ -2900,6 +3049,20 @@ function renderPosted(){
   renderer.setRenderTarget(rtScene);
   renderer.clear();
   renderer.render(scene, camera);
+  // 遮蔽必須在畫槍模之前算：畫槍模前會清掉深度，之後就讀不到場景的深度了
+  if (compMat.uniforms.uAO.value > 0){
+    const tanH = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
+    for (const m of [aoMat, aoBlurMat]){
+      m.uniforms.uNear.value = camera.near; m.uniforms.uFar.value = camera.far;
+      m.uniforms.uTanH.value = tanH; m.uniforms.uAspect.value = camera.aspect;
+    }
+    aoMat.uniforms.tDepth.value = rtScene.depthTexture;
+    blit(aoMat, rtAO1);
+    aoBlurMat.uniforms.tAO.value = rtAO1.texture;
+    aoBlurMat.uniforms.tDepth.value = rtScene.depthTexture;
+    blit(aoBlurMat, rtAO2);
+    renderer.setRenderTarget(rtScene);
+  }
   renderer.clearDepth();
   renderer.render(vmScene, vmCamera);
 
@@ -2916,6 +3079,8 @@ function renderPosted(){
   }
   compMat.uniforms.tScene.value = rtScene.texture;
   compMat.uniforms.tBloom.value = rtA.texture;
+  compMat.uniforms.tAO.value = rtAO2.texture;
+  compMat.uniforms.tDepth.value = rtScene.depthTexture;
   blit(compMat, null);
   renderer.setRenderTarget(null);
 }

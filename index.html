@@ -1974,6 +1974,20 @@ function applyAtmo(){
     renderer.shadowMap.needsUpdate = true;
   }
   ENV_TEX = (out && ATMO.env) ? buildEnv(ATMO) : null;
+  for (const m of VM_MATS){ m.envMap = ENV_TEX; m.needsUpdate = true; }
+  // 槍模有自己的場景與燈光。室內維持原本偏紫的環境光；露天改用這張圖的天光與太陽色，
+  // 手上的槍才會跟周圍的世界在同一種光線下
+  if (out){
+    // 補光用中性偏暖的灰：直接拿天空的藍會把黑色聚合物染成海軍藍
+    vmHemi.color.setHex(0xD6CEC2); vmHemi.groundColor.setHex(ATMO.hemiGround); vmHemi.intensity = 0.45;
+    vmKey.color.setHex(ATMO.sunColor); vmKey.intensity = 1.5;
+    vmRim.color.setHex(0xFFE2C4);
+  } else {
+    // 原本的強度是替高金屬度的深色槍調的；聚合物吃進的漫射光多很多，要降下來才不會過曝
+    vmHemi.color.setHex(0x6A5690); vmHemi.groundColor.setHex(0x241A40); vmHemi.intensity = 0.5;
+    vmKey.color.setHex(0xFFB478); vmKey.intensity = 1.3;
+    vmRim.color.setHex(0xA08CFF);
+  }
 }
 
 // ── 補給品：給你「離開掩體」的理由 ──
@@ -2772,7 +2786,8 @@ const fxLayer = new THREE.Group();   scene.add(fxLayer);
 // ─────────────────────────────────────────────
 const vmScene = new THREE.Scene();
 const vmCamera = new THREE.PerspectiveCamera(62, 16/9, 0.01, 10);
-vmScene.add(new THREE.HemisphereLight(0x6A5690, 0x241A40, 1.15));
+const vmHemi = new THREE.HemisphereLight(0x6A5690, 0x241A40, 1.15);
+vmScene.add(vmHemi);
 const vmKey = new THREE.PointLight(0xFFB478, 2.9, 6, 1.35);
 vmKey.position.set(0.6, 0.75, 0.55);
 vmScene.add(vmKey);
@@ -3123,27 +3138,36 @@ function drawAmmoPanel(d, cur, max){
   d.tex.needsUpdate = true;
 }
 
+// 槍模的 PBR 材質集中登記，換圖時才能一次換上該地圖的環境貼圖
+const VM_MATS = [];
+function vmStd(o){
+  const m = new THREE.MeshStandardMaterial(Object.assign({envMapIntensity:0.35}, o));
+  VM_MATS.push(m);
+  return m;
+}
 function buildGun(kind){
   const g = new THREE.Group();
-  const body  = new THREE.MeshStandardMaterial({color:0x241B3E, roughness:0.55, metalness:0.72});
-  const dark  = new THREE.MeshStandardMaterial({color:0x120D22, roughness:0.42, metalness:0.85});
-  const steel = new THREE.MeshStandardMaterial({color:0x3A2F68, roughness:0.32, metalness:0.9});
-  const grip  = new THREE.MeshStandardMaterial({color:0x1A1330, roughness:0.95, metalness:0.05});
-  const heat  = new THREE.MeshBasicMaterial({color:0xFF7A20, transparent:true, opacity:0});
-  const glow  = new THREE.MeshBasicMaterial({color:0x4DE0B0});
-  const lens  = new THREE.MeshBasicMaterial({color:0x7CE0FF, transparent:true, opacity:0.8});
-  const edge  = new THREE.LineBasicMaterial({color:0xD86A34, transparent:true, opacity:0.45});
+  const tx = soldierTex();
+  // 真實槍械的三種表面：聚合物機身、磷化處理的鋼件、防滑橡膠握把
+  const body  = vmStd({color:0x2A2B2E, roughness:0.62, metalness:0.12, normalMap:tx.fabricN, normalScale:new THREE.Vector2(0.25,0.25)});
+  const dark  = vmStd({color:0x1B1C1E, roughness:0.5, metalness:0.55});
+  const steel = vmStd({color:0x36383C, roughness:0.42, metalness:0.8});
+  const grip  = vmStd({color:0x1E1F21, roughness:0.92, metalness:0.02, normalMap:tx.fabricN});
+  const heat  = new THREE.MeshBasicMaterial({color:0xFF5A18, transparent:true, opacity:0,
+                                            blending:THREE.AdditiveBlending, depthWrite:false});
+  const glow  = new THREE.MeshBasicMaterial({color:0xFF3020});
+  const lens  = vmStd({color:0x18324A, roughness:0.05, metalness:0.9});
   const heats = [], cells = [];
 
-  // 建件：方塊自動附邊緣線，發光件不附
+  // 建件：圓角方塊。真實的槍沒有銳利到會反光成一條白線的直角，
+  // 倒角邊緣會接住光線，輪廓才有金屬件的份量。
+  // 槍管的熱度件做成貼著槍管的圓柱，連射後整段發紅
   const mk = (parent, w,h,d, mat, x,y,z) => {
-    const geo = new THREE.BoxGeometry(w,h,d);
+    const geo = mat === heat
+      ? new THREE.CylinderGeometry(Math.min(w,h)/2, Math.min(w,h)/2, d, 14).rotateX(Math.PI/2)
+      : roundBox(w, h, d, Math.min(0.008, Math.min(w,h,d)*0.22));
     const m = new THREE.Mesh(geo, mat);
     m.position.set(x,y,z); parent.add(m);
-    if (mat !== heat && mat !== glow && mat !== lens){
-      const e = new THREE.LineSegments(new THREE.EdgesGeometry(geo), edge);
-      e.position.set(x,y,z); parent.add(e);
-    }
     return m;
   };
   const cyl = (parent, r1,r2,len, mat, x,y,z, seg) => {
@@ -3167,12 +3191,11 @@ function buildGun(kind){
     mk(g, 0.072,0.070,0.20, steel, 0,-0.055, 0.02);
     cyl(g, 0.020,0.020,0.30, dark,  0, 0.012, -0.32);
     cyl(g, 0.032,0.032,0.16, steel, 0, 0.012, -0.44);
-    cyl(g, 0.034,0.028,0.03, glow,  0, 0.012, -0.515);
+    cyl(g, 0.034,0.028,0.03, steel, 0, 0.012, -0.515);
     heats.push(mk(g, 0.050,0.050,0.26, heat, 0, 0.012, -0.34));
     vents(-0.26, 4, 0.045, 0.062);
     mk(mag, 0.058,0.22,0.078, dark,  0,-0.150, 0.03);
     mk(mag, 0.048,0.035,0.070, steel,0,-0.255, 0.03);
-    cells.push(mk(mag, 0.020,0.15,0.012, glow, 0.032,-0.150, 0.03));
     mk(g, 0.056,0.140,0.066, grip,  0,-0.108, 0.125);
     for (let i=0;i<4;i++) mk(g, 0.060,0.008,0.010, dark, 0,-0.072-i*0.022, 0.148);
     mk(g, 0.062,0.018,0.10, steel, 0,-0.052, 0.075);
@@ -3189,7 +3212,7 @@ function buildGun(kind){
     cyl(g, 0.036,0.036,0.42, dark,  0, 0.016, -0.40);
     cyl(g, 0.026,0.026,0.36, steel, 0,-0.040, -0.37);
     cyl(g, 0.044,0.044,0.07, steel, 0, 0.016, -0.60);
-    cyl(g, 0.046,0.038,0.03, glow,  0, 0.016, -0.645);
+    cyl(g, 0.046,0.038,0.03, steel, 0, 0.016, -0.645);
     heats.push(mk(g, 0.078,0.078,0.36, heat, 0, 0.016, -0.40));
     vents(-0.30, 4, 0.058, 0.084);
     // 泵動護木掛在 charge 上，換彈時前後滑動
@@ -3199,14 +3222,13 @@ function buildGun(kind){
     mk(g, 0.064,0.018,0.10, steel, 0,-0.055, 0.075);
     mk(g, 0.058,0.100,0.24, body,  0,-0.004, 0.28);
     mk(g, 0.034,0.056,0.10, dark,  0.058, 0.022, 0.01);
-    cells.push(mk(g, 0.012,0.020,0.20, glow, -0.050,-0.040, -0.30));
     mk(g, 0.020,0.040,0.020, steel, 0, 0.078, -0.16);
     vm.muzzleZ = -0.70;
   } else {
     mk(g, 0.078,0.106,0.54, body,  0, 0, -0.02);
     cyl(g, 0.019,0.019,0.66, dark,  0, 0.012, -0.60);
     cyl(g, 0.030,0.026,0.13, steel, 0, 0.012, -0.96);
-    cyl(g, 0.032,0.024,0.03, glow,  0, 0.012, -1.03);
+    cyl(g, 0.032,0.024,0.03, steel, 0, 0.012, -1.03);
     heats.push(mk(g, 0.046,0.046,0.62, heat, 0, 0.012, -0.60));
     vents(-0.52, 5, 0.040, 0.056);
     cyl(g, 0.046,0.046,0.34, dark,  0, 0.128, -0.06);
@@ -3215,7 +3237,6 @@ function buildGun(kind){
     mk(g, 0.024,0.062,0.034, steel, 0, 0.082, -0.17);
     mk(g, 0.024,0.062,0.034, steel, 0, 0.082, 0.05);
     mk(mag, 0.056,0.18,0.072, dark,  0,-0.128, -0.03);
-    cells.push(mk(mag, 0.018,0.12,0.012, glow, 0.031,-0.128, -0.03));
     mk(g, 0.058,0.140,0.066, grip, 0,-0.108, 0.145);
     mk(g, 0.064,0.018,0.10, steel, 0,-0.052, 0.095);
     mk(g, 0.056,0.105,0.26, body, 0,-0.006, 0.34);
@@ -3259,9 +3280,84 @@ function buildGun(kind){
   flash.position.set(0, 0.012, vm.muzzleZ - 0.06);
   g.add(flash);
 
+  addVmHands(g, kind, charge);
   g.userData = {heats, cells, flash, core, petal, wave, mag, charge, panel,
                 muzzleZ: vm.muzzleZ};
   return g;
+}
+
+// 第一人稱的手：戰術手套握著握把與護木，前臂穿著袖子往畫面外延伸。
+// 右手掛在槍身、左手托護木（霰彈槍掛在泵動護木上，泵動時手跟著滑）
+function addVmHands(g, kind, charge){
+  const tx = soldierTex();
+  const glove  = vmStd({color:0x25231F, roughness:0.85, normalMap:tx.fabricN});
+  const knuck  = vmStd({color:0x1C1B19, roughness:0.7});
+  const sleeve = vmStd({color:0x2A3022, roughness:0.95, normalMap:tx.fabricN});
+  const cuffM  = vmStd({color:0x22211F, roughness:0.9, normalMap:tx.fabricN});
+  const put = (parent, geo, mat, x, y, z) => {
+    const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); parent.add(m); return m;
+  };
+  // 沿著一個方向擺放的圓柱（手指、前臂）
+  const along = (parent, r0, r1, from, to, mat) => {
+    const d = to.clone().sub(from), len = d.length();
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(r1, r0, len, 14), mat);
+    m.position.copy(from).addScaledVector(d, 0.5);
+    m.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), d.normalize());
+    parent.add(m); return m;
+  };
+  const cap = (parent, r, from, to, mat) => {
+    const d = to.clone().sub(from), len = d.length();
+    const m = new THREE.Mesh(new THREE.CapsuleGeometry(r, len, 4, 10), mat);
+    m.position.copy(from).addScaledVector(d, 0.5);
+    m.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), d.normalize());
+    parent.add(m); return m;
+  };
+  const V = (x,y,z) => new THREE.Vector3(x,y,z);
+  // 前臂：手腕到畫面外，手套袖口接迷彩袖子
+  const forearm = (parent, wrist, dir) => {
+    const elbow = wrist.clone().addScaledVector(dir.clone().normalize(), 0.62);
+    const cuffEnd = wrist.clone().addScaledVector(dir.clone().normalize(), 0.07);
+    along(parent, 0.034, 0.037, wrist, cuffEnd, cuffM);
+    along(parent, 0.046, 0.060, cuffEnd.clone().addScaledVector(dir.clone().normalize(), -0.01), elbow, sleeve);
+  };
+
+  const R = {vector:{y:-0.108, z:0.125}, breach:{y:-0.110, z:0.125}, lance:{y:-0.108, z:0.145}}[kind];
+  // ── 右手：握把 ──
+  const rh = new THREE.Group();
+  rh.position.set(0, R.y, R.z);
+  g.add(rh);
+  // 手指是包住握把前緣的部分圓環：從右側繞過前方，指尖停在左側
+  const fingerGeo = new THREE.TorusGeometry(0.043, 0.0115, 8, 14, 3.3);
+  for (let i=0;i<3;i++){
+    const f = put(rh, fingerGeo, glove, 0, 0.005 - i*0.026, 0.004);
+    f.rotation.x = -Math.PI/2;
+    f.scale.set(1, 1.12, 1);
+  }
+  // 手掌與虎口貼在握把右後方
+  put(rh, roundBox(0.030, 0.100, 0.070, 0.012), glove, 0.040, -0.005, 0.030);
+  put(rh, roundBox(0.050, 0.035, 0.060, 0.014), glove, 0.020, 0.048, 0.030);
+  put(rh, roundBox(0.018, 0.070, 0.040, 0.008), knuck, 0.056, 0.005, 0.000);
+  // 食指搭在扳機上、拇指壓在左側
+  cap(rh, 0.0105, V(0.030, 0.052, 0.000), V(0.012, 0.050, -0.062), glove);
+  cap(rh, 0.0115, V(-0.020, 0.052, 0.045), V(-0.036, 0.040, -0.010), glove);
+  forearm(rh, V(0.045, 0.030, 0.080), V(0.18, -0.20, 0.55));
+
+  // ── 左手：護木下方 ──
+  const L = {vector:{p:g, y:-0.060, z:-0.170, r:0.050},
+             breach:{p:charge, y:-0.052, z:-0.250, r:0.052},
+             lance: {p:g, y:-0.062, z:-0.200, r:0.046}}[kind];
+  const lh = new THREE.Group();
+  lh.position.set(0, L.y, L.z);
+  L.p.add(lh);
+  // 手指從下方繞上右側，拇指扣在左側
+  const lfGeo = new THREE.TorusGeometry(L.r, 0.011, 8, 14, 2.3);
+  for (let i=0;i<4;i++){
+    const f = put(lh, lfGeo, glove, 0, 0.012, -0.036 + i*0.023);
+    f.rotation.z = -Math.PI/2;
+  }
+  put(lh, roundBox(0.080, 0.030, 0.095, 0.013), glove, 0.004, -0.040, 0.012);
+  cap(lh, 0.012, V(-0.046, -0.010, 0.040), V(-0.050, 0.010, -0.030), glove);
+  forearm(lh, V(-0.012, -0.050, 0.060), V(-0.30, -0.26, 0.60));
 }
 
 // 動畫小工具：把整體進度 t 映射到某個區間的 0..1

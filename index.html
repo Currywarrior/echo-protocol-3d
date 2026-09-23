@@ -344,6 +344,10 @@ const MAPS = {
       floor:0xD2B894, ceiling:0x000000, light:0xFFFFFF,
       glow:0xFFFFFF, cold:0xB09A80, pipe:0x9A8570, terrain:0xCFB08A,
       propMetal:0x8C7862, propDark:0x5C4A3A,
+      // 造型：高牆頂加城垛、門洞用石拱門取代科幻門框
+      battlements:true, arches:true, ashlar:true, bags:0xA8946C,
+      // 柱子與紀念碑的石材：純色沒有貼圖壓暗，要比牆色暗很多才會看起來同一種石頭，否則在陽光下過曝成白色
+      stone:0xA8926E, stoneDark:0x8C7856,
     },
     atmo:{
       bg:0xF0DCC0, fog:0.006, hemiSky:0xB8D0EC, hemiGround:0xC89A6A, hemi:0.8,
@@ -359,22 +363,23 @@ const MAPS = {
       // 東西兩座門樓：成對共線的牆段，中間的門洞會自動長出門框
       {x:220,y:150,w:24,h:150},{x:220,y:420,w:24,h:150},
       {x:1036,y:150,w:24,h:150},{x:1036,y:420,w:24,h:150},
-      // 上下兩排柱廊：斜射的陽光在地上投出一條條影子
-      {x:376,y:146,w:48,h:48},{x:536,y:146,w:48,h:48},
-      {x:696,y:146,w:48,h:48},{x:856,y:146,w:48,h:48},
-      {x:376,y:526,w:48,h:48},{x:536,y:526,w:48,h:48},
-      {x:696,y:526,w:48,h:48},{x:856,y:526,w:48,h:48},
-      // 中央石台
-      {x:592,y:312,w:96,h:96},
-      // 四角的箱體
-      {x:90,y:80,w:60,h:60},{x:1130,y:80,w:60,h:60},
-      {x:90,y:580,w:60,h:60},{x:1130,y:580,w:60,h:60},
+      // 上下兩排柱廊：斜射的陽光在地上投出一條條影子。
+      // 北排是完整的古典圓柱；南排是八角柱夾兩根斷柱（1.9m，站高台上看得過去）
+      {x:376,y:146,w:48,h:48,style:"column"},{x:536,y:146,w:48,h:48,style:"column"},
+      {x:696,y:146,w:48,h:48,style:"column"},{x:856,y:146,w:48,h:48,style:"column"},
+      {x:376,y:526,w:48,h:48,style:"octa"},{x:536,y:526,w:48,h:48,style:"ruin",ht:1.9},
+      {x:696,y:526,w:48,h:48,style:"octa"},{x:856,y:526,w:48,h:48,style:"ruin",ht:1.9},
+      // 中央紀念碑：碑座就是原本的石台，上面的方尖碑高過牆頂當地標
+      {x:592,y:312,w:96,h:96,style:"monument"},
+      // 四角：對角兩個貨箱堆、另外兩個是小塔樓
+      {x:90,y:80,w:60,h:60,style:"crates"},{x:1130,y:80,w:60,h:60,style:"tower"},
+      {x:90,y:580,w:60,h:60,style:"tower"},{x:1130,y:580,w:60,h:60,style:"crates"},
       // 矮牆（ht 是牆高，公尺）：站著看得過去也射得過去，蹲下才是掩體。
       // 不擋視線，所以敵人仍然看得到你、會朝牆打
-      {x:470,y:320,w:24,h:80,ht:1.05},{x:786,y:320,w:24,h:80,ht:1.05},
-      {x:560,y:66,w:160,h:22,ht:1.05},{x:560,y:632,w:160,h:22,ht:1.05},
-      {x:120,y:200,w:60,h:22,ht:1.05},{x:120,y:498,w:60,h:22,ht:1.05},
-      {x:1100,y:290,w:60,h:22,ht:1.05},{x:1100,y:408,w:60,h:22,ht:1.05},
+      {x:470,y:320,w:24,h:80,ht:1.05,style:"sandbags"},{x:786,y:320,w:24,h:80,ht:1.05,style:"sandbags"},
+      {x:560,y:66,w:160,h:22,ht:1.05,style:"sandbags"},{x:560,y:632,w:160,h:22,ht:1.05,style:"sandbags"},
+      {x:120,y:200,w:60,h:22,ht:1.05,style:"sandbags"},{x:120,y:498,w:60,h:22,ht:1.05,style:"sandbags"},
+      {x:1100,y:290,w:60,h:22,ht:1.05,style:"sandbags"},{x:1100,y:408,w:60,h:22,ht:1.05,style:"sandbags"},
       // 中央矮牆外側的貨箱（1.26m 見方、0.8m 高，站在旁邊一跳就上得去）：
       // 站上去就能越過矮牆開槍，再助跑一跳可以上牆頂。
       // 和牆之間留 44px，最胖的 WARDEN（半徑 17）也過得去；貼著牆會形成凹角，沒有尋路的敵人會卡住
@@ -1238,6 +1243,67 @@ function buildFloorSurface(){
   return {color:c, normal:heightToNormal(h, 3.8), rough:r};
 }
 
+// 石砌牆（ashlar）：錯縫排列的切石，灰縫凹下、石面中央微凸、邊角有缺口。
+// 輸出灰階，顏色交給主題染，和 WALL_GRAY 的用法一樣。
+// 一張貼圖約 2.4m（牆的 UV 密度 0.42），排 8 皮，每皮約 0.3m 高
+function buildAshlarSurface(){
+  const N = 1024, rows = 8, rh = N/rows, mortar = 7;
+  const c = mkCanvas(N), x = c.getContext("2d");
+  const h = mkCanvas(N), hx = h.getContext("2d");
+  // 固定種子：每次載入長得一樣
+  let seed = 20260923;
+  const R = () => (seed = (seed*1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+  x.fillStyle = "rgb(118,118,118)"; x.fillRect(0,0,N,N);
+  hx.fillStyle = "#303030"; hx.fillRect(0,0,N,N);
+  for (let r=0; r<rows; r++){
+    const y0 = r*rh;
+    // 每一皮從不同位置開始切，接縫才不會上下對齊
+    let px = -R()*N*0.12;
+    while (px < N){
+      const bw = N*(0.18 + R()*0.2);
+      const v = 150 + R()*46;
+      // 同一塊石頭畫兩次（本身與 +N 位移），左右接得起來
+      for (const off of [0, -N, N]){
+        const bx = px + off;
+        if (bx + bw < 0 || bx > N) continue;
+        x.fillStyle = `rgb(${v|0},${v|0},${v|0})`;
+        x.fillRect(bx + mortar/2, y0 + mortar/2, bw - mortar, rh - mortar);
+        // 高度：石面中央高、邊緣模糊成斜角
+        hx.save(); hx.filter = "blur(4px)";
+        hx.fillStyle = `hsl(0,0%,${58 + R()*10}%)`;
+        hx.fillRect(bx + mortar, y0 + mortar, bw - mortar*2, rh - mortar*2);
+        hx.restore();
+      }
+      // 邊角缺口：在角落挖一小塊回到灰縫的顏色與高度
+      if (R() < 0.45){
+        const cx = px + (R() < 0.5 ? mortar : bw - mortar - 16), cy = y0 + (R() < 0.5 ? mortar : rh - mortar - 12);
+        const cw = 10 + R()*16, ch = 8 + R()*10;
+        x.fillStyle = "rgb(112,112,112)"; x.fillRect(cx, cy, cw, ch);
+        hx.fillStyle = "#3A3A3A"; hx.fillRect(cx, cy, cw, ch);
+      }
+      px += bw;
+    }
+  }
+  // 石材顆粒與風化斑：小點改亮度也改高度，法線貼圖才有粗糙感
+  for (let i=0; i<9000; i++){
+    const px = R()*N, py = R()*N, s = 1 + R()*2.5, d = R() < 0.5;
+    x.fillStyle = d ? "rgba(60,60,60,.16)" : "rgba(255,255,255,.12)";
+    x.fillRect(px, py, s, s);
+    hx.fillStyle = d ? "rgba(0,0,0,.12)" : "rgba(255,255,255,.08)";
+    hx.fillRect(px, py, s, s);
+  }
+  for (let i=0; i<70; i++){
+    const px = R()*N, py = R()*N, rad = 20 + R()*60;
+    const gr = x.createRadialGradient(px, py, 0, px, py, rad);
+    gr.addColorStop(0, `rgba(${R()<0.5?80:210},${R()<0.5?80:210},${R()<0.5?80:210},.07)`);
+    gr.addColorStop(1, "rgba(0,0,0,0)");
+    x.fillStyle = gr; x.fillRect(px-rad, py-rad, rad*2, rad*2);
+  }
+  return {color:c, normal:heightToNormal(h, 3.2)};
+}
+let STONE_SURF = null;
+function stoneSurf(){ return STONE_SURF || (STONE_SURF = buildAshlarSurface()); }
+
 const WALL_SURF  = buildWallSurface();
 const FLOOR_SURF = buildFloorSurface();
 // 灰階版：原貼圖是深紫色底，乘上任何主題色都偏暗偏紫，做不出日光下的水泥。
@@ -1450,9 +1516,11 @@ const WALL_VARIANTS = [
   {color:0x9A82C8, roughness:0.74, metalness:0.34},
 ];
 // 三個變體共用同一份貼圖：每次 texFrom 都會把整張 canvas 再上傳一次 GPU
-const WALL_COL = theme.neutral ? WALL_GRAY : WALL_SURF.color;
+// ashlar 主題改用石砌牆貼圖（牆身、線腳、嵌板都跟著換），其餘地圖維持金屬面板
+const WALL_COL = theme.ashlar ? stoneSurf().color : theme.neutral ? WALL_GRAY : WALL_SURF.color;
+const WALL_NRM = theme.ashlar ? stoneSurf().normal : WALL_SURF.normal;
 floorMat.map = theme.neutral ? floorGrayTex : floorColorTex;
-const wallMap = texFrom(WALL_COL), wallNormal = texFrom(WALL_SURF.normal);
+const wallMap = texFrom(WALL_COL), wallNormal = texFrom(WALL_NRM);
 // 牆腳髒污：貼圖每 2.4m 重複一次，底邊對不到牆腳，所以改在 shader 裡依世界高度壓暗。
 // 髒污線的高度隨水平位置起伏，才不會是一條尺畫的水平線
 function addGrime(m){
@@ -1492,12 +1560,12 @@ const trimMat = addGrime(new THREE.MeshStandardMaterial({
 // 嵌板與橫樑的 UV 已按實際尺寸縮放，貼圖不必再重複，比例才會和牆面一致
 const panelMat = new THREE.MeshStandardMaterial({
   map:       texFrom(WALL_COL),
-  normalMap: texFrom(WALL_SURF.normal),
+  normalMap: texFrom(WALL_NRM),
   color:0x6E5FA8, roughness:0.92, metalness:0.15,
 });
 const terrainMat = new THREE.MeshStandardMaterial({
   map:       texFrom(WALL_COL, 2, 1),
-  normalMap: texFrom(WALL_SURF.normal, 2, 1),
+  normalMap: texFrom(WALL_NRM, 2, 1),
   color:0x6E5FA8, roughness:0.78, metalness:0.35,
 });
 
@@ -1660,20 +1728,19 @@ function addRamp(w){
   mapLayer.add(g);
 }
 
-// 貨箱：金屬框、嵌板、每面一道斜撐。用道具的主題色，和牆的石材分得開
-function addCrate(w){
-  const gw = w.w*S, gd = w.h*S, hh = w.ht;
+// 貨箱：金屬框、嵌板、每面一道斜撐。用道具的主題色，和牆的石材分得開。
+// 回傳原點在底面中心的群組，單個貨箱和貨箱堆共用
+const crateBodyMat = addGrime(new THREE.MeshStandardMaterial({color:theme.propMetal ?? 0x3A3060, roughness:0.75, metalness:0.35}));
+const crateFrameMat = new THREE.MeshStandardMaterial({color:theme.propDark ?? 0x1A1432, roughness:0.6, metalness:0.55});
+function makeCrate(gw, gd, hh){
   const g = new THREE.Group();
-  g.position.set((w.x+w.w/2)*S, 0, (w.y+w.h/2)*S);
-  const bodyMat = addGrime(new THREE.MeshStandardMaterial({color:theme.propMetal ?? 0x3A3060, roughness:0.75, metalness:0.35}));
-  const frameMat = new THREE.MeshStandardMaterial({color:theme.propDark ?? 0x1A1432, roughness:0.6, metalness:0.55});
   // 嵌板略內縮，外框才凸得出來
-  const body = new THREE.Mesh(new THREE.BoxGeometry(gw-0.06, hh-0.04, gd-0.06), bodyMat);
-  body.position.y = (hh-0.04)/2;
+  const body = new THREE.Mesh(new THREE.BoxGeometry(gw-0.06, hh-0.04, gd-0.06), crateBodyMat);
+  body.position.y = hh/2;
   g.add(body);
   const t = 0.07;
   const bar = (sx, sy, sz, x, y, z) => {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), frameMat);
+    const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), crateFrameMat);
     m.position.set(x, y, z); g.add(m); return m;
   };
   // 12 條框邊：頂面與底面各一圈，四根立柱
@@ -1685,21 +1752,177 @@ function addCrate(w){
   // 側面斜撐：沿對角線放一根細條，稍微凸出嵌板
   const diagW = Math.hypot(gw - 2*t, hh - 2*t), angX = Math.atan2(hh - 2*t, gw - 2*t);
   const diagD = Math.hypot(gd - 2*t, hh - 2*t), angZ = Math.atan2(hh - 2*t, gd - 2*t);
-  for (const sz of [-1, 1]){
-    const b = bar(diagW, t*0.8, t*0.6, 0, hh/2, sz*(gd/2 - t*0.3));
-    b.rotation.z = sz*angX;
-  }
-  for (const sx of [-1, 1]){
-    const b = bar(t*0.6, t*0.8, diagD, sx*(gw/2 - t*0.3), hh/2, 0);
-    b.rotation.x = sx*angZ;
-  }
+  for (const sz of [-1, 1]) bar(diagW, t*0.8, t*0.6, 0, hh/2, sz*(gd/2 - t*0.3)).rotation.z = sz*angX;
+  for (const sx of [-1, 1]) bar(t*0.6, t*0.8, diagD, sx*(gw/2 - t*0.3), hh/2, 0).rotation.x = sx*angZ;
+  return g;
+}
+function addCrate(w){
+  const g = makeCrate(w.w*S, w.h*S, w.ht);
+  g.position.set((w.x+w.w/2)*S, 0, (w.y+w.h/2)*S);
   mapLayer.add(g);
+}
+
+// ── 造型化的牆（w.style）──
+// 碰撞仍然是原本的長方體，這裡只換外觀。原則：
+// 看得到的東西不能比碰撞範圍小太多（否則會撞到看不見的牆），
+// 真正的變化放在輪廓、頂部（高過牆頂的部分沒有人碰得到）與材質
+const stoneMat = addGrime(new THREE.MeshStandardMaterial({color:theme.stone ?? theme.trim, roughness:0.88, metalness:0.02, flatShading:true}));
+const stoneDarkMat = addGrime(new THREE.MeshStandardMaterial({color:theme.stoneDark ?? theme.panel, roughness:0.92, metalness:0.02, flatShading:true}));
+// InstancedMesh 用：addGrime 用 modelMatrix 算世界高度，拿不到每個實例的位置，
+// 會把整排城垛當成貼在地上而塗黑，所以這裡用不加髒污的版本
+const stoneFlatMat = new THREE.MeshStandardMaterial({color:theme.stone ?? theme.trim, roughness:0.88, metalness:0.02, flatShading:true});
+const slitMat = new THREE.MeshStandardMaterial({color:0x1E1812, roughness:1});
+const bagMat = new THREE.MeshStandardMaterial({color:theme.bags ?? 0x9C8A68, roughness:1});
+// 沙包形狀：把球的頂點往方塊推（超橢球），介於球和方塊之間，是鼓起來的布袋。
+// 直接縮放球體的話會是尖頭的橄欖形，彼此只在中間相接、縫很大
+const BAG_GEO = (() => {
+  const g = new THREE.SphereGeometry(0.5, 16, 10), p = g.attributes.position;
+  const f = v => Math.sign(v) * 0.5 * Math.pow(Math.abs(v) / 0.5, 0.4);
+  for (let i=0;i<p.count;i++) p.setXYZ(i, f(p.getX(i)), f(p.getY(i)), f(p.getZ(i)));
+  g.computeVertexNormals();
+  return g;
+})();
+const bagCoreMat = new THREE.MeshStandardMaterial({color:new THREE.Color(theme.bags ?? 0x9C8A68).multiplyScalar(0.55), roughness:1});
+function put(g, geo, mat, x, y, z){
+  const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); g.add(m); return m;
+}
+const STYLES = {
+  // 古典圓柱：方形柱礎標出碰撞範圍，柱身是 16 面的圓柱，柱頭外張再壓一塊方形頂板
+  column(g, gw, gd, wh){
+    const r = Math.min(gw, gd)/2;
+    put(g, new THREE.BoxGeometry(gw, 0.28, gd), stoneDarkMat, 0, 0.14, 0);
+    put(g, new THREE.CylinderGeometry(r*0.97, r*1.0, 0.16, 20), stoneMat, 0, 0.36, 0);
+    // 柱身要貼近方形碰撞，太細的話子彈會在柱子旁的半空中撞出火花
+    put(g, new THREE.CylinderGeometry(r*0.9, r*0.95, wh - 0.9, 16), stoneMat, 0, 0.44 + (wh-0.9)/2, 0);
+    put(g, new THREE.CylinderGeometry(r*1.0, r*0.9, 0.3, 16), stoneMat, 0, wh - 0.31, 0);
+    put(g, new THREE.BoxGeometry(gw, 0.16, gd), stoneDarkMat, 0, wh - 0.08, 0);
+  },
+  // 八角柱：比圓柱粗壯，平面朝向四個軸，貼近方形碰撞
+  octa(g, gw, gd, wh){
+    const r = Math.min(gw, gd)/2 / Math.cos(Math.PI/8) * 0.97;
+    put(g, new THREE.BoxGeometry(gw, 0.34, gd), stoneDarkMat, 0, 0.17, 0);
+    put(g, new THREE.CylinderGeometry(r, r, wh - 0.62, 8), stoneMat, 0, 0.34 + (wh-0.62)/2, 0).rotation.y = Math.PI/8;
+    put(g, new THREE.BoxGeometry(gw, 0.28, gd), stoneDarkMat, 0, wh - 0.14, 0);
+  },
+  // 斷柱：柱身到 ht 為止，頂端用幾塊歪斜的石塊做出斷口，柱礎上散著碎石
+  ruin(g, gw, gd, wh){
+    const r = Math.min(gw, gd)/2;
+    put(g, new THREE.BoxGeometry(gw, 0.28, gd), stoneDarkMat, 0, 0.14, 0);
+    put(g, new THREE.CylinderGeometry(r*0.9, r*0.95, wh - 0.5, 16), stoneMat, 0, 0.28 + (wh-0.5)/2, 0);
+    const R = (() => { let a = Math.floor(gw*1000 + wh*77); return () => (a = (a*1103515245+12345) & 0x7fffffff) / 0x7fffffff; })();
+    for (let i=0;i<4;i++){
+      const s = 0.22 + R()*0.18, ang = i*Math.PI/2 + R()*0.6;
+      const m = put(g, new THREE.BoxGeometry(s*1.4, s, s), stoneMat,
+                    Math.cos(ang)*r*0.4, wh - 0.2 + R()*0.12, Math.sin(ang)*r*0.4);
+      m.rotation.set(R()*0.7, R()*3, R()*0.7);
+    }
+    for (let i=0;i<5;i++){
+      const s = 0.08 + R()*0.1, ang = R()*Math.PI*2, d = r*0.9 + R()*0.1;
+      const m = put(g, new THREE.DodecahedronGeometry(s, 0), stoneMat,
+                    Math.max(-gw/2+s, Math.min(gw/2-s, Math.cos(ang)*d)), 0.28 + s*0.6,
+                    Math.max(-gd/2+s, Math.min(gd/2-s, Math.sin(ang)*d)));
+      m.rotation.set(R()*3, R()*3, R()*3);
+    }
+  },
+  // 紀念碑：牆高以內是完整的方形碑座（對應碰撞），上方再立一座方尖碑，
+  // 高出牆頂一大截，成為全場的地標
+  monument(g, gw, gd, wh){
+    put(g, new THREE.BoxGeometry(gw, 0.45, gd), stoneDarkMat, 0, 0.225, 0);
+    put(g, new THREE.BoxGeometry(gw - 0.1, 0.3, gd - 0.1), stoneMat, 0, 0.6, 0);
+    put(g, new THREE.BoxGeometry(gw - 0.06, wh - 1.05, gd - 0.06), stoneMat, 0, 0.75 + (wh-1.05)/2, 0);
+    // 四面的銘牌：凸出一點點的深色石板
+    for (const [x, z, ry] of [[0, gd/2 - 0.02, 0], [0, -gd/2 + 0.02, 0], [gw/2 - 0.02, 0, Math.PI/2], [-gw/2 + 0.02, 0, Math.PI/2]]){
+      put(g, new THREE.BoxGeometry(gw*0.5, 0.9, 0.06), stoneDarkMat, x, 1.75, z).rotation.y = ry;
+    }
+    put(g, new THREE.BoxGeometry(gw + 0.08, 0.3, gd + 0.08), stoneDarkMat, 0, wh - 0.15, 0);
+    put(g, new THREE.BoxGeometry(gw*0.6, 0.4, gd*0.6), stoneMat, 0, wh + 0.2, 0);
+    const ob = 3.6, base = Math.min(gw, gd)*0.36;
+    // 四角錐台：CylinderGeometry 四個面、轉 45 度就是方形
+    put(g, new THREE.CylinderGeometry(base*0.62*Math.SQRT1_2, base*Math.SQRT1_2, ob, 4), stoneMat, 0, wh + 0.4 + ob/2, 0).rotation.y = Math.PI/4;
+    put(g, new THREE.ConeGeometry(base*0.62*Math.SQRT1_2, 0.6, 4), stoneDarkMat, 0, wh + 0.4 + ob + 0.3, 0).rotation.y = Math.PI/4;
+  },
+  // 貨箱堆：三層 2x2 疊滿碰撞範圍，每箱微微錯開轉角，最上面再擺一箱
+  crates(g, gw, gd, wh){
+    const cw = gw/2, cd = gd/2, ch = 0.9;
+    let k = 0;
+    for (let lv=0; lv<3; lv++) for (let i=0;i<2;i++) for (let j=0;j<2;j++){
+      const c = makeCrate(cw - 0.04, cd - 0.04, ch);
+      c.position.set((i-0.5)*cw, lv*ch, (j-0.5)*cd);
+      c.rotation.y = ((k++ * 7) % 5 - 2) * 0.012;
+      g.add(c);
+    }
+    const top = makeCrate(cw*1.1, cd*1.1, ch*0.8);
+    top.position.set(gw*0.1, 3*ch, -gd*0.05); top.rotation.y = 0.35;
+    g.add(top);
+  },
+  // 塔樓：石造塔身、射口、外挑的胸牆與四角錐屋頂
+  tower(g, gw, gd, wh){
+    put(g, new THREE.BoxGeometry(gw, 0.4, gd), stoneDarkMat, 0, 0.2, 0);
+    put(g, new THREE.BoxGeometry(gw - 0.04, wh, gd - 0.04), stoneMat, 0, wh/2, 0);
+    for (const [x, z, ry] of [[0, gd/2 - 0.01, 0], [0, -gd/2 + 0.01, 0], [gw/2 - 0.01, 0, Math.PI/2], [-gw/2 + 0.01, 0, Math.PI/2]]){
+      put(g, new THREE.BoxGeometry(0.14, 0.8, 0.04), slitMat, x, 2.2, z).rotation.y = ry;
+    }
+    put(g, new THREE.BoxGeometry(gw + 0.3, 0.9, gd + 0.3), stoneMat, 0, wh + 0.45, 0);
+    put(g, new THREE.BoxGeometry(gw + 0.4, 0.12, gd + 0.4), stoneDarkMat, 0, wh + 0.06, 0);
+    const rr = (Math.max(gw, gd) + 0.5) * Math.SQRT1_2;
+    put(g, new THREE.ConeGeometry(rr, 1.9, 4), stoneDarkMat, 0, wh + 0.9 + 0.95, 0).rotation.y = Math.PI/4;
+  },
+  // 沙包牆：扁橢球一層層錯縫堆疊。橢球之間會有縫，所以裡面墊一塊深色芯，
+  // 否則看起來有洞、子彈卻打不穿，會誤導判斷
+  sandbags(g, gw, gd, wh){
+    const along = gw >= gd, L = along ? gw : gd, D = along ? gd : gw;
+    put(g, new THREE.BoxGeometry(along ? L - 0.12 : D - 0.16, wh - 0.06, along ? D - 0.16 : L - 0.12), bagCoreMat, 0, (wh-0.06)/2, 0);
+    const rows = Math.round(wh / 0.21), bagL = 0.58, h = wh/rows;
+    const n = Math.ceil(L / bagL) + 1;
+    const inst = new THREE.InstancedMesh(BAG_GEO, bagMat, rows * n);
+    // InstancedMesh 的視錐裁切只看原點那份幾何，整面牆會在邊緣被誤裁
+    inst.frustumCulled = false;
+    const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), p3 = new THREE.Vector3(), up = new THREE.Vector3(0,1,0);
+    let c = 0;
+    for (let r=0; r<rows; r++){
+      const off = (r % 2) * bagL/2;
+      for (let i=0; i<n; i++){
+        const u = -L/2 + bagL/2 + i*bagL - off;
+        if (u < -L/2 + bagL*0.3 || u > L/2 - bagL*0.3) continue;
+        p3.set(along ? u : 0, h*(r + 0.5), along ? 0 : u);
+        sc.set(along ? bagL*1.04 : D*0.98, h*1.08, along ? D*0.98 : bagL*1.04);
+        q.setFromAxisAngle(up, ((c*13)%7 - 3)*0.015);
+        inst.setMatrixAt(c++, m4.compose(p3, q, sc));
+      }
+    }
+    inst.count = c;
+    g.add(inst);
+  },
+};
+function addStyled(w){
+  const g = new THREE.Group();
+  g.position.set((w.x+w.w/2)*S, 0, (w.y+w.h/2)*S);
+  STYLES[w.style](g, w.w*S, w.h*S, w.ht || WALL_H);
+  mapLayer.add(g);
+}
+
+// 城垛：牆頂一排間隔的垛口。只加在主題要求、而且是完整高牆的牆上
+function addBattlements(w){
+  const gw = w.w*S, gd = w.h*S, along = gw >= gd, L = along ? gw : gd, D = along ? gd : gw;
+  const n = Math.max(1, Math.floor(L / 1.1));
+  const step = L / n;
+  const inst = new THREE.InstancedMesh(new THREE.BoxGeometry(along ? step*0.55 : D + 0.06, 0.5, along ? D + 0.06 : step*0.55), stoneFlatMat, n);
+  inst.frustumCulled = false;
+  const m4 = new THREE.Matrix4();
+  for (let i=0;i<n;i++){
+    const u = -L/2 + step*(i + 0.5);
+    m4.makeTranslation((w.x+w.w/2)*S + (along ? u : 0), WALL_H + 0.25, (w.y+w.h/2)*S + (along ? 0 : u));
+    inst.setMatrixAt(i, m4);
+  }
+  mapLayer.add(inst);
 }
 
 for (const w of WALLS){
   if (w.tree){ addTree((w.x+w.w/2)*S, (w.y+w.h/2)*S); continue; }
   if (w.ramp){ addRamp(w); continue; }
   if (w.crate){ addCrate(w); continue; }
+  if (w.style){ addStyled(w); continue; }
+  if (theme.battlements && !w.ht) addBattlements(w);
   const gw = w.w*S, gd = w.h*S, wh = w.ht || WALL_H;
   const geo = rescaleBoxUV(new THREE.BoxGeometry(gw, wh, gd), gw, wh, gd, 0.42);
   // 每面牆的貼圖錯開一段，板縫與鉚釘才不會每面都排在同樣位置
@@ -1760,10 +1983,29 @@ for (const w of WALLS){
 }
 
 // 共線牆段之間的長開口就是主要通道，從間隙推導門框才不會和碰撞牆錯位
+// 石拱門：主題要求 arches 時取代科幻門框。拱從 2.45m 起拱、拱頂內緣 2.85m，
+// 上方填到牆頂，兩端各伸進牆裡 2cm、前後各凸出 2cm，避免和牆面共平面而閃爍
+function addArch(g, opening, depth){
+  const o = opening/2 + 0.02, spring = 2.45, crown = 2.85;
+  const sh = new THREE.Shape();
+  sh.moveTo(-o, WALL_H); sh.lineTo(-o, spring);
+  sh.quadraticCurveTo(0, crown*2 - spring, o, spring);
+  sh.lineTo(o, WALL_H); sh.lineTo(-o, WALL_H);
+  const geo = new THREE.ExtrudeGeometry(sh, {depth: depth + 0.04, bevelEnabled:false, curveSegments:16});
+  geo.translate(0, 0, -(depth + 0.04)/2);
+  const arch = new THREE.Mesh(geo, trimMat);
+  g.add(arch);
+  // 拱心石
+  const key = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.5, depth + 0.1), trimMat);
+  key.position.set(0, crown + 0.12, 0);
+  g.add(key);
+  mapLayer.add(g);
+}
 function addDoorFrame(cx, cz, opening, depth, rotY){
   const g = new THREE.Group();
   g.position.set(cx*S, 0, cz*S);
   g.rotation.y = rotY;
+  if (activeMap.theme.arches){ addArch(g, opening, depth); return; }
   const postW = 0.16, frameH = 2.48;
   const postGeo = new THREE.BoxGeometry(postW, frameH, depth + 0.12);
   const beamGeo = new THREE.BoxGeometry(opening + postW*2, postW, depth + 0.12);
@@ -1832,6 +2074,8 @@ addDoorFrames();
 // 大面積的平牆再怎麼貼圖都會顯得空，掛一些管線、通風口、電箱
 // 讓輪廓有起伏，走過去時的視差才有東西可看
 (() => {
+  // 石砌牆上掛通風口、電箱會變回科幻設施，這個主題不掛
+  if (theme.ashlar) return;
   // 外掛件預設是深紫色，放在日光下很突兀，所以主題可以覆寫
   const metal = new THREE.MeshStandardMaterial({color:theme.propMetal ?? 0x2A2050, roughness:0.7, metalness:0.45});
   const dark  = new THREE.MeshStandardMaterial({color:theme.propDark ?? 0x140E2C, roughness:0.9, metalness:0.2});

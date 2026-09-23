@@ -5142,7 +5142,14 @@ addEventListener("keydown", ev => {
   if (k === "3") swapGun("breach");
 });
 addEventListener("keyup", ev => keys.delete(ev.key.toLowerCase()));
-addEventListener("blur", () => { keys.clear(); mouse.down = false; });
+// 視窗失去焦點或分頁被切走時，主動解除指標鎖定。
+// Chrome 在 Windows 上是用 ClipCursor 把游標關在網頁範圍裡，失焦時偶爾會漏掉解除，
+// 結果切到別的程式後游標還被關在舊的矩形裡（Leo 實際遇過）。不要依賴瀏覽器自己解
+function dropPointerLock(){
+  if (document.pointerLockElement) document.exitPointerLock?.();
+}
+addEventListener("blur", () => { keys.clear(); mouse.down = false; dropPointerLock(); });
+document.addEventListener("visibilitychange", () => { if (document.hidden) dropPointerLock(); });
 
 glCanvas.addEventListener("mousedown", ev => {
   ev.preventDefault();
@@ -5175,6 +5182,8 @@ addEventListener("wheel", ev => {
 }, {passive:false});
 
 document.addEventListener("pointerlockchange", () => {
+  // 鎖定請求是非同步的：點下去之後馬上切走，鎖可能在視窗已經失焦時才生效，這時立刻放掉
+  if (document.pointerLockElement && (document.hidden || !document.hasFocus())){ dropPointerLock(); return; }
   locked = document.pointerLockElement === glCanvas;
   if (!locked){
     mouse.down = false; keys.clear();
@@ -5274,7 +5283,7 @@ document.addEventListener("fullscreenchange", () => {
   layout();
   // 尺寸在轉場結束後才穩定，再補算一次
   setTimeout(layout, 120);
-  if (G && G.mode !== "dead" && overStart.hidden && overDead.hidden && overPause.hidden){
+  if (G && G.mode !== "dead" && overStart.hidden && overDead.hidden && overPause.hidden && document.hasFocus()){
     try{ glCanvas.requestPointerLock?.()?.catch?.(()=>{}); }catch(e){}
   }
 });

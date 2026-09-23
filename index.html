@@ -350,12 +350,13 @@ const MAPS = {
       stone:0xA8926E, stoneDark:0x8C7856,
     },
     atmo:{
-      bg:0xF0DCC0, fog:0.006, hemiSky:0xB8D0EC, hemiGround:0xC89A6A, hemi:0.8,
-      sensor:0.6, bloom:0.18, threshold:0.95, vignette:0.22, grade:0.35,
+      // 霧與泛光壓低：整片亮沙色上的泛光和薄霧會罩上一層光暈，看起來像失焦
+      bg:0xF0DCC0, fog:0.003, hemiSky:0xB8D0EC, hemiGround:0xC89A6A, hemi:0.8,
+      sensor:0.6, bloom:0.08, threshold:0.95, vignette:0.22, grade:0.35,
       sunColor:0xFFD6A0, sunI:1.85, sunDir:[0.62,0.55,0.42],
       skyTop:0x5A92DA, skyHorizon:0xF8D4A8,
       // 清晰度：露天圖不需要感測器的色差、掃描線與顆粒，另外加一點銳化
-      aberr:0, scan:0, noise:0.01, sharp:0.35, ao:1, env:true,
+      aberr:0, scan:0, noise:0, sharp:0.5, ao:1, env:true,
     },
     walls:[
       {x:0,y:0,w:W,h:24},{x:0,y:H-24,w:W,h:24},
@@ -3483,8 +3484,8 @@ function makeTargets(w,h){
   const bw = Math.max(2, Math.floor(w/3)), bh = Math.max(2, Math.floor(h/3));
   rtA = new THREE.WebGLRenderTarget(bw, bh, opt);
   rtB = new THREE.WebGLRenderTarget(bw, bh, opt);
-  // 遮蔽用半解析度算，模糊後再放大疊回去
-  const aw = Math.max(2, Math.floor(w/2)), ah = Math.max(2, Math.floor(h/2));
+  // 遮蔽用全解析度算：半解析度放大疊回去時，物體輪廓外會多一圈糊掉的黑暈
+  const aw = w, ah = h;
   rtAO1 = new THREE.WebGLRenderTarget(aw, ah, opt);
   rtAO2 = new THREE.WebGLRenderTarget(aw, ah, opt);
   aoMat.uniforms.uTexel.value.set(1/w, 1/h);
@@ -5430,7 +5431,9 @@ function layout(){
   if (h > availH){ h = availH; w = h*16/9; }
   w = Math.max(320, Math.floor(w)); h = Math.max(180, Math.floor(h));
   frame.style.width = w+"px"; frame.style.height = h+"px";
-  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  // 至少用 1.5 倍解析度渲染再由瀏覽器縮小（超取樣）：100% 縮放的螢幕上，1 倍解析度會讓
+  // 磚縫、地板花紋這些細線在幾公尺外就糊掉。代價是填色量約 2.25 倍
+  const dpr = Math.min(2, Math.max(1.5, window.devicePixelRatio || 1));
   renderer.setPixelRatio(dpr);
   renderer.setSize(w,h,false);
   camera.aspect = w/h; camera.fov = SET ? SET.fov : 78; camera.updateProjectionMatrix();

@@ -1318,6 +1318,110 @@ function stoneSurf(){ return STONE_SURF || (STONE_SURF = buildAshlarSurface()); 
 // 地板貼圖一張約 4m：6 皮、每塊石板 0.5～1.1m，灰縫較寬，是廣場鋪面的尺度
 function paveSurf(){ return PAVE_SURF || (PAVE_SURF = buildAshlarSurface({rows:6, minW:0.13, spanW:0.15, mortar:10, seed:4471})); }
 
+// 貨箱的木板貼圖：一面四片直向木板，板縫深、木紋是細的波浪線、偶爾一個節疤。
+// stencil 為真時在中央噴一組模板字，只給側面用（頂面有字很怪）
+function buildWoodSurface(stencil){
+  const N = 512, c = mkCanvas(N), x = c.getContext("2d"), h = mkCanvas(N), hx = h.getContext("2d");
+  let seed = stencil ? 913 : 377;
+  const R = () => (seed = (seed*1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+  x.fillStyle = "#2A1C10"; x.fillRect(0,0,N,N);
+  hx.fillStyle = "#202020"; hx.fillRect(0,0,N,N);
+  const planks = 4, pw = N/planks, gap = 5;
+  for (let i=0;i<planks;i++){
+    const x0 = i*pw + gap/2, w = pw - gap, v = 0.82 + R()*0.3;
+    x.fillStyle = `rgb(${(150*v)|0},${(108*v)|0},${(66*v)|0})`;
+    x.fillRect(x0, 0, w, N);
+    hx.fillStyle = "#9A9A9A"; hx.fillRect(x0, 0, w, N);
+    // 木紋：沿板長的細波浪線，深淺交錯
+    for (let k=0;k<14;k++){
+      const gx = x0 + R()*w, amp = 2 + R()*5, fr = 0.01 + R()*0.02, ph = R()*6;
+      x.strokeStyle = R() < 0.5 ? "rgba(60,36,16,.35)" : "rgba(210,170,120,.18)";
+      x.lineWidth = 1 + R()*1.5;
+      x.beginPath();
+      for (let y=0;y<=N;y+=8){ const px = gx + Math.sin(y*fr + ph)*amp; y ? x.lineTo(px, y) : x.moveTo(px, y); }
+      x.stroke();
+    }
+    if (R() < 0.6){
+      const kx = x0 + w*(0.25 + R()*0.5), ky = R()*N;
+      x.fillStyle = "rgba(55,32,14,.75)"; x.beginPath(); x.ellipse(kx, ky, 5 + R()*4, 9 + R()*6, 0, 0, Math.PI*2); x.fill();
+      hx.fillStyle = "#6A6A6A"; hx.beginPath(); hx.ellipse(kx, ky, 6, 10, 0, 0, Math.PI*2); hx.fill();
+    }
+    // 釘子：板頭板尾各兩顆
+    for (const ny of [N*0.1, N*0.9]) for (const nx of [0.3, 0.7]){
+      x.fillStyle = "#3A3632"; x.beginPath(); x.arc(x0 + w*nx, ny, 3.2, 0, Math.PI*2); x.fill();
+      hx.fillStyle = "#D0D0D0"; hx.beginPath(); hx.arc(x0 + w*nx, ny, 3.2, 0, Math.PI*2); hx.fill();
+    }
+  }
+  if (stencil){
+    // 模板噴漆：字的筆畫有斷口，邊緣半透明，看起來是噴上去的
+    // 先畫在另一張畫布上挖出斷口再疊上去，直接在木板上挖會連木板一起挖穿
+    const sc = mkCanvas(N), sx = sc.getContext("2d");
+    sx.fillStyle = "#1C1510";
+    sx.font = "bold 92px 'Chakra Petch', monospace"; sx.textAlign = "center"; sx.textBaseline = "middle";
+    sx.fillText("EP-07", N/2, N*0.45);
+    sx.font = "bold 40px 'Chakra Petch', monospace";
+    sx.fillText("THIS SIDE UP", N/2, N*0.62);
+    sx.globalCompositeOperation = "destination-out";
+    for (let k=0;k<9;k++) sx.fillRect(N*0.2 + k*N*0.075, N*0.3, 5, N*0.4);
+    x.globalAlpha = 0.55; x.drawImage(sc, 0, 0); x.globalAlpha = 1;
+  }
+  return {color:c, normal:heightToNormal(h, 2.2)};
+}
+// 沙包的麻布：經緯交錯的粗織紋，中間一圈縫線（沙包的赤道就是 v=0.5）
+function buildBurlapSurface(){
+  const N = 256, c = mkCanvas(N), x = c.getContext("2d"), h = mkCanvas(N), hx = h.getContext("2d");
+  let seed = 5150;
+  const R = () => (seed = (seed*1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+  x.fillStyle = "#B8A27A"; x.fillRect(0,0,N,N);
+  hx.fillStyle = "#808080"; hx.fillRect(0,0,N,N);
+  const cell = 4;
+  for (let yy=0; yy<N; yy+=cell) for (let xx=0; xx<N; xx+=cell){
+    const over = ((xx + yy)/cell) % 2 === 0, v = 0.86 + R()*0.22;
+    x.fillStyle = `rgb(${(184*v)|0},${(160*v)|0},${(120*v)|0})`;
+    x.fillRect(xx + (over ? 0 : 1), yy + (over ? 1 : 0), over ? cell : cell - 2, over ? cell - 2 : cell);
+    hx.fillStyle = over ? "#A8A8A8" : "#707070";
+    hx.fillRect(xx, yy, cell, cell);
+  }
+  // 縫線與沾到的土
+  x.fillStyle = "rgba(70,55,35,.55)"; x.fillRect(0, N/2 - 3, N, 6);
+  hx.fillStyle = "#404040"; hx.fillRect(0, N/2 - 3, N, 6);
+  for (let k=0;k<N;k+=12){ x.fillStyle = "rgba(230,215,180,.7)"; x.fillRect(k, N/2 - 1, 7, 2); }
+  for (let k=0;k<25;k++){
+    const px = R()*N, py = R()*N, r = 6 + R()*18;
+    const gr = x.createRadialGradient(px, py, 0, px, py, r);
+    gr.addColorStop(0, "rgba(90,70,45,.22)"); gr.addColorStop(1, "rgba(0,0,0,0)");
+    x.fillStyle = gr; x.fillRect(px - r, py - r, r*2, r*2);
+  }
+  return {color:c, normal:heightToNormal(h, 2.6)};
+}
+let WOOD_SIDE = null, WOOD_TOP = null, BURLAP = null;
+function woodSide(){ return WOOD_SIDE || (WOOD_SIDE = buildWoodSurface(true)); }
+function woodTop(){ return WOOD_TOP || (WOOD_TOP = buildWoodSurface(false)); }
+function burlap(){ return BURLAP || (BURLAP = buildBurlapSurface()); }
+// 樹冠的葉片卡貼圖：透明底上畫幾十片橢圓葉，每片有葉脈與明暗。
+// 灰階偏綠，實際顏色交給材質與每張卡的實例色，樹才不會每棵一模一樣
+let LEAF_CARD = null;
+function leafCard(){
+  if (LEAF_CARD) return LEAF_CARD;
+  const N = 256, c = mkCanvas(N), x = c.getContext("2d");
+  let seed = 8080;
+  const R = () => (seed = (seed*1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+  x.clearRect(0,0,N,N);
+  for (let i=0;i<46;i++){
+    // 葉子集中在中央，邊緣稀疏，卡片的方形輪廓才看不出來
+    const ang = R()*Math.PI*2, d = Math.pow(R(), 0.7)*N*0.4;
+    const px = N/2 + Math.cos(ang)*d, py = N/2 + Math.sin(ang)*d;
+    const len = 18 + R()*16, wid = len*0.42, rot = R()*Math.PI*2, v = 0.7 + R()*0.45;
+    x.save(); x.translate(px, py); x.rotate(rot);
+    x.fillStyle = `rgb(${(150*v)|0},${(185*v)|0},${(140*v)|0})`;
+    x.beginPath(); x.ellipse(0, 0, len/2, wid/2, 0, 0, Math.PI*2); x.fill();
+    x.strokeStyle = `rgba(60,80,55,.5)`; x.lineWidth = 1.2;
+    x.beginPath(); x.moveTo(-len/2, 0); x.lineTo(len/2, 0); x.stroke();
+    x.restore();
+  }
+  return (LEAF_CARD = c);
+}
+
 const WALL_SURF  = buildWallSurface();
 const FLOOR_SURF = buildFloorSurface();
 // 灰階版：原貼圖是深紫色底，乘上任何主題色都偏暗偏紫，做不出日光下的水泥。
@@ -1684,28 +1788,90 @@ function addStrip(len, cx, cz, rotY){
   gl2.renderOrder = 2;
   mapLayer.add(gl2);
 }
-// 樹：樹幹加幾團低面數的樹冠。平面著色讓每個面迎光角度不同，
-// 在斜陽下自然分出亮面與暗面，不需要葉子貼圖
+// 樹：彎曲、根部外張的樹幹分出三根枝幹，樹冠由二十多團表面起伏的葉簇沿枝端長出。
+// 平面著色讓每個面迎光角度不同，在斜陽下自然分出亮面與暗面，不需要葉子貼圖。
+// 顏色刻意壓成灰褐與偏藍的綠：斜陽下的棕與黃綠會變成橘和萊姆黃，跟敵人撞色
 const trunkMat  = new THREE.MeshStandardMaterial({color:0x5E5248, roughness:0.95});
-const leafMats  = [0x5A7E52, 0x4C6E48, 0x688A5C].map(c =>
-  new THREE.MeshStandardMaterial({color:c, roughness:0.9, flatShading:true}));
-const trunkGeo  = new THREE.CylinderGeometry(0.12, 0.2, 2.8, 9);
-const leafGeo   = new THREE.IcosahedronGeometry(1, 1);
+const leafTones = [0x5A7E52, 0x4C6E48, 0x688A5C, 0x52744E];
+const leafCoreMat = new THREE.MeshStandardMaterial({color:0x34503A, roughness:0.95, flatShading:true});
+// 葉片卡：透明度測試（不是半透明混合）挖出葉形，不必排序，陰影也跟著挖空成斑駁的樹影
+const leafCardMat = new THREE.MeshStandardMaterial({map:texFrom(leafCard()), alphaTest:0.5, side:THREE.DoubleSide, roughness:0.85});
+const LEAF_CARD_GEO = new THREE.PlaneGeometry(1, 1);
+// 葉簇：細分過的二十面體，表面用位置決定的起伏推擠（同一點永遠推一樣多，面才不會裂開）
+const LEAF_GEOS = [0,1,2].map(k => {
+  const g = new THREE.IcosahedronGeometry(1, 2), p = g.attributes.position;
+  for (let i=0;i<p.count;i++){
+    const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+    const f = 1 + 0.15*Math.sin(3.1*x + k*1.7) + 0.12*Math.sin(4.3*y + k*2.3) + 0.1*Math.sin(5.7*z + k*0.9);
+    p.setXYZ(i, x*f, y*f*0.82, z*f);
+  }
+  g.computeVertexNormals();
+  return g;
+});
 function addTree(cx, cz){
-  const trunk = new THREE.Mesh(trunkGeo, trunkMat);
-  trunk.position.set(cx, 1.4, cz);
-  mapLayer.add(trunk);
-  // 用位置當種子，樹冠的團塊排法每棵不同，但每次載入都一樣
+  // 用位置當種子，每棵長得不同，但每次載入都一樣
   let a = Math.floor(cx*97 + cz*131);
   const R = () => (a = (a*1103515245+12345) & 0x7fffffff) / 0x7fffffff;
-  for (let i=0;i<4;i++){
-    const r = 0.8 + R()*0.55, ang = i*1.7 + R();
-    const leaf = new THREE.Mesh(leafGeo, leafMats[i % leafMats.length]);
-    leaf.scale.set(r, r*0.8, r);
-    leaf.position.set(cx + Math.cos(ang)*0.55*(i>0), 3.1 + R()*0.5, cz + Math.sin(ang)*0.55*(i>0));
-    leaf.rotation.set(R()*3, R()*3, 0);
+  const TH = 3.0, bx = (R()-0.5)*0.5, bz = (R()-0.5)*0.5;
+  const tg = new THREE.CylinderGeometry(0.11, 0.2, TH, 10, 10);
+  tg.translate(0, TH/2, 0);
+  const p = tg.attributes.position;
+  for (let i=0;i<p.count;i++){
+    let x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+    // 根部外張，往上越彎越多
+    const flare = y < 0.5 ? 1 + (0.5 - y)*0.9 : 1;
+    const t = y / TH;
+    p.setXYZ(i, x*flare + bx*t*t, y, z*flare + bz*t*t);
+  }
+  tg.computeVertexNormals();
+  const trunk = new THREE.Mesh(tg, trunkMat);
+  trunk.position.set(cx, 0, cz);
+  mapLayer.add(trunk);
+
+  const top = new THREE.Vector3(cx + bx, TH, cz + bz);
+  const anchors = [top.clone().add(new THREE.Vector3(0, 0.45, 0))];
+  const up = new THREE.Vector3(0,1,0);
+  for (let i=0;i<3;i++){
+    const ang = i*2.1 + R(), tilt = 0.65 + R()*0.35, len = 0.7 + R()*0.4;
+    const dir = new THREE.Vector3(Math.cos(ang)*Math.sin(tilt), Math.cos(tilt), Math.sin(ang)*Math.sin(tilt));
+    const start = top.clone().add(new THREE.Vector3(0, -0.35 - R()*0.35, 0));
+    const bg = new THREE.CylinderGeometry(0.035, 0.075, len, 6);
+    bg.translate(0, len/2, 0);
+    const br = new THREE.Mesh(bg, trunkMat);
+    br.position.copy(start);
+    br.quaternion.setFromUnitVectors(up, dir);
+    mapLayer.add(br);
+    anchors.push(start.clone().addScaledVector(dir, len));
+  }
+  // 內層：幾團深色葉簇墊底，從葉片卡的縫隙看進去不會直接看穿
+  for (let k=0;k<anchors.length*2;k++){
+    const an = anchors[k % anchors.length];
+    const leaf = new THREE.Mesh(LEAF_GEOS[k % LEAF_GEOS.length], leafCoreMat);
+    const s = 0.4 + R()*0.2;
+    leaf.scale.set(s, s, s);
+    leaf.position.set(an.x + (R()-0.5)*0.5, Math.max(2.9, an.y + (R()-0.4)*0.4), an.z + (R()-0.5)*0.5);
+    leaf.rotation.set(R()*3, R()*3, R()*3);
     mapLayer.add(leaf);
   }
+  // 外層：上百張葉片卡以隨機角度散在各枝端周圍的橢球裡
+  const n = 170;
+  const cards = new THREE.InstancedMesh(LEAF_CARD_GEO, leafCardMat, n);
+  // InstancedMesh 的視錐裁切只看原點那份幾何
+  cards.frustumCulled = false;
+  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), sc = new THREE.Vector3(), p3 = new THREE.Vector3(), col = new THREE.Color();
+  for (let k=0;k<n;k++){
+    const an = anchors[k % anchors.length];
+    // 橢球內均勻取點，偏向外殼：葉子長在樹冠表面
+    const th = R()*Math.PI*2, ph = Math.acos(2*R() - 1), rr = 0.55 + Math.pow(R(), 0.5)*0.55;
+    p3.set(an.x + Math.sin(ph)*Math.cos(th)*rr*1.1, Math.max(2.75, an.y + Math.cos(ph)*rr*0.75), an.z + Math.sin(ph)*Math.sin(th)*rr*1.1);
+    e.set(R()*Math.PI, R()*Math.PI, R()*Math.PI);
+    const s = 0.75 + R()*0.45;
+    sc.set(s, s, s);
+    cards.setMatrixAt(k, m4.compose(p3, q.setFromEuler(e), sc));
+    const tone = leafTones[(R()*leafTones.length)|0], v = 0.85 + R()*0.3;
+    cards.setColorAt(k, col.setHex(tone).multiplyScalar(v));
+  }
+  mapLayer.add(cards);
 }
 
 // 斜坡：楔形實體。先在「沿 +x 升高」的標準方向建好，再依 ramp 轉到實際方向
@@ -1753,19 +1919,22 @@ function addRamp(w){
   mapLayer.add(g);
 }
 
-// 貨箱：金屬框、嵌板、每面一道斜撐。用道具的主題色，和牆的石材分得開。
-// 回傳原點在底面中心的群組，單個貨箱和貨箱堆共用
-const crateBodyMat = addGrime(new THREE.MeshStandardMaterial({color:theme.propMetal ?? 0x3A3060, roughness:0.75, metalness:0.35}));
-const crateFrameMat = new THREE.MeshStandardMaterial({color:theme.propDark ?? 0x1A1432, roughness:0.6, metalness:0.55});
+// 貨箱：木板箱身（側面有模板噴漆、頂面素面）、深色木框與斜撐、八個角包金屬護角。
+// 回傳原點在底面中心的群組
+const crateSideMat = new THREE.MeshStandardMaterial({map:texFrom(woodSide().color), normalMap:texFrom(woodSide().normal), roughness:0.85});
+const crateTopMat  = new THREE.MeshStandardMaterial({map:texFrom(woodTop().color), normalMap:texFrom(woodTop().normal), roughness:0.85});
+const crateFrameMat = new THREE.MeshStandardMaterial({map:texFrom(woodTop().color), color:0x9A8878, roughness:0.8});
+const crateMetalMat = new THREE.MeshStandardMaterial({color:0x55524E, roughness:0.4, metalness:0.85});
 function makeCrate(gw, gd, hh){
   const g = new THREE.Group();
-  // 嵌板略內縮，外框才凸得出來
-  const body = new THREE.Mesh(new THREE.BoxGeometry(gw-0.06, hh-0.04, gd-0.06), crateBodyMat);
+  // 箱身略內縮，外框才凸得出來。材質順序：+x, -x, +y, -y, +z, -z
+  const body = new THREE.Mesh(new THREE.BoxGeometry(gw-0.06, hh-0.04, gd-0.06),
+    [crateSideMat, crateSideMat, crateTopMat, crateTopMat, crateSideMat, crateSideMat]);
   body.position.y = hh/2;
   g.add(body);
-  const t = 0.07;
-  const bar = (sx, sy, sz, x, y, z) => {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), crateFrameMat);
+  const t = 0.08;
+  const bar = (sx, sy, sz, x, y, z, mat) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), mat || crateFrameMat);
     m.position.set(x, y, z); g.add(m); return m;
   };
   // 12 條框邊：頂面與底面各一圈，四根立柱
@@ -1774,11 +1943,15 @@ function makeCrate(gw, gd, hh){
     bar(t, t, gd, -gw/2 + t/2, y, 0); bar(t, t, gd, gw/2 - t/2, y, 0);
   }
   for (const x of [-gw/2 + t/2, gw/2 - t/2]) for (const z of [-gd/2 + t/2, gd/2 - t/2]) bar(t, hh, t, x, hh/2, z);
-  // 側面斜撐：沿對角線放一根細條，稍微凸出嵌板
+  // 側面斜撐：沿對角線放一根細條，稍微凸出箱身
   const diagW = Math.hypot(gw - 2*t, hh - 2*t), angX = Math.atan2(hh - 2*t, gw - 2*t);
   const diagD = Math.hypot(gd - 2*t, hh - 2*t), angZ = Math.atan2(hh - 2*t, gd - 2*t);
   for (const sz of [-1, 1]) bar(diagW, t*0.8, t*0.6, 0, hh/2, sz*(gd/2 - t*0.3)).rotation.z = sz*angX;
   for (const sx of [-1, 1]) bar(t*0.6, t*0.8, diagD, sx*(gw/2 - t*0.3), hh/2, 0).rotation.x = sx*angZ;
+  // 金屬護角：比木框大一圈，包住八個角
+  const c = 0.17, o = c/2 - 0.012;
+  for (const x of [-1, 1]) for (const z of [-1, 1]) for (const y of [o, hh - o])
+    bar(c, c, c, x*(gw/2 - o), y, z*(gd/2 - o), crateMetalMat);
   return g;
 }
 function addCrate(w){
@@ -1797,7 +1970,9 @@ const stoneDarkMat = addGrime(new THREE.MeshStandardMaterial({color:theme.stoneD
 // 會把整排城垛當成貼在地上而塗黑，所以這裡用不加髒污的版本
 const stoneFlatMat = new THREE.MeshStandardMaterial({color:theme.stone ?? theme.trim, roughness:0.88, metalness:0.02, flatShading:true});
 const slitMat = new THREE.MeshStandardMaterial({color:0x1E1812, roughness:1});
-const bagMat = new THREE.MeshStandardMaterial({color:theme.bags ?? 0x9C8A68, roughness:1});
+// 麻布貼圖本身已經是沙色，材質色只再往主題色帶一點
+const bagMat = new THREE.MeshStandardMaterial({map:texFrom(burlap().color, 3, 1), normalMap:texFrom(burlap().normal, 3, 1),
+  color:new THREE.Color(0xFFFFFF).lerp(new THREE.Color(theme.bags ?? 0x9C8A68), 0.35), roughness:1});
 // 沙包形狀：把球的頂點往方塊推（超橢球），介於球和方塊之間，是鼓起來的布袋。
 // 直接縮放球體的話會是尖頭的橄欖形，彼此只在中間相接、縫很大
 const BAG_GEO = (() => {
@@ -1893,27 +2068,33 @@ const STYLES = {
     const rr = (Math.max(gw, gd) + 0.5) * Math.SQRT1_2;
     put(g, new THREE.ConeGeometry(rr, 1.9, 4), stoneDarkMat, 0, wh + 0.9 + 0.95, 0).rotation.y = Math.PI/4;
   },
-  // 沙包牆：扁橢球一層層錯縫堆疊。橢球之間會有縫，所以裡面墊一塊深色芯，
-  // 否則看起來有洞、子彈卻打不穿，會誤導判斷
+  // 沙包牆：麻布沙包一層層錯縫堆疊，每袋的大小、歪斜、深淺都略有不同。
+  // 錯縫那幾層的兩端用半袋補齊，裡面的深色芯才不會從端面露出來
   sandbags(g, gw, gd, wh){
     const along = gw >= gd, L = along ? gw : gd, D = along ? gd : gw;
     put(g, new THREE.BoxGeometry(along ? L - 0.12 : D - 0.16, wh - 0.06, along ? D - 0.16 : L - 0.12), bagCoreMat, 0, (wh-0.06)/2, 0);
     const rows = Math.round(wh / 0.21), bagL = 0.58, h = wh/rows;
-    const n = Math.ceil(L / bagL) + 1;
-    const inst = new THREE.InstancedMesh(BAG_GEO, bagMat, rows * n);
+    const inst = new THREE.InstancedMesh(BAG_GEO, bagMat, rows * (Math.ceil(L / bagL) + 2));
     // InstancedMesh 的視錐裁切只看原點那份幾何，整面牆會在邊緣被誤裁
     inst.frustumCulled = false;
-    const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), p3 = new THREE.Vector3(), up = new THREE.Vector3(0,1,0);
+    let a = Math.floor(gw*977 + gd*613 + wh*31);
+    const R = () => (a = (a*1103515245+12345) & 0x7fffffff) / 0x7fffffff;
+    const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), sc = new THREE.Vector3(), p3 = new THREE.Vector3(), col = new THREE.Color();
     let c = 0;
     for (let r=0; r<rows; r++){
-      const off = (r % 2) * bagL/2;
-      for (let i=0; i<n; i++){
-        const u = -L/2 + bagL/2 + i*bagL - off;
-        if (u < -L/2 + bagL*0.3 || u > L/2 - bagL*0.3) continue;
+      // 把這一層切成一段段，超出牆長的部分裁掉：錯縫的那層兩端自然變成半袋
+      for (let u0 = -L/2 - (r % 2)*bagL/2; u0 < L/2; u0 += bagL){
+        const s0 = Math.max(u0, -L/2), s1 = Math.min(u0 + bagL, L/2), len = s1 - s0;
+        if (len < 0.12) continue;
+        const u = (s0 + s1)/2;
         p3.set(along ? u : 0, h*(r + 0.5), along ? 0 : u);
-        sc.set(along ? bagL*1.04 : D*0.98, h*1.08, along ? D*0.98 : bagL*1.04);
-        q.setFromAxisAngle(up, ((c*13)%7 - 3)*0.015);
-        inst.setMatrixAt(c++, m4.compose(p3, q, sc));
+        const sl = len*1.04, sh = h*(1.02 + R()*0.1), sd = D*(0.94 + R()*0.06);
+        sc.set(along ? sl : sd, sh, along ? sd : sl);
+        e.set((R()-0.5)*0.08, (R()-0.5)*0.08, (R()-0.5)*0.08);
+        inst.setMatrixAt(c, m4.compose(p3, q.setFromEuler(e), sc));
+        const v = 0.86 + R()*0.2;
+        inst.setColorAt(c, col.setRGB(v, v*(0.97 + R()*0.04), v*(0.92 + R()*0.06)));
+        c++;
       }
     }
     inst.count = c;

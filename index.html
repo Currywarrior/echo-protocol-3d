@@ -438,9 +438,11 @@ const P = {
   jumpV:4.2, gravity:11.5, airMul:0.82,
   // 速度式移動：地面有摩擦、加速需要時間
   accel:12, friction:8.5, stopSpeed:60, rad:13, maxHp:100, swapTime:0.34,
-  // 空中照 Source（CS）：sv_airaccelerate 12，但空中的目標速度只有 30 單位/秒（約 0.76m/s = 25px/s）。
-  // 按住前進不會越飛越快，按反方向卻能在 0.1 秒內煞住、按左右能修正落點
-  airAccel:12, airWishCap:25,
+  // 空中照 Unreal（Valorant 的引擎）角色移動的 falling 公式：
+  // 按方向鍵時先用「轉向摩擦」把速度方向轉向按鍵方向（速率不變），再沿按鍵方向加速，
+  // 總速率上限是 max(跑速, 當下速率)，所以能在空中變向、煞車，但不會越飛越快。
+  // airTurn 是每秒轉向的比例（約 0.25 秒轉過去），airAccel 是跑速的倍數（約 0.3 秒從靜止加到跑速）
+  airTurn:4, airAccel:3.5,
   // 放開按鍵時照 Unreal（Valorant）角色移動的煞車：每秒扣 摩擦×速度 + 固定減速度，
   // 用的是引擎預設 GroundFriction 8、BrakingDecelerationWalking 2048cm/s²（= 683px/s²）
   brakeFriction:8, brakeDecel:683,
@@ -633,22 +635,19 @@ function groundAt(e){
 function slideOffLedges(p, dt){
   for (const w of WALLS){
     if (!w.ht || !aabbHit(p,w)) continue;
+    // 腳還在頂面上方就只是從它上面飛過去，落地判定會處理，不能推（否則飛越斜坡時會被橫推）
+    if (p.z >= topAt(w, p.x, p.y, FOOT)) continue;
     // 最淺的那一側就是往外的方向
     const pen = [[p.x+p.rad-w.x,-1,0],[w.x+w.w-(p.x-p.rad),1,0],
                  [p.y+p.rad-w.y,0,-1],[w.y+w.h-(p.y-p.rad),0,1]];
     let [depth,nx,ny] = pen[0];
     for (const q of pen) if (q[0] < depth) [depth,nx,ny] = q;
     const blocking = topAt(w, p.x, p.y, p.rad) > p.z + LEDGE_REACH + 0.02;
-    if (!blocking && p.vx*nx + p.vy*ny < -10){
-      // 正往箱子移動（跳上去的途中）：反過來把人拉上頂面，直到腳底踩得到。
-      // 空中照 Source 規則只能慢慢挪，貼著箱子原地起跳時身體中心離邊緣還有 0.39m，
-      // 不拉的話來不及踩進去就掉下來了；Unreal 碰到邊緣時也會這樣把角色帶上去
-      // depth 是圓壓進箱子的深度；壓超過 rad - FOOT，腳底那一圈才碰得到頂面
-      const need = p.rad - FOOT + 1 - depth;
-      if (need > 0) moveWithCollision(p, -nx*Math.min(need, 160*dt), -ny*Math.min(need, 160*dt), p.z, LEDGE_REACH);
-      continue;
+    if (!blocking){
+      // 正往箱子移動（跳上去的途中）就不推，否則會把人推離想踩上去的邊緣
+      if (p.vx*nx + p.vy*ny < -10) continue;
+      depth = Math.min(depth, 110*dt);
     }
-    if (!blocking) depth = Math.min(depth, 110*dt);
     moveWithCollision(p, nx*(depth+0.01), ny*(depth+0.01), p.z, LEDGE_REACH);
   }
 }
@@ -4126,9 +4125,11 @@ function update(dt){
         const impact = Math.max(0, -p.vz);
         G.stepLift += gz - p.z;
         p.z = gz; p.vz = 0; p.grounded = true;
-        // 落地會吃掉動能：越重的落地下沉越深、水平速度損失越多
+        // 落地會吃掉動能：越重的落地下沉越深、水平速度損失越多。
+        // 一般跳躍落地約 4.2m/s、跳上跳下箱子也在 6m/s 內，這些不減速（Valorant 的跳躍落地不會頓），
+        // 只有從高台摔下來這種重落地才扣速度，否則每次落地都會先頓一下再重新加速
         G.landDip = Math.min(0.20, impact*0.040);
-        const keep = Math.max(0.55, 1 - impact*0.07);
+        const keep = Math.max(0.6, 1 - Math.max(0, impact - 6)*0.12);
         p.vx *= keep; p.vy *= keep;
         if (impact > 1.5){ sfxNoise(0.09, 0.035 + impact*0.006, 300); sfx("sine", 55, 0.10, 0.03, 38); }
         else sfxNoise(0.05, 0.016, 420);
@@ -4171,16 +4172,25 @@ function update(dt){
         p.vx *= k; p.vy *= k;
       }
     }
-    // 加速：只補到目標速度為止，起步因此有一段加速過程。
-    // 空中的目標速度壓到 airWishCap（Source 的空中移動）
-    if (wl){
+    // 加速：只補到目標速度為止，起步因此有一段加速過程
+    if (wl && p.grounded){
       const cur = p.vx*wx + p.vy*wy;
-      const add = (p.grounded ? maxSpd : Math.min(maxSpd, P.airWishCap)) - cur;
+      const add = maxSpd - cur;
       if (add > 0){
-        const acc = (p.grounded ? P.accel : P.airAccel) * maxSpd * dt;
+        const acc = P.accel * maxSpd * dt;
         p.vx += wx*Math.min(acc, add);
         p.vy += wy*Math.min(acc, add);
       }
+    } else if (wl){
+      // 空中（見 P.airTurn）：衝刺跳的速度保留，但加速只能加到跑速
+      const sp = Math.hypot(p.vx, p.vy), cap = Math.max(maxSpd, sp);
+      const f = Math.min(1, P.airTurn*dt);
+      p.vx -= (p.vx - wx*sp)*f;
+      p.vy -= (p.vy - wy*sp)*f;
+      p.vx += wx*P.airAccel*maxSpd*dt;
+      p.vy += wy*P.airAccel*maxSpd*dt;
+      const ns = Math.hypot(p.vx, p.vy);
+      if (ns > cap){ p.vx *= cap/ns; p.vy *= cap/ns; }
     }
     const onRampBefore = p.grounded && groundAt(p) > 0 && groundOnRamp;
     if (!p.grounded) slideOffLedges(p, dt);

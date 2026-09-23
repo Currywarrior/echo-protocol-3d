@@ -3456,12 +3456,16 @@ function update(dt){
 
       const d = Math.hypot(p.x-b.x, p.y-b.y);
       const los = d < T.range && hasLOS(b.x,b.y,p.x,p.y);
-      if (los){ b.see += dt; b.lastX = p.x; b.lastY = p.y; } else b.see = 0;
+      if (los){ b.see += dt; b.lastX = p.x; b.lastY = p.y; b.chase = true; } else b.see = 0;
 
       let tx, ty;
       if (los){ tx = p.x; ty = p.y; }
-      else if (Math.hypot(b.lastX-b.x, b.lastY-b.y) > 40){ tx = b.lastX; ty = b.lastY; }
+      else if (b.chase && Math.hypot(b.lastX-b.x, b.lastY-b.y) > 40){ tx = b.lastX; ty = b.lastY; }
       else {
+        // 走到最後看見玩家的位置就放棄追蹤，直到重新看見為止。
+        // 少了這個旗標，往閒晃目標走一步又會退出 40px 圈外而轉身走回去，
+        // 敵人會卡在圈邊每幀轉身 180 度，看起來就是在原地抖出殘影
+        b.chase = false;
         if (Math.hypot(b.goalX-b.x, b.goalY-b.y) < 40){
           const s = SPAWNS[(Math.random()*SPAWNS.length)|0];
           b.goalX = s.x; b.goalY = s.y;
@@ -3476,7 +3480,11 @@ function update(dt){
         const t2 = Math.atan2(p.y-b.y, p.x-b.x) + Math.PI/2*b.strafe;
         ax = Math.cos(t2); ay = Math.sin(t2);
       }
-      if (b.stuck > 0.3){
+      // 側閃一旦開始就持續一段時間。原本側移一走得動，卡住計時就歸零，
+      // 下一幀立刻轉回去撞牆，貼牆時每 0.3 秒抽搐一下
+      if (b.stuck > 0.3) b.dodge = 0.4;
+      if (b.dodge > 0){
+        b.dodge -= dt;
         const t2 = Math.atan2(ay,ax) + Math.PI/2*b.strafe;
         ax = Math.cos(t2); ay = Math.sin(t2);
         if (b.stuck > 0.95){ b.stuck = 0; b.strafe *= -1; }

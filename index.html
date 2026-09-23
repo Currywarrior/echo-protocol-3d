@@ -5426,9 +5426,13 @@ const HEALS = {
 const EVO_NEXT = [0, 150, 300, 750];
 function startHeal(kind){
   const p = G.player, H2 = HEALS[kind];
-  if (G.heal || G.inv[kind] <= 0 || G.mode === "dead") return;
-  if (H2.shield && p.shield >= SHIELD_TIERS[p.evoTier].cap){ banner("護盾是滿的"); return; }
-  if (H2.hp && p.hp >= P.maxHp){ banner("血量是滿的"); return; }
+  if (G.heal || G.mode === "dead") return;
+  // 訓練場：不會受傷，所以滿的也能打、也不扣數量，拿來練打補品的時機與移動
+  if (!G.practice){
+    if (G.inv[kind] <= 0) return;
+    if (H2.shield && p.shield >= SHIELD_TIERS[p.evoTier].cap){ banner("護盾是滿的"); return; }
+    if (H2.hp && p.hp >= P.maxHp){ banner("血量是滿的"); return; }
+  }
   G.heal = {kind, t:0};
   G.adsOn = false;
   sfx("sine", 440, 0.12, 0.03, 520);
@@ -5443,8 +5447,9 @@ function updateHeal(dt){
   const p = G.player;
   p.shield = Math.min(SHIELD_TIERS[p.evoTier].cap, p.shield + H2.shield);
   p.hp = Math.min(P.maxHp, p.hp + H2.hp);
-  G.inv[hl.kind]--;
+  if (!G.practice) G.inv[hl.kind]--;
   G.heal = null;
+  lessonEvent("heal");
   sfx("triangle", 660, 0.16, 0.04, 990);
 }
 function gainEvo(dmg){
@@ -5497,6 +5502,14 @@ const LESSONS = [
     "衝到建築旁起跳撞牆，視線對著牆（45 度內）",
     "會自動往上爬，手搆到屋頂邊緣就翻上去；按住 " + K("back") + " 會掛在牆上",
     "3.5～6m 的屋頂都上得去，一次騰空只能爬一段（最多約 3.7m）"]},
+  {title:"翻窗", ev:"window", n:3, lines:() => [
+    "RIDGE TOWN 的房子一樓窗戶：按著前進跳向窗口",
+    "會翻上窗台、蹲著過去（窗口只有 1.3m 高），再往前走就進屋了",
+    "Apex 裡翻窗是最快的進屋方式，也常拿來甩掉在門口等你的人"]},
+  {title:"滑索", ev:"zipline", n:3, lines:() => [
+    "走到滑索柱旁，看到準心下方「" + K("interact") + " 滑索」就按 " + K("interact"),
+    "沿著滑索的速度會保留，最高 600hu/s；騎到底會被甩出去，按 " + K("jump") + " 跳離、按 " + K("crouch") + " 直接放手",
+    "街口到屋頂、屋頂到屋頂、高台到水塔頂各有一條；在滑索上可以開槍"]},
   {title:"蹬牆跳（wallbounce）", ev:"wallbounce", n:3, lines:() => [
     "到中央鐘樓（8.5m，爬不上去）：衝刺起跳，撞牆前放開 " + K("forward"),
     "一貼上牆、往上爬約 0.1 秒時馬上再按跳（green zone），越低跳出去越高",
@@ -5521,6 +5534,10 @@ const LESSONS = [
     "ESC 把假人設成左右平移，速度選快或隨機（進階再開跳躍）",
     "按住射擊 3 秒以上，準心一直黏在同一隻身上，換向時跟著反應",
     "這一次按住的跟槍命中率 60% 以上算成功；統計欄 TRACKING 是累計值"]},
+  {title:"補品與護盾", ev:"heal", n:3, lines:() => [
+    "護盾在血條上方，一格 25；按 " + K("useCell") + " 小電池（3 秒 +25）、" + K("useBattery") + " 大電池（5 秒 +100）",
+    K("useSyringe") + " 針筒（5 秒 +25 血）、" + K("useMedkit") + " 醫療包（8 秒 +100 血）。打補品時走得慢、開槍會中斷",
+    "先補盾再補血。訓練場裡滿的也能打、不扣數量，練時機用；打出傷害會讓 Evo 護盾升級（血條下的細線是進度）"]},
   {title:"走位射擊（ADAD）", ev:"adad", n:2, lines:() => [
     "邊連射邊左右換向走位（" + K("left") + "、" + K("right") + " 交替），一串 15 發以上",
     "走位中橫向後座力會變小，同時讓對手更難打中你",
@@ -5931,7 +5948,7 @@ function tryWallStart(p, wx, wy, wl, vx, vy){
   if (win){
     let dx = wx, dy = wy;
     if (!wl){ const sp = Math.hypot(vx, vy); if (sp < 1) return; dx = vx/sp; dy = vy/sp; }
-    if (-(dx*win.nx + dy*win.ny) >= Math.cos(WT.mantleAngle)){ startMantle(p, win, false); return; }
+    if (-(dx*win.nx + dy*win.ny) >= Math.cos(WT.mantleAngle)){ startMantle(p, win, false); lessonEvent("window"); return; }
   }
   const c = wallContact(p);
   if (!c) return;
@@ -6120,6 +6137,7 @@ function updateZip(p, dt, wx, wy, wl, crouchEdge){
     const k = Math.min(z.v, WT.zipJumpOff);
     p.vx = dx*k + (wl ? wx*WT.zipJumpOff*0.4 : 0);
     p.vy = dy*k + (wl ? wy*WT.zipJumpOff*0.4 : 0);
+    if (z.t > 0.8) lessonEvent("zipline");
     G.zip = null;
     tookOff(p, P.jumpV*WT.zipJumpVz, "zip");
     return;
@@ -6137,6 +6155,7 @@ function updateZip(p, dt, wx, wy, wl, crouchEdge){
     if (z.vertical){ p.vx = Math.cos(p.angle)*160*HU; p.vy = Math.sin(p.angle)*160*HU; }
     else { p.vx = dx*k; p.vy = dy*k; }
     G.zip = null;
+    lessonEvent("zipline");
     tookOff(p, z.vertical ? 4.0 : 1.5, "zip");
   }
 }

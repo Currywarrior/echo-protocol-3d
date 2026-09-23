@@ -365,11 +365,11 @@ const MAPS = {
       {x:220,y:150,w:24,h:150},{x:220,y:420,w:24,h:150},
       {x:1036,y:150,w:24,h:150},{x:1036,y:420,w:24,h:150},
       // 上下兩排柱廊：斜射的陽光在地上投出一條條影子。
-      // 北排是完整的古典圓柱；南排是八角柱夾兩根斷柱（1.9m，站高台上看得過去）
+      // 北排是完整的古典圓柱；南排兩端是八角柱、中間兩根斷柱（1.9m，站高台上看得過去），左右對稱
       {x:376,y:146,w:48,h:48,style:"column"},{x:536,y:146,w:48,h:48,style:"column"},
       {x:696,y:146,w:48,h:48,style:"column"},{x:856,y:146,w:48,h:48,style:"column"},
       {x:376,y:526,w:48,h:48,style:"octa"},{x:536,y:526,w:48,h:48,style:"ruin",ht:1.9},
-      {x:696,y:526,w:48,h:48,style:"octa"},{x:856,y:526,w:48,h:48,style:"ruin",ht:1.9},
+      {x:696,y:526,w:48,h:48,style:"ruin",ht:1.9},{x:856,y:526,w:48,h:48,style:"octa"},
       // 中央紀念碑：碑座就是原本的石台，上面的方尖碑高過牆頂當地標
       {x:592,y:312,w:96,h:96,style:"monument"},
       // 四角：對角兩個小塔樓、另外兩個是頂著石甕的石座。
@@ -383,8 +383,9 @@ const MAPS = {
       // 加寬時以原本的中線為準往兩側擴，和旁邊貨箱、外牆都還留 36px 以上的通道
       {x:464,y:320,w:36,h:80,ht:0.95,style:"sandbags"},{x:780,y:320,w:36,h:80,ht:0.95,style:"sandbags"},
       {x:560,y:60,w:160,h:34,ht:0.95,style:"sandbags"},{x:560,y:626,w:160,h:34,ht:0.95,style:"sandbags"},
-      {x:120,y:194,w:60,h:34,ht:0.95,style:"sandbags"},{x:120,y:492,w:60,h:34,ht:0.95,style:"sandbags"},
-      {x:1100,y:284,w:60,h:34,ht:0.95,style:"sandbags"},{x:1100,y:402,w:60,h:34,ht:0.95,style:"sandbags"},
+      // 門外兩側的沙包：東西鏡像，都在 y 中心 250 與 470
+      {x:120,y:233,w:60,h:34,ht:0.95,style:"sandbags"},{x:120,y:453,w:60,h:34,ht:0.95,style:"sandbags"},
+      {x:1100,y:233,w:60,h:34,ht:0.95,style:"sandbags"},{x:1100,y:453,w:60,h:34,ht:0.95,style:"sandbags"},
       // 中央矮牆外側的貨箱（1.26m 見方、0.8m 高，站在旁邊一跳就上得去）：
       // 站上去就能越過矮牆開槍，再助跑一跳可以上牆頂。
       // 和牆之間留 44px，最胖的 WARDEN（半徑 17）也過得去；貼著牆會形成凹角，沒有尋路的敵人會卡住
@@ -394,22 +395,28 @@ const MAPS = {
       // 四周至少留 30px 以上的通道，避免敵人擠進窄縫
       {x:190,y:60,w:60,h:48,ht:1.5},{x:250,y:60,w:90,h:48,ht:1.5,ramp:"-x"},
       {x:1030,y:612,w:60,h:48,ht:1.5},{x:940,y:612,w:90,h:48,ht:1.5,ramp:"+x"},
-      // 樹：碰撞只有樹幹那一小塊，樹冠純粹是視覺與斑駁的樹影
+      // 樹：中央廣場四角的花圃各一棵。碰撞只有樹幹那一小塊，樹冠純粹是視覺與斑駁的樹影
       {x:300,y:250,w:20,h:20,tree:true},{x:300,y:450,w:20,h:20,tree:true},
       {x:960,y:250,w:20,h:20,tree:true},{x:960,y:450,w:20,h:20,tree:true},
-      {x:420,y:620,w:20,h:20,tree:true},{x:840,y:80,w:20,h:20,tree:true},
     ],
     spawns:[
-      {x:1160,y:360},{x:1160,y:220},{x:1160,y:500},{x:640,y:122},
+      {x:1190,y:360},{x:1190,y:200},{x:1190,y:520},{x:640,y:122},
       {x:640,y:600},{x:920,y:300},{x:300,y:152},{x:960,y:580},
     ],
     player:{x:120,y:360,angle:0},
     lights:[],
-    // 樹下的草地，只是地面材質，不影響移動
+    // 地面材質，不影響移動。構圖：東西門經紀念碑是主軸大道，南北柱廊到紀念碑是副軸，
+    // 紀念碑外一圈方形圍邊界定中央廣場，四角花圃各一棵樹。石板區塊彼此不重疊，否則會閃
     terrain:[
       {x:262,y:212,w:96,h:96,kind:"grass"},{x:262,y:412,w:96,h:96,kind:"grass"},
       {x:922,y:212,w:96,h:96,kind:"grass"},{x:922,y:412,w:96,h:96,kind:"grass"},
-      {x:370,y:596,w:110,h:72,kind:"grass"},{x:790,y:52,w:110,h:72,kind:"grass"},
+      // 中央廣場圍邊
+      {x:540,y:260,w:200,h:24,kind:"paving"},{x:540,y:436,w:200,h:24,kind:"paving"},
+      {x:540,y:284,w:24,h:152,kind:"paving"},{x:716,y:284,w:24,h:152,kind:"paving"},
+      // 東西主軸大道（門外一路鋪到外牆）
+      {x:24,y:328,w:516,h:64,kind:"paving"},{x:740,y:328,w:516,h:64,kind:"paving"},
+      // 南北副軸
+      {x:608,y:94,w:64,h:166,kind:"paving"},{x:608,y:460,w:64,h:166,kind:"paving"},
     ],
   },
 };
@@ -1729,7 +1736,24 @@ const spillMat = new THREE.MeshBasicMaterial({
       color:0xA2AE78, roughness:1,
     });
   }
+  // 石板鋪面：比廣場地面小一號、顏色深一階的石板，界定大道與廣場的範圍
+  let pavingMat = null;
+  if ((activeMap.terrain || []).some(t => t.kind === "paving")){
+    const ps = paveSurf();
+    pavingMat = new THREE.MeshStandardMaterial({
+      map:texFrom(ps.color), normalMap:texFrom(ps.normal), roughnessMap:texFrom(ps.rough),
+      color:theme.paving ?? 0xB09474, roughness:1,
+    });
+  }
   for (const t of (activeMap.terrain || [])){
+    if (t.kind === "paving"){
+      // 貼齊地面、只高出 1.2cm；UV 依實際尺寸縮放，一張貼圖約 2m，石板比地面的小一半
+      const geo = rescaleBoxUV(new THREE.BoxGeometry(t.w*S, 0.024, t.h*S), t.w*S, 0.024, t.h*S, 0.5);
+      const slab = new THREE.Mesh(geo, pavingMat);
+      slab.position.set((t.x+t.w/2)*S, 0.0, (t.y+t.h/2)*S);
+      mapLayer.add(slab);
+      continue;
+    }
     const slab = new THREE.Mesh(
       new THREE.BoxGeometry(t.w*S, 0.035, t.h*S), t.kind === "grass" ? grassMat : terrainMat);
     slab.position.set((t.x+t.w/2)*S, 0.018, (t.y+t.h/2)*S);
@@ -1905,6 +1929,25 @@ function addRamp(w){
   const g = new THREE.Group();
   g.position.set((w.x+w.w/2)*S, 0, (w.y+w.h/2)*S);
   g.rotation.y = {"+x":0, "-x":Math.PI, "+y":-Math.PI/2, "-y":Math.PI/2}[w.ramp];
+  if (theme.ashlar){
+    // 石砌主題畫成石階：碰撞仍是斜坡（走起來順），外觀是一階階的踏步，和 CS 的樓梯做法一樣。
+    // 每階踏面高度取在斜坡線的中點，腳底和踏面的落差最多半階（約 9cm）
+    const n = Math.max(3, Math.round(Hh / 0.19)), run = L / n;
+    const stepMat = wallMats[(w.x*7 + w.y*13) % wallMats.length];
+    for (let i=0;i<n;i++){
+      const hh = (i + 0.5) * Hh / n;
+      const sg = rescaleBoxUV(new THREE.BoxGeometry(run + 0.002, hh, D), run, hh, D, 0.42);
+      const st = new THREE.Mesh(sg, stepMat);
+      st.position.set(-L/2 + (i + 0.5)*run, hh/2, 0);
+      g.add(st);
+      // 踏步前緣的石條，讓每一階的邊看得清楚
+      const nose = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.05, D + 0.02), trimMat);
+      nose.position.set(-L/2 + i*run + 0.03, hh - 0.02, 0);
+      g.add(nose);
+    }
+    mapLayer.add(g);
+    return;
+  }
   g.add(new THREE.Mesh(geo, wallMats[(w.x*7 + w.y*13) % wallMats.length]));
   g.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo), edgeMat));
   // 防滑條：一眼就看得出這是能走上去的坡，而不是一塊斜放的牆

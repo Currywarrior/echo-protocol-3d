@@ -183,6 +183,7 @@
           <option value="atrium">COLUMN FOREST · 開闊柱林</option>
           <option value="corridors">DEAD SIGNAL · 走廊與房間</option>
           <option value="plaza">HIGH NOON · 正午廣場</option>
+          <option value="town">RIDGE TOWN · 小鎮（練 Apex 身法）</option>
         </select>
       </label>
       <label class="mapPicker" for="modeSelect">模式
@@ -317,7 +318,9 @@
 // 世界模型：沿用 2D 版的座標系，邏輯層完全不動
 // 所有遊戲判定都在 XY 平面上做，3D 只是把它畫出來
 // ─────────────────────────────────────────────
-const W = 1280, H = 720;      // 邏輯世界大小（沿用 2D 版的像素座標）
+// 邏輯世界大小（沿用 2D 版的像素座標）。地圖可以用 size 指定自己的大小，換圖時在 useMap 改掉
+let W = 1280, H = 720;
+const W0 = 1280, H0 = 720;
 const S = 0.03;               // 像素 → 公尺，整張圖約 38m x 22m
 const WALL_H = 3.2;           // 牆高（公尺）
 const EYE = 1.62;             // 視線高度
@@ -490,6 +493,75 @@ const MAPS = {
       {x:24,y:328,w:516,h:64,kind:"paving"},{x:740,y:328,w:516,h:64,kind:"paving"},
       // 南北副軸
       {x:608,y:94,w:64,h:166,kind:"paving"},{x:608,y:460,w:64,h:166,kind:"paving"},
+    ],
+  },
+  // 小鎮：照 Apex 的地形尺度做的建築群，練身法用（2026-09-24）。
+  // 世界 60m x 42m。建築是實心量體（碰撞就是長方體），3.5～6m 高，屋頂都爬得上去
+  // （原地跳 1.34m + 攀爬 147hu（3.73m）+ 手搆 60hu（1.52m）≈ 6.6m）；外牆 10m 爬不出去。
+  // 中間是 15m 寬的開闊帶：鐘樓 8.5m 爬不上去，拿來練蹬牆跳；1.2m 矮牆與 2.2m 石墩練翻越與 superglide；
+  // 下坡斜坡練滑鏟。敵人沒有尋路，所以建築彼此至少隔 3m、不做凹槽，後巷也留 2.4m 以上
+  town: {
+    name:"RIDGE TOWN",
+    size:{w:2000, h:1400},
+    outdoor:true,
+    theme:{
+      neutral:true,
+      // 淺灰米、灰藍、灰綠的灰泥牆：環境不用飽和暖色（那是敵人的顏色）
+      walls:[0xD6D0C2, 0xC4CAC8, 0xBCC4B8], edge:0x7E7466,
+      trim:0xE8E2D4, panel:0xB8B0A0, strip:0x5FC8C0,
+      floor:0xC8BCA6, ceiling:0x000000, light:0xFFFFFF,
+      glow:0xFFFFFF, cold:0xA89A86, pipe:0x8E8274, terrain:0xB8AC96,
+      propMetal:0x7E7466, propDark:0x4A4038,
+      ashlar:true, bags:0xA8946C, stone:0xA09682, stoneDark:0x847A68,
+      topGrime:false,
+    },
+    atmo:{
+      bg:0xE8E0D2, fog:0.004, hemiSky:0xB8D0EC, hemiGround:0xB09A7A, hemi:0.85,
+      sensor:0.6, bloom:0.08, threshold:0.95, vignette:0.2, grade:0.35,
+      sunColor:0xFFE2B8, sunI:1.9, sunDir:[0.45,0.7,0.35],
+      skyTop:0x4E8AD6, skyHorizon:0xE8DCC8,
+      aberr:0, scan:0, noise:0, sharp:0.5, ao:1, env:true,
+    },
+    walls:[
+      // 外牆 10m：比攀爬上限高，爬不出地圖
+      {x:0,y:0,w:2000,h:30,ht:10},{x:0,y:1370,w:2000,h:30,ht:10},
+      {x:0,y:0,w:30,h:1400,ht:10},{x:1970,y:0,w:30,h:1400,ht:10},
+      // 北排建築
+      {x:120,y:140,w:280,h:260,ht:4.5,style:"building"},
+      {x:520,y:110,w:220,h:300,ht:6.0,style:"building"},
+      {x:860,y:170,w:200,h:220,ht:3.5,style:"building"},
+      // 往 N3 屋頂的樓梯：和建築同深、相接成一個長方形，敵人不會卡在凹角
+      {x:1060,y:170,w:180,h:220,ht:3.5,ramp:"-x"},
+      {x:1340,y:120,w:300,h:260,ht:5.0,style:"building"},
+      {x:1740,y:150,w:180,h:300,ht:4.0,style:"building"},
+      // 南排建築
+      {x:140,y:1000,w:260,h:260,ht:5.0,style:"building"},
+      {x:520,y:1040,w:300,h:220,ht:3.5,style:"building"},
+      {x:820,y:1040,w:160,h:220,ht:3.5,ramp:"-x"},
+      {x:1080,y:1000,w:240,h:280,ht:6.0,style:"building"},
+      {x:1420,y:1020,w:280,h:240,ht:4.5,style:"building"},
+      {x:1800,y:1000,w:120,h:280,ht:3.5,style:"building"},
+      // 中央：鐘樓（蹬牆跳）
+      {x:960,y:660,w:80,h:80,ht:8.5,style:"building"},
+      // 翻越練習：1.2m 矮牆（跳上去或直接翻）、2.2m 石墩（要跳起來翻）
+      {x:420,y:560,w:120,h:24,ht:1.2},{x:1460,y:820,w:120,h:24,ht:1.2},
+      {x:640,y:800,w:70,h:70,ht:2.2},{x:1290,y:540,w:70,h:70,ht:2.2},
+      // 掩體
+      {x:300,y:760,w:42,h:42,ht:0.8,crate:true},{x:1660,y:600,w:42,h:42,ht:0.8,crate:true},
+      {x:1110,y:520,w:42,h:42,ht:0.8,crate:true},{x:850,y:860,w:42,h:42,ht:0.8,crate:true},
+      {x:740,y:560,w:100,h:34,ht:0.95,style:"sandbags"},{x:1160,y:840,w:100,h:34,ht:0.95,style:"sandbags"},
+      // 下坡滑鏟道：從東端高處往西滑
+      {x:1500,y:520,w:260,h:70,ht:1.6,ramp:"+x"},
+    ],
+    spawns:[
+      {x:1900,y:700},{x:1000,y:480},{x:1000,y:930},{x:700,y:480},{x:1300,y:930},
+      {x:460,y:940},{x:1560,y:480},{x:1700,y:930},{x:1000,y:70},{x:1000,y:1330},
+    ],
+    player:{x:90,y:700,angle:0},
+    lights:[],
+    terrain:[
+      // 中央開闊帶鋪石板
+      {x:30,y:470,w:1940,h:460,kind:"paving"},
     ],
   },
 };
@@ -1841,8 +1913,8 @@ function addGrime(m){
         float gw = vGrimeP.x * 1.7 + vGrimeP.z * 1.3;
         float gh = 0.55 + 0.22 * sin(gw) * sin(gw * 0.37 + 1.3) + 0.08 * sin(gw * 4.1);
         diffuseColor.rgb *= mix(0.42, 1.0, smoothstep(0.0, gh, vGrimeP.y));
-        // 牆頂靠近天花板也積一點灰
-        diffuseColor.rgb *= mix(1.0, 0.7, smoothstep(${(WALL_H-0.7).toFixed(2)}, ${WALL_H.toFixed(2)}, vGrimeP.y));`);
+        // 牆頂靠近天花板也積一點灰。主題可以用 topGrime:false 關掉：高樓的 3.2m 以上會整片變暗
+        ${activeMap.theme.topGrime === false ? "" : `diffuseColor.rgb *= mix(1.0, 0.7, smoothstep(${(WALL_H-0.7).toFixed(2)}, ${WALL_H.toFixed(2)}, vGrimeP.y));`}`);
   };
   return m;
 }
@@ -2200,7 +2272,61 @@ const bagCoreMat = new THREE.MeshStandardMaterial({color:new THREE.Color(theme.b
 function put(g, geo, mat, x, y, z){
   const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); g.add(m); return m;
 }
+// 建築用的窗玻璃與門：窗偏冷的深藍灰（環境裝飾一律冷色或暗色，暖色留給敵人）
+const glassMat = new THREE.MeshStandardMaterial({color:0x26313C, roughness:0.22, metalness:0.55});
+const doorMat  = new THREE.MeshStandardMaterial({color:theme.propDark ?? 0x4A3E34, roughness:0.8});
 const STYLES = {
+  // 建築（小鎮地圖）：實心量體，碰撞就是整塊長方體，屋頂站得上去（攀牆翻越上去）。
+  // 外觀：每約 3 公尺一道樓層線腳、每層一排窗、較長的那一面一樓開一扇門、屋頂一圈矮女兒牆。
+  // 窗與門都凸出牆面 3cm，不和牆面共平面；窗用 InstancedMesh，要關掉視錐裁切
+  building(g, gw, gd, wh){
+    const seed = Math.floor(gw*131 + gd*71 + wh*17);
+    const body = put(g, rescaleBoxUV(new THREE.BoxGeometry(gw, wh, gd), gw, wh, gd, 0.42),
+                     wallMats[seed % wallMats.length], 0, wh/2, 0);
+    const e = new THREE.LineSegments(new THREE.EdgesGeometry(body.geometry), edgeMat);
+    e.position.copy(body.position); g.add(e);
+    const floors = Math.max(1, Math.round(wh / 3)), fh = wh / floors;
+    for (let k=1;k<floors;k++) put(g, new THREE.BoxGeometry(gw + 0.1, 0.16, gd + 0.1), trimMat, 0, k*fh, 0);
+    // 屋簷頂面比屋頂高 2cm，站在屋頂低頭看不會和屋頂面重合而閃
+    put(g, new THREE.BoxGeometry(gw + 0.14, 0.22, gd + 0.14), trimMat, 0, wh - 0.09, 0);
+    const pt = 0.18, ph = 0.32;
+    put(g, new THREE.BoxGeometry(gw, ph, pt), trimMat, 0, wh + ph/2, -gd/2 + pt/2);
+    put(g, new THREE.BoxGeometry(gw, ph, pt), trimMat, 0, wh + ph/2,  gd/2 - pt/2);
+    put(g, new THREE.BoxGeometry(pt, ph, gd - pt*2), trimMat, -gw/2 + pt/2, wh + ph/2, 0);
+    put(g, new THREE.BoxGeometry(pt, ph, gd - pt*2), trimMat,  gw/2 - pt/2, wh + ph/2, 0);
+    // 窗：四個面、每層一排，間距約 2.4m
+    const mats = [], m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0,1,0);
+    const doorFront = gw >= gd;          // 門開在較長的那一面（+z 或 +x）
+    const faces = [[0, 1, gw, 0], [0, -1, gw, Math.PI], [1, 0, gd, Math.PI/2], [-1, 0, gd, -Math.PI/2]];
+    for (const [fx, fz, len, rot] of faces){
+      const n = Math.floor((len - 1.0) / 2.4);
+      if (n < 1) continue;
+      const gap = len / n;
+      for (let k=0;k<floors;k++) for (let i=0;i<n;i++){
+        const u = -len/2 + gap*(i + 0.5);
+        const isDoor = k === 0 && i === Math.floor(n/2) && ((doorFront && fz === 1) || (!doorFront && fx === 1));
+        if (isDoor) continue;
+        const y = k*fh + fh*0.55;
+        const px = fx ? fx*(gw/2 + 0.03) : u, pz = fz ? fz*(gd/2 + 0.03) : u;
+        q.setFromAxisAngle(up, rot);
+        mats.push(m4.clone().compose(new THREE.Vector3(px, y, pz), q, new THREE.Vector3(1, 1, 1)));
+      }
+      // 門：一樓中間那格
+      if (k0Door(fx, fz)){
+        const u = -len/2 + gap*(Math.floor(n/2) + 0.5);
+        const d = put(g, new THREE.BoxGeometry(1.2, 2.2, 0.06), doorMat,
+                      fx ? fx*(gw/2 + 0.03) : u, 1.1, fz ? fz*(gd/2 + 0.03) : u);
+        d.rotation.y = rot;
+      }
+    }
+    function k0Door(fx, fz){ return (doorFront && fz === 1) || (!doorFront && fx === 1); }
+    if (mats.length){
+      const win = new THREE.InstancedMesh(new THREE.BoxGeometry(1.0, 1.25, 0.06), glassMat, mats.length);
+      mats.forEach((m, i) => win.setMatrixAt(i, m));
+      win.frustumCulled = false;
+      g.add(win);
+    }
+  },
   // 古典圓柱：方形柱礎標出碰撞範圍，柱身是 16 面的圓柱，柱頭外張再壓一塊方形頂板
   column(g, gw, gd, wh){
     const r = Math.min(gw, gd)/2;
@@ -2745,8 +2871,26 @@ addDoorFrames();
 }
 buildMapGeometry();
 
+// 換成這張圖的世界大小：地板、天花板、天空、太陽與陰影範圍都是開場時照舊尺寸建的，要跟著改
+function resizeWorld(){
+  const w = activeMap.size ? activeMap.size.w : W0, h = activeMap.size ? activeMap.size.h : H0;
+  if (w === W && h === H) return;
+  W = w; H = h;
+  for (const m of [floor, ceil]){ m.geometry.dispose(); m.geometry = new THREE.PlaneGeometry(W*S, H*S); }
+  floor.position.set(W*S/2, 0, H*S/2);
+  ceil.position.set(W*S/2, WALL_H, H*S/2);
+  for (const t of [floorColorTex, floorGrayTex, FLOOR_ORIG.normal, FLOOR_ORIG.rough]) t.repeat.set(W*S/4, H*S/4);
+  for (const t of [ceilMat.map, ceilMat.normalMap]) t.repeat.set(W*S/5, H*S/5);
+  floorPave = null;                      // 石板貼圖的重複次數也跟尺寸有關，下次用到再重建
+  sun.target.position.set(W*S/2, 0, H*S/2);
+  sky.position.set(W*S/2, 0, H*S/2);
+  const r = Math.max(W, H)*S/2 + 4;
+  Object.assign(sun.shadow.camera, {left:-r, right:r, top:r, bottom:-r, far:Math.max(90, r*3)});
+  sun.shadow.camera.updateProjectionMatrix();
+}
 function useMap(id){
   activeMap = MAPS[id] || MAPS.atrium;
+  resizeWorld();
   WALLS = activeMap.walls;
   SPAWNS = activeMap.spawns;
   rebuildSegments();
@@ -5649,7 +5793,8 @@ function update(dt){
       bl.x += bl.vx*dt/STEP; bl.y += bl.vy*dt/STEP;
       bl.h += bl.vh*dt/STEP;
       // 打到地板或天花板
-      if (bl.h <= 0.02 || bl.h >= WALL_H-0.02){
+      // 露天地圖沒有天花板，子彈可以飛過牆頂，飛得夠高才消失
+      if (bl.h <= 0.02 || bl.h >= (activeMap.outdoor ? 40 : WALL_H-0.02)){
         spawnSpark(bl.x,bl.y,0x9B6BE8,3);
         sfxNoiseAt(bl.x,bl.y,0.04,0.055,3200);
         dead = true; break;

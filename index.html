@@ -162,6 +162,7 @@
         <select id="mapSelect">
           <option value="atrium">COLUMN FOREST · 開闊柱林</option>
           <option value="corridors">DEAD SIGNAL · 走廊與房間</option>
+          <option value="plaza">HIGH NOON · 正午廣場</option>
         </select>
       </label>
       <div class="keys">
@@ -329,13 +330,59 @@ const MAPS = {
       {x:910,y:584,w:150,h:64,kind:"pad"},
     ],
   },
+  plaza: {
+    name:"HIGH NOON",
+    // 露天：不蓋天花板、有太陽與天空、用灰階貼圖再上色
+    outdoor:true,
+    // 環境刻意選低彩度、略偏冷的淺水泥色：敵人全是暖色，
+    // 背景一旦也偏暖就會和它們搶對比
+    theme:{
+      neutral:true,
+      walls:[0xC4C6CB,0xB9BCC2,0xCECDC8], edge:0x6A6A70,
+      trim:0xBFC0C4, panel:0xB4B6BA, strip:0x5FC8C0,
+      floor:0x9A9892, ceiling:0x000000, light:0xFFFFFF,
+      glow:0xFFFFFF, cold:0x9A9CA0, pipe:0x8A8C90, terrain:0xB4B6BA,
+      propMetal:0x7C8088, propDark:0x4A4D54,
+    },
+    atmo:{
+      bg:0xCFE3F2, fog:0.02, hemiSky:0x9CC4F0, hemiGround:0x8C8070, hemi:0.75,
+      sensor:0.8, bloom:0.3, threshold:0.9, vignette:0.35, grade:0.25,
+      sunColor:0xFFF3E0, sunI:1.5, sunDir:[0.55,0.9,0.35],
+      skyTop:0x4A86C8, skyHorizon:0xCFE3F2,
+    },
+    walls:[
+      {x:0,y:0,w:W,h:24},{x:0,y:H-24,w:W,h:24},
+      {x:0,y:0,w:24,h:H},{x:W-24,y:0,w:24,h:H},
+      // 東西兩座門樓：成對共線的牆段，中間的門洞會自動長出門框
+      {x:220,y:150,w:24,h:150},{x:220,y:420,w:24,h:150},
+      {x:1036,y:150,w:24,h:150},{x:1036,y:420,w:24,h:150},
+      // 上下兩排柱廊：斜射的陽光在地上投出一條條影子
+      {x:376,y:146,w:48,h:48},{x:536,y:146,w:48,h:48},
+      {x:696,y:146,w:48,h:48},{x:856,y:146,w:48,h:48},
+      {x:376,y:526,w:48,h:48},{x:536,y:526,w:48,h:48},
+      {x:696,y:526,w:48,h:48},{x:856,y:526,w:48,h:48},
+      // 中央石台
+      {x:592,y:312,w:96,h:96},
+      // 四角的箱體
+      {x:90,y:80,w:60,h:60},{x:1130,y:80,w:60,h:60},
+      {x:90,y:580,w:60,h:60},{x:1130,y:580,w:60,h:60},
+    ],
+    spawns:[
+      {x:1160,y:360},{x:1160,y:220},{x:1160,y:500},{x:640,y:80},
+      {x:640,y:640},{x:820,y:360},{x:300,y:90},{x:980,y:630},
+    ],
+    player:{x:120,y:360,angle:0},
+    lights:[],
+  },
 };
 
 let activeMap = MAPS.atrium;
 // 氛圍參數：地圖沒寫的就用這組，也就是原本寫死在各處的數值
 const ATMO_DEFAULT = {
   bg:0x03030A, fog:0.062, hemiSky:0x3A2A62, hemiGround:0x120A24, hemi:0.85,
-  sensor:3.4, bloom:0.85, threshold:0.42, vignette:0.78,
+  sensor:3.4, bloom:0.85, threshold:0.42, vignette:0.78, grade:1,
+  // 以下只有露天地圖（outdoor:true）會用到
+  sunColor:0xFFFFFF, sunI:0, sunDir:[0.5,1,0.3], skyTop:0x000000, skyHorizon:0x000000,
 };
 function atmo(){ return Object.assign({}, ATMO_DEFAULT, activeMap.atmo || {}); }
 let WALLS = activeMap.walls;
@@ -736,6 +783,50 @@ muzzleLight.position.set(0.25,-0.18,-0.5);
 camera.add(muzzleLight);
 scene.add(camera);
 
+// ── 露天地圖：太陽與天空 ──
+// 陰影只算一次：牆不會動，建圖時畫好就固定，之後每幀不多付成本。敵人不投影
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.autoUpdate = false;
+const sun = new THREE.DirectionalLight(0xFFFFFF, 0);
+sun.shadow.mapSize.set(2048, 2048);
+// 正交陰影相機蓋住整張圖（約 38m x 22m）
+Object.assign(sun.shadow.camera, {left:-24, right:24, top:24, bottom:-24, near:1, far:90});
+sun.shadow.bias = -0.0004;
+sun.shadow.normalBias = 0.03;
+sun.target.position.set(W*S/2, 0, H*S/2);
+scene.add(sun, sun.target);
+// 天空：包住整張圖的大球，天頂到地平線的漸層，太陽方向有一團亮光讓泛光暈開。
+// 不吃霧，否則遠處的天空會被霧色蓋掉
+const skyMat = new THREE.ShaderMaterial({
+  uniforms:{
+    uTop:{value:new THREE.Color()}, uHorizon:{value:new THREE.Color()},
+    uSunDir:{value:new THREE.Vector3(0,1,0)}, uSun:{value:new THREE.Color()},
+  },
+  vertexShader:`
+    varying vec3 vDir;
+    void main(){
+      vDir = normalize(position);
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }`,
+  fragmentShader:`
+    uniform vec3 uTop, uHorizon, uSun, uSunDir;
+    varying vec3 vDir;
+    void main(){
+      float h = max(vDir.y, 0.0);
+      vec3 col = mix(uHorizon, uTop, pow(h, 0.55));
+      float s = max(dot(normalize(vDir), uSunDir), 0.0);
+      col += uSun * (pow(s, 900.0) * 3.0 + pow(s, 24.0) * 0.25);
+      gl_FragColor = vec4(col, 1.0);
+    }`,
+  side:THREE.BackSide, depthWrite:false,
+});
+const sky = new THREE.Mesh(new THREE.SphereGeometry(80, 32, 16), skyMat);
+sky.position.set(W*S/2, 0, H*S/2);
+sky.renderOrder = -1;
+sky.visible = false;
+scene.add(sky);
+
 // ─────────────────────────────────────────────
 // 程序生成的表面材質
 // 沒有外部貼圖可用，所以全部在 canvas 上畫出來再送進 GPU。
@@ -1010,10 +1101,33 @@ function buildFloorSurface(){
 
 const WALL_SURF  = buildWallSurface();
 const FLOOR_SURF = buildFloorSurface();
+// 灰階版：原貼圖是深紫色底，乘上任何主題色都偏暗偏紫，做不出日光下的水泥。
+// 保留明暗細節、去掉色相，再把平均亮度拉到 target，顏色交給主題決定
+function toGray(src, target){
+  const n = src.width, d = src.getContext("2d").getImageData(0,0,n,n);
+  const px = d.data, lum = new Float32Array(n*n);
+  let sum = 0;
+  for (let i=0;i<n*n;i++){
+    lum[i] = px[i*4]*0.2126 + px[i*4+1]*0.7152 + px[i*4+2]*0.0722;
+    sum += lum[i];
+  }
+  const k = target*255 / (sum/(n*n));
+  for (let i=0;i<n*n;i++){
+    const v = Math.min(255, lum[i]*k);
+    px[i*4] = px[i*4+1] = px[i*4+2] = v;
+  }
+  const c = mkCanvas(n);
+  c.getContext("2d").putImageData(d,0,0);
+  return c;
+}
+const WALL_GRAY  = toGray(WALL_SURF.color, 0.62);
+const FLOOR_GRAY = toGray(FLOOR_SURF.color, 0.58);
 
 // ── 地板 ──
+const floorColorTex = texFrom(FLOOR_SURF.color, W*S/4, H*S/4);
+const floorGrayTex  = texFrom(FLOOR_GRAY,       W*S/4, H*S/4);
 const floorMat = new THREE.MeshStandardMaterial({
-  map:          texFrom(FLOOR_SURF.color,  W*S/4, H*S/4),
+  map:          floorColorTex,
   normalMap:    texFrom(FLOOR_SURF.normal, W*S/4, H*S/4),
   roughnessMap: texFrom(FLOOR_SURF.rough,  W*S/4, H*S/4),
   color:0x9C86FF, roughness:1.0, metalness:0.30,
@@ -1022,6 +1136,7 @@ floorMat.normalScale.set(0.85,0.85);
 const floor = new THREE.Mesh(new THREE.PlaneGeometry(W*S, H*S), floorMat);
 floor.rotation.x = -Math.PI/2;
 floor.position.set(W*S/2, 0, H*S/2);
+floor.receiveShadow = true;
 scene.add(floor);
 
 const ceilMat = new THREE.MeshStandardMaterial({
@@ -1196,7 +1311,9 @@ const WALL_VARIANTS = [
   {color:0x9A82C8, roughness:0.74, metalness:0.34},
 ];
 // 三個變體共用同一份貼圖：每次 texFrom 都會把整張 canvas 再上傳一次 GPU
-const wallMap = texFrom(WALL_SURF.color), wallNormal = texFrom(WALL_SURF.normal);
+const WALL_COL = theme.neutral ? WALL_GRAY : WALL_SURF.color;
+floorMat.map = theme.neutral ? floorGrayTex : floorColorTex;
+const wallMap = texFrom(WALL_COL), wallNormal = texFrom(WALL_SURF.normal);
 // 牆腳髒污：貼圖每 2.4m 重複一次，底邊對不到牆腳，所以改在 shader 裡依世界高度壓暗。
 // 髒污線的高度隨水平位置起伏，才不會是一條尺畫的水平線
 function addGrime(m){
@@ -1230,17 +1347,17 @@ const edgeMat = new THREE.LineBasicMaterial({color:0xE0703A, transparent:true, o
 // 它同時給出色彩對比、強化牆的輪廓，也讓地板的法線貼圖有東西可以反光
 // 線腳用比牆身亮一階的金屬，嵌板則暗一階，靠明度差把層次拉開
 const trimMat = addGrime(new THREE.MeshStandardMaterial({
-  map: texFrom(WALL_SURF.color, 3, 1),
+  map: texFrom(WALL_COL, 3, 1),
   color:0xA994E8, roughness:0.55, metalness:0.55,
 }));
 // 嵌板與橫樑的 UV 已按實際尺寸縮放，貼圖不必再重複，比例才會和牆面一致
 const panelMat = new THREE.MeshStandardMaterial({
-  map:       texFrom(WALL_SURF.color),
+  map:       texFrom(WALL_COL),
   normalMap: texFrom(WALL_SURF.normal),
   color:0x6E5FA8, roughness:0.92, metalness:0.15,
 });
 const terrainMat = new THREE.MeshStandardMaterial({
-  map:       texFrom(WALL_SURF.color, 2, 1),
+  map:       texFrom(WALL_COL, 2, 1),
   normalMap: texFrom(WALL_SURF.normal, 2, 1),
   color:0x6E5FA8, roughness:0.78, metalness:0.35,
 });
@@ -1434,8 +1551,9 @@ addDoorFrames();
 // 大面積的平牆再怎麼貼圖都會顯得空，掛一些管線、通風口、電箱
 // 讓輪廓有起伏，走過去時的視差才有東西可看
 (() => {
-  const metal = new THREE.MeshStandardMaterial({color:0x2A2050, roughness:0.7, metalness:0.45});
-  const dark  = new THREE.MeshStandardMaterial({color:0x140E2C, roughness:0.9, metalness:0.2});
+  // 外掛件預設是深紫色，放在日光下很突兀，所以主題可以覆寫
+  const metal = new THREE.MeshStandardMaterial({color:theme.propMetal ?? 0x2A2050, roughness:0.7, metalness:0.45});
+  const dark  = new THREE.MeshStandardMaterial({color:theme.propDark ?? 0x140E2C, roughness:0.9, metalness:0.2});
   const lit   = new THREE.MeshBasicMaterial({color:0x4DE0B0});
   const ventGeo = new THREE.BoxGeometry(0.52, 0.42, 0.07);
   const boxGeo  = new THREE.BoxGeometry(0.34, 0.46, 0.20);
@@ -1635,6 +1753,8 @@ addDoorFrames();
     }
   }
 
+  // 露天地圖沒有天花板，橫樑與電纜都不需要
+  if (activeMap.outdoor) return;
   // 天花板橫樑：沒有它，頭頂只是一片沒有尺度感的黑。
   // 全部樑共用一個 InstancedMesh，只多一次 draw call
   const BEAM_GAP = 3.2, beamN = Math.floor(W*S / BEAM_GAP);
@@ -1668,6 +1788,14 @@ addDoorFrames();
     }
   }
   })();
+
+  // 露天地圖：場景裡不透明的物件都投影、也接收陰影
+  if (activeMap.outdoor){
+    mapLayer.traverse(o => {
+      if (!o.isMesh || o.material.transparent || o.material.isMeshBasicMaterial || o.material.isShaderMaterial) return;
+      o.castShadow = o.receiveShadow = true;
+    });
+  }
 }
 buildMapGeometry();
 
@@ -1694,6 +1822,23 @@ function applyAtmo(){
   // 後製材質宣告在後面；這個函式只在它們都建好之後才會被呼叫
   brightMat.uniforms.threshold.value = ATMO.threshold;
   compMat.uniforms.uVig.value = ATMO.vignette;
+  compMat.uniforms.uGrade.value = ATMO.grade;
+  const out = !!activeMap.outdoor;
+  ceil.visible = !out;
+  sky.visible = out;
+  sun.castShadow = out;
+  sun.intensity = out ? ATMO.sunI : 0;
+  if (out){
+    const sd = new THREE.Vector3().fromArray(ATMO.sunDir).normalize();
+    sun.position.copy(sun.target.position).addScaledVector(sd, 45);
+    sun.color.setHex(ATMO.sunColor);
+    skyMat.uniforms.uTop.value.setHex(ATMO.skyTop);
+    skyMat.uniforms.uHorizon.value.setHex(ATMO.skyHorizon);
+    skyMat.uniforms.uSun.value.setHex(ATMO.sunColor);
+    skyMat.uniforms.uSunDir.value.copy(sd);
+    // 陰影貼圖不會自動更新，換圖之後要手動要求重畫一次
+    renderer.shadowMap.needsUpdate = true;
+  }
 }
 
 // ── 補給品：給你「離開掩體」的理由 ──
@@ -2218,12 +2363,12 @@ const compMat = new THREE.ShaderMaterial({
     tScene:{value:null}, tBloom:{value:null},
     uBloom:{value:0.85}, uTime:{value:0},
     uDamage:{value:0}, uLow:{value:0}, uEcho:{value:0},
-    uAberr:{value:1.0}, uGain:{value:1.0}, uVig:{value:0.78}, uRes:{value:new THREE.Vector2(1280,720)},
+    uAberr:{value:1.0}, uGain:{value:1.0}, uVig:{value:0.78}, uGrade:{value:1.0}, uRes:{value:new THREE.Vector2(1280,720)},
   },
   vertexShader:VERT,
   fragmentShader:`
     uniform sampler2D tScene, tBloom;
-    uniform float uBloom, uTime, uDamage, uLow, uEcho, uAberr, uGain, uVig;
+    uniform float uBloom, uTime, uDamage, uLow, uEcho, uAberr, uGain, uVig, uGrade;
     uniform vec2 uRes;
     varying vec2 vUv;
     float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453); }
@@ -2232,12 +2377,14 @@ const compMat = new THREE.ShaderMaterial({
       const float a = 2.51, b = 0.03, c = 2.43, d = 0.59, e = 0.14;
       return clamp((x*(a*x+b))/(x*(c*x+d)+e), 0.0, 1.0);
     }
-    // 色彩分級：暗部往冷藍紫壓、亮部往暖橘推，拉開色溫層次
+    // 色彩分級：暗部往冷藍紫壓、亮部往暖橘推，拉開色溫層次。
+    // 亮色地圖幾乎整個畫面都是亮部，全推暖會把環境染黃、跟暖色的敵人搶對比，
+    // 所以強度由地圖決定
     vec3 grade(vec3 c){
       float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
       vec3 lo = vec3(0.80, 0.84, 1.14);
       vec3 hi = vec3(1.10, 0.97, 0.84);
-      return c * mix(lo, hi, smoothstep(0.0, 0.55, l));
+      return c * mix(vec3(1.0), mix(lo, hi, smoothstep(0.0, 0.55, l)), uGrade);
     }
     void main(){
       vec2 d = vUv - 0.5;

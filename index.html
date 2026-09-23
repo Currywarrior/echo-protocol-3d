@@ -436,8 +436,17 @@ rebuildSegments();
 const P = {
   speed:215, sprintMul:1.5, crouchMul:0.52, adsMul:0.55,
   jumpV:4.2, gravity:11.5, airMul:0.82,
-  // 速度式移動：地面有摩擦、加速需要時間、空中幾乎沒有控制權
-  accel:12, airAccel:1.7, friction:8.5, stopSpeed:60, rad:13, maxHp:100, swapTime:0.34,
+  // 速度式移動：地面有摩擦、加速需要時間
+  accel:12, friction:8.5, stopSpeed:60, rad:13, maxHp:100, swapTime:0.34,
+  // 空中照 Source（CS）：sv_airaccelerate 12，但空中的目標速度只有 30 單位/秒（約 0.76m/s = 25px/s）。
+  // 按住前進不會越飛越快，按反方向卻能在 0.1 秒內煞住、按左右能修正落點
+  airAccel:12, airWishCap:25,
+  // 放開按鍵時照 Unreal（Valorant）角色移動的煞車：每秒扣 摩擦×速度 + 固定減速度，
+  // 用的是引擎預設 GroundFriction 8、BrakingDecelerationWalking 2048cm/s²（= 683px/s²）
+  brakeFriction:8, brakeDecel:683,
+  // 起跳時水平速度最多是跑步速度的 1.1 倍，衝刺不會讓人飛更遠。
+  // Source 也是在起跳時把速度壓回上限附近，防止連跳加速
+  jumpSpeedCap:1.1,
   sonarCd:9, echoCd:16, echoBack:3.0,
 };
 const GUNS = {
@@ -4097,6 +4106,8 @@ function update(dt){
     // 跳躍與重力
     if (keys.has(" ") && p.grounded && !G.crouching && G.mode !== "dead"){
       p.vz = P.jumpV; p.grounded = false;
+      const jsp = Math.hypot(p.vx, p.vy), jcap = P.speed * P.jumpSpeedCap;
+      if (jsp > jcap){ p.vx *= jcap/jsp; p.vy *= jcap/jsp; }
       sfxNoise(0.05, 0.02, 380);
     }
     if (!p.grounded){
@@ -4143,20 +4154,23 @@ function update(dt){
     const wl = Math.hypot(wx,wy);
     if (wl){ wx /= wl; wy /= wl; }
 
-    // 地面摩擦：放開按鍵後靠它把速度磨掉，所以停下來是滑一小段而不是瞬停
+    // 地面摩擦：放開按鍵後靠它把速度磨掉，所以停下來是滑一小段而不是瞬停。
+    // 有按方向鍵時用原本的摩擦（轉向、急停反向的手感不變），
+    // 沒按時用 Unreal 的煞車，從全速約 0.16 秒、0.4m 停住，站上窄箱頂才不會滑下去
     if (p.grounded){
       const sp = Math.hypot(p.vx, p.vy);
       if (sp > 0){
-        const drop = Math.max(sp, P.stopSpeed) * P.friction * dt;
+        const drop = wl ? Math.max(sp, P.stopSpeed) * P.friction * dt
+                        : (P.brakeFriction * sp + P.brakeDecel) * dt;
         const k = Math.max(0, sp - drop) / sp;
         p.vx *= k; p.vy *= k;
       }
     }
-    // 加速：只補到目標速度為止，起步因此有一段加速過程；
-    // 空中加速度只有地面的七分之一，跳出去之後幾乎改不了方向
+    // 加速：只補到目標速度為止，起步因此有一段加速過程。
+    // 空中的目標速度壓到 airWishCap（Source 的空中移動）
     if (wl){
       const cur = p.vx*wx + p.vy*wy;
-      const add = maxSpd - cur;
+      const add = (p.grounded ? maxSpd : Math.min(maxSpd, P.airWishCap)) - cur;
       if (add > 0){
         const acc = (p.grounded ? P.accel : P.airAccel) * maxSpd * dt;
         p.vx += wx*Math.min(acc, add);

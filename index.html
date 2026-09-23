@@ -839,7 +839,7 @@ function buildWallSurface(){
         x.save();
         x.beginPath(); x.rect(px+30, by, pw-60, 26); x.clip();
         for (let sx = px; sx < px+pw+40; sx += 36){
-          x.fillStyle = "rgba(210,170,70,.16)";
+          x.fillStyle = "rgba(170,150,110,.12)";
           x.beginPath(); x.moveTo(sx,by); x.lineTo(sx+18,by); x.lineTo(sx-8,by+26); x.lineTo(sx-26,by+26); x.fill();
         }
         x.restore();
@@ -890,28 +890,65 @@ function buildWallSurface(){
   return {color:c, normal:heightToNormal(h, 4.6)};
 }
 
-// 地板：方形地磚、磨損、中央的區域標記
+// 地板：方形地磚混入鋼格柵與防滑花紋鋼板、倒角、磨損
 function buildFloorSurface(){
-  const N = 512;
+  const N = 1024;
   const c = mkCanvas(N), x = c.getContext("2d");
   const h = mkCanvas(N), hx = h.getContext("2d");
   x.fillStyle = "#1B1440"; x.fillRect(0,0,N,N);
   hx.fillStyle = "#909090"; hx.fillRect(0,0,N,N);
+  const R = Math.random;
   const T = 4, cell = N/T;
+  // 16 塊磚裡各放 3 塊格柵與花紋板，其餘是素面
+  const kinds = Array(T*T).fill("plain");
+  for (const k of ["grate","grate","grate","tread","tread","tread"]){
+    let i; do { i = Math.floor(R()*T*T); } while (kinds[i] !== "plain");
+    kinds[i] = k;
+  }
   for (let r=0;r<T;r++){
     for (let cI=0;cI<T;cI++){
-      const v = 0.88 + Math.random()*0.24;
+      const px = cI*cell, py = r*cell, kind = kinds[r*T+cI];
+      const v = 0.88 + R()*0.24;
       x.fillStyle = `rgb(${Math.round(30*v)},${Math.round(22*v)},${Math.round(66*v)})`;
-      x.fillRect(cI*cell, r*cell, cell, cell);
-      hx.fillStyle = `hsl(0,0%,${Math.round(56+Math.random()*8)}%)`;
-      hx.fillRect(cI*cell, r*cell, cell, cell);
+      x.fillRect(px, py, cell, cell);
+      // 倒角：同牆面，中央墊高邊緣模糊
+      hx.fillStyle = "hsl(0,0%,50%)"; hx.fillRect(px, py, cell, cell);
+      hx.save(); hx.filter = "blur(5px)";
+      hx.fillStyle = `hsl(0,0%,${Math.round(60+R()*6)}%)`;
+      hx.fillRect(px+12, py+12, cell-24, cell-24);
+      hx.restore();
+
+      if (kind === "grate"){
+        // 鋼格柵：一排排長孔，孔裡是深不見底的黑
+        x.fillStyle = "rgba(20,15,45,1)"; x.fillRect(px+16, py+16, cell-32, cell-32);
+        for (let gy = py+26; gy < py+cell-30; gy += 16){
+          for (let gx = px+24; gx < px+cell-40; gx += 30){
+            x.fillStyle = "#05030C"; x.fillRect(gx, gy, 22, 8);
+            hx.fillStyle = "#101010"; hx.fillRect(gx, gy, 22, 8);
+          }
+        }
+      } else if (kind === "tread"){
+        // 防滑花紋鋼板：交錯方向的短凸條
+        let flip = 0;
+        for (let gy = py+26; gy < py+cell-20; gy += 22){
+          for (let gx = px+26 + (flip%2)*11; gx < px+cell-20; gx += 22){
+            const a = ((Math.floor((gx-px)/22) + flip) % 2) ? 0.785 : -0.785;
+            for (const [g, col] of [[x, "rgba(120,100,200,.13)"], [hx, "#B4B4B4"]]){
+              g.save(); g.translate(gx, gy); g.rotate(a);
+              g.fillStyle = col; g.fillRect(-8, -2, 16, 4);
+              g.restore();
+            }
+          }
+          flip++;
+        }
+      }
     }
   }
-  x.strokeStyle = "#090616"; x.lineWidth = 4;
-  hx.strokeStyle = "#202020"; hx.lineWidth = 6;
+  x.strokeStyle = "#090616"; x.lineWidth = 8;
+  hx.strokeStyle = "#1C1C1C"; hx.lineWidth = 12;
   for (const ctx2 of [x,hx]){
     ctx2.beginPath();
-    for (let i=1;i<T;i++){
+    for (let i=0;i<=T;i++){
       ctx2.moveTo(i*cell,0); ctx2.lineTo(i*cell,N);
       ctx2.moveTo(0,i*cell); ctx2.lineTo(N,i*cell);
     }
@@ -920,40 +957,46 @@ function buildFloorSurface(){
   // 地磚四角的固定螺栓
   for (let r=0;r<=T;r++) for (let cI=0;cI<=T;cI++){
     x.fillStyle = "#3A2A6A";
-    x.beginPath(); x.arc(cI*cell, r*cell, 4.2, 0, Math.PI*2); x.fill();
+    x.beginPath(); x.arc(cI*cell, r*cell, 8.4, 0, Math.PI*2); x.fill();
     hx.fillStyle = "#3C3C3C";
-    hx.beginPath(); hx.arc(cI*cell, r*cell, 4.6, 0, Math.PI*2); hx.fill();
+    hx.beginPath(); hx.arc(cI*cell, r*cell, 9.2, 0, Math.PI*2); hx.fill();
   }
   // 磨損痕跡
-  for (let i=0;i<48;i++){
-    const px = Math.random()*N, py = Math.random()*N;
-    x.fillStyle = `rgba(120,95,200,${(0.02+Math.random()*0.05).toFixed(3)})`;
-    x.beginPath(); x.ellipse(px,py, 12+Math.random()*44, 8+Math.random()*26, Math.random()*3, 0, Math.PI*2); x.fill();
+  for (let i=0;i<60;i++){
+    const px = R()*N, py = R()*N;
+    x.fillStyle = `rgba(120,95,200,${(0.02+R()*0.05).toFixed(3)})`;
+    x.beginPath(); x.ellipse(px,py, 24+R()*88, 16+R()*52, R()*3, 0, Math.PI*2); x.fill();
   }
-  for (let i=0;i<2200;i++){
-    x.fillStyle = `rgba(170,140,240,${(Math.random()*0.045).toFixed(3)})`;
-    x.fillRect(Math.random()*N, Math.random()*N, 1.4, 1.4);
+  // 鞋底拖出來的黑色擦痕
+  for (let i=0;i<40;i++){
+    const px = R()*N, py = R()*N, a = R()*Math.PI, l = 20+R()*50;
+    x.strokeStyle = `rgba(4,2,10,${(0.10+R()*0.18).toFixed(3)})`; x.lineWidth = 2+R()*3;
+    x.beginPath(); x.moveTo(px,py); x.lineTo(px+Math.cos(a)*l, py+Math.sin(a)*l); x.stroke();
+  }
+  for (let i=0;i<8800;i++){
+    x.fillStyle = `rgba(170,140,240,${(R()*0.045).toFixed(3)})`;
+    x.fillRect(R()*N, R()*N, 1.6, 1.6);
   }
   // 粗糙度：中央走道被踩得發亮（低粗糙度），邊角沒人走所以粗糙
   const r = mkCanvas(N), rx = r.getContext("2d");
   rx.fillStyle = "#C8C8C8"; rx.fillRect(0,0,N,N);
   for (let i=0;i<26;i++){
-    const px = Math.random()*N, py = Math.random()*N;
-    const g2 = rx.createRadialGradient(px,py,2, px,py, 40+Math.random()*90);
+    const px = R()*N, py = R()*N;
+    const g2 = rx.createRadialGradient(px,py,4, px,py, 80+R()*180);
     g2.addColorStop(0, "rgba(70,70,70,.55)");    // 磨亮
     g2.addColorStop(1, "rgba(70,70,70,0)");
     rx.fillStyle = g2;
-    rx.fillRect(px-140, py-140, 280, 280);
+    rx.fillRect(px-280, py-280, 560, 560);
   }
   // 地磚接縫積灰，比磚面粗糙
-  rx.strokeStyle = "rgba(240,240,240,.7)"; rx.lineWidth = 5;
+  rx.strokeStyle = "rgba(240,240,240,.7)"; rx.lineWidth = 10;
   rx.beginPath();
   for (let i=1;i<T;i++){
     rx.moveTo(i*cell,0); rx.lineTo(i*cell,N);
     rx.moveTo(0,i*cell); rx.lineTo(N,i*cell);
   }
   rx.stroke();
-  return {color:c, normal:heightToNormal(h, 2.0), rough:r};
+  return {color:c, normal:heightToNormal(h, 3.8), rough:r};
 }
 
 const WALL_SURF  = buildWallSurface();
@@ -1043,6 +1086,29 @@ const SPILL_TEX = (() => {
   u.addColorStop(1, "rgba(0,0,0,0)");
   x.fillStyle = u; x.fillRect(0,0,256,64);
   return new THREE.CanvasTexture(c);
+})();
+
+// 門口地上的警示斜紋。油漆不會自己發光，所以用受光材質，只在被照到時看得見
+const doorPaintMat = (() => {
+  const c = document.createElement("canvas");
+  c.width = 512; c.height = 128;
+  const x = c.getContext("2d");
+  for (let sx = -128; sx < 640; sx += 64){
+    x.fillStyle = "rgba(230,180,60,1)";
+    x.beginPath(); x.moveTo(sx,0); x.lineTo(sx+32,0); x.lineTo(sx-32,128); x.lineTo(sx-64,128); x.fill();
+  }
+  // 油漆被踩掉的斑駁
+  x.globalCompositeOperation = "destination-out";
+  for (let i=0;i<260;i++){
+    x.fillStyle = `rgba(0,0,0,${(0.2+Math.random()*0.6).toFixed(2)})`;
+    x.beginPath(); x.arc(Math.random()*512, Math.random()*128, 2+Math.random()*9, 0, Math.PI*2); x.fill();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  return new THREE.MeshStandardMaterial({
+    map:t, transparent:true, opacity:0.3, color:0x8A78A8,
+    roughness:0.8, metalness:0.1, depthWrite:false,
+  });
 })();
 
 // ── 接觸陰影 ──
@@ -1304,6 +1370,12 @@ function addDoorFrame(cx, cz, opening, depth, rotY){
   putFrame(postGeo, -opening/2-postW/2, postY, 0);
   putFrame(postGeo,  opening/2+postW/2, postY, 0);
   putFrame(beamGeo, 0, beamY, 0);
+  // 門檻上的警示斜紋
+  const paint = new THREE.Mesh(new THREE.PlaneGeometry(opening, 0.42), doorPaintMat);
+  paint.rotation.x = -Math.PI/2;
+  paint.position.y = 0.016;
+  paint.renderOrder = 2;
+  g.add(paint);
 
   const glow = 0.035, inner = 0.055;
   const glowPostGeo = new THREE.BoxGeometry(glow, frameH-0.18, glow);
@@ -1465,6 +1537,36 @@ addDoorFrames();
       pipe.rotation.z = Math.PI/2;
       pipe.position.set(W*S/2, yy, z);
       mapLayer.add(pipe);
+    }
+  }
+
+  // 天花板橫樑：沒有它，頭頂只是一片沒有尺度感的黑。
+  // 全部樑共用一個 InstancedMesh，只多一次 draw call
+  const BEAM_GAP = 3.2, beamN = Math.floor(W*S / BEAM_GAP);
+  const beams = new THREE.InstancedMesh(
+    new THREE.BoxGeometry(0.22, 0.26, H*S), panelMat, beamN);
+  const bm = new THREE.Matrix4();
+  for (let i=0;i<beamN;i++){
+    bm.makeTranslation((i+0.5)*BEAM_GAP + (W*S - beamN*BEAM_GAP)/2, WALL_H-0.13, H*S/2);
+    beams.setMatrixAt(i, bm);
+  }
+  mapLayer.add(beams);
+  // 樑與樑之間垂著的電纜，懸鏈線的下垂讓它讀起來有重量
+  const cableMat = new THREE.MeshStandardMaterial({color:0x0E0A1E, roughness:0.6, metalness:0.2});
+  const CR = (() => { let a = 7331; return () => (a = (a*1103515245+12345) & 0x7fffffff) / 0x7fffffff; })();
+  for (let i=0;i<beamN-1;i++){
+    const x0 = (i+0.5)*BEAM_GAP + (W*S - beamN*BEAM_GAP)/2, x1 = x0 + BEAM_GAP;
+    for (let k=0;k<2;k++){
+      if (CR() > 0.45) continue;
+      const z = 1.2 + CR()*(H*S-2.4), sag = 0.18 + CR()*0.3, y = WALL_H-0.22;
+      const pts = [];
+      for (let t=0;t<=8;t++){
+        const u = t/8;
+        pts.push(new THREE.Vector3(x0 + (x1-x0)*u, y - sag*4*u*(1-u), z + (CR()-0.5)*0.04));
+      }
+      const tube = new THREE.Mesh(
+        new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 16, 0.022, 5), cableMat);
+      mapLayer.add(tube);
     }
   }
   })();

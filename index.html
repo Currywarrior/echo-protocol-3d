@@ -444,9 +444,9 @@ const P = {
   // 放開按鍵時照 Unreal（Valorant）角色移動的煞車：每秒扣 摩擦×速度 + 固定減速度，
   // 用的是引擎預設 GroundFriction 8、BrakingDecelerationWalking 2048cm/s²（= 683px/s²）
   brakeFriction:8, brakeDecel:683,
-  // 起跳時水平速度最多是跑步速度的 1.1 倍，衝刺不會讓人飛更遠。
-  // Source 也是在起跳時把速度壓回上限附近，防止連跳加速
-  jumpSpeedCap:1.1,
+  // 起跳時水平速度的上限（跑步速度的倍數）。等於衝刺倍率：衝刺跳照 Apex 保留速度，
+  // 只擋掉連跳疊加超過衝刺速度（Source 也是在起跳時把速度壓回上限，防止連跳加速）
+  jumpSpeedCap:1.5,
   sonarCd:9, echoCd:16, echoBack:3.0,
 };
 const GUNS = {
@@ -639,11 +639,16 @@ function slideOffLedges(p, dt){
     let [depth,nx,ny] = pen[0];
     for (const q of pen) if (q[0] < depth) [depth,nx,ny] = q;
     const blocking = topAt(w, p.x, p.y, p.rad) > p.z + LEDGE_REACH + 0.02;
-    if (!blocking){
-      // 正在往箱子衝（跳上去的途中）就不推，否則會把人推離想踩上去的邊緣
-      if (p.vx*nx + p.vy*ny < -20) continue;
-      depth = Math.min(depth, 110*dt);
+    if (!blocking && p.vx*nx + p.vy*ny < -10){
+      // 正往箱子移動（跳上去的途中）：反過來把人拉上頂面，直到腳底踩得到。
+      // 空中照 Source 規則只能慢慢挪，貼著箱子原地起跳時身體中心離邊緣還有 0.39m，
+      // 不拉的話來不及踩進去就掉下來了；Unreal 碰到邊緣時也會這樣把角色帶上去
+      // depth 是圓壓進箱子的深度；壓超過 rad - FOOT，腳底那一圈才碰得到頂面
+      const need = p.rad - FOOT + 1 - depth;
+      if (need > 0) moveWithCollision(p, -nx*Math.min(need, 160*dt), -ny*Math.min(need, 160*dt), p.z, LEDGE_REACH);
+      continue;
     }
+    if (!blocking) depth = Math.min(depth, 110*dt);
     moveWithCollision(p, nx*(depth+0.01), ny*(depth+0.01), p.z, LEDGE_REACH);
   }
 }

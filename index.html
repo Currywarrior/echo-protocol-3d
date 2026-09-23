@@ -375,9 +375,10 @@ const MAPS = {
       {x:560,y:66,w:160,h:22,ht:1.05},{x:560,y:632,w:160,h:22,ht:1.05},
       {x:120,y:200,w:60,h:22,ht:1.05},{x:120,y:498,w:60,h:22,ht:1.05},
       {x:1100,y:290,w:60,h:22,ht:1.05},{x:1100,y:408,w:60,h:22,ht:1.05},
-      // 中央矮牆外側的石階（0.55m，跳得上去）：先踩石階再上牆頂，站高就能越過矮牆開槍。
-      // 石階和牆等長、緊貼，合起來仍是一個長方形，敵人不會卡在凹角
-      {x:440,y:320,w:30,h:80,ht:0.55},{x:810,y:320,w:30,h:80,ht:0.55},
+      // 中央矮牆外側的貨箱（1.26m 見方、0.8m 高，站在旁邊一跳就上得去）：
+      // 站上去就能越過矮牆開槍，再助跑一跳可以上牆頂。
+      // 和牆之間留 44px，最胖的 WARDEN（半徑 17）也過得去；貼著牆會形成凹角，沒有尋路的敵人會卡住
+      {x:384,y:339,w:42,h:42,ht:0.8,crate:true},{x:854,y:339,w:42,h:42,ht:0.8,crate:true},
       // 西北、東南兩座高台（1.5m）加斜坡：Valorant 式的制高點，
       // 視野好但站上去全身都露出來。平台與斜坡同寬相接，平面上也是一個長方形，
       // 四周至少留 30px 以上的通道，避免敵人擠進窄縫
@@ -390,7 +391,7 @@ const MAPS = {
     ],
     spawns:[
       {x:1160,y:360},{x:1160,y:220},{x:1160,y:500},{x:640,y:122},
-      {x:640,y:600},{x:860,y:360},{x:300,y:152},{x:960,y:580},
+      {x:640,y:600},{x:920,y:300},{x:300,y:152},{x:960,y:580},
     ],
     player:{x:120,y:360,angle:0},
     lights:[],
@@ -1659,9 +1660,46 @@ function addRamp(w){
   mapLayer.add(g);
 }
 
+// 貨箱：金屬框、嵌板、每面一道斜撐。用道具的主題色，和牆的石材分得開
+function addCrate(w){
+  const gw = w.w*S, gd = w.h*S, hh = w.ht;
+  const g = new THREE.Group();
+  g.position.set((w.x+w.w/2)*S, 0, (w.y+w.h/2)*S);
+  const bodyMat = addGrime(new THREE.MeshStandardMaterial({color:theme.propMetal ?? 0x3A3060, roughness:0.75, metalness:0.35}));
+  const frameMat = new THREE.MeshStandardMaterial({color:theme.propDark ?? 0x1A1432, roughness:0.6, metalness:0.55});
+  // 嵌板略內縮，外框才凸得出來
+  const body = new THREE.Mesh(new THREE.BoxGeometry(gw-0.06, hh-0.04, gd-0.06), bodyMat);
+  body.position.y = (hh-0.04)/2;
+  g.add(body);
+  const t = 0.07;
+  const bar = (sx, sy, sz, x, y, z) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), frameMat);
+    m.position.set(x, y, z); g.add(m); return m;
+  };
+  // 12 條框邊：頂面與底面各一圈，四根立柱
+  for (const y of [t/2, hh - t/2]){
+    bar(gw, t, t, 0, y, -gd/2 + t/2); bar(gw, t, t, 0, y, gd/2 - t/2);
+    bar(t, t, gd, -gw/2 + t/2, y, 0); bar(t, t, gd, gw/2 - t/2, y, 0);
+  }
+  for (const x of [-gw/2 + t/2, gw/2 - t/2]) for (const z of [-gd/2 + t/2, gd/2 - t/2]) bar(t, hh, t, x, hh/2, z);
+  // 側面斜撐：沿對角線放一根細條，稍微凸出嵌板
+  const diagW = Math.hypot(gw - 2*t, hh - 2*t), angX = Math.atan2(hh - 2*t, gw - 2*t);
+  const diagD = Math.hypot(gd - 2*t, hh - 2*t), angZ = Math.atan2(hh - 2*t, gd - 2*t);
+  for (const sz of [-1, 1]){
+    const b = bar(diagW, t*0.8, t*0.6, 0, hh/2, sz*(gd/2 - t*0.3));
+    b.rotation.z = sz*angX;
+  }
+  for (const sx of [-1, 1]){
+    const b = bar(t*0.6, t*0.8, diagD, sx*(gw/2 - t*0.3), hh/2, 0);
+    b.rotation.x = sx*angZ;
+  }
+  mapLayer.add(g);
+}
+
 for (const w of WALLS){
   if (w.tree){ addTree((w.x+w.w/2)*S, (w.y+w.h/2)*S); continue; }
   if (w.ramp){ addRamp(w); continue; }
+  if (w.crate){ addCrate(w); continue; }
   const gw = w.w*S, gd = w.h*S, wh = w.ht || WALL_H;
   const geo = rescaleBoxUV(new THREE.BoxGeometry(gw, wh, gd), gw, wh, gd, 0.42);
   // 每面牆的貼圖錯開一段，板縫與鉚釘才不會每面都排在同樣位置

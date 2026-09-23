@@ -115,6 +115,12 @@
     font-size:12px;color:var(--heat);text-align:right;font-variant-numeric:tabular-nums;
   }
   .settings input[type=range]{width:100%;accent-color:var(--heat);}
+  .panels{display:flex;flex-wrap:wrap;justify-content:center;align-items:flex-start;gap:14px;width:100%;}
+  .settings label.opt{grid-template-columns:1fr 200px;}
+  .settings select{
+    width:100%;padding:6px 8px;color:var(--ink);background:var(--panel);
+    border:1px solid var(--line);border-radius:3px;font:600 11px "Chakra Petch",system-ui;
+  }
   .trackrow{
     display:grid;grid-template-columns:auto 1fr auto auto;
     align-items:center;gap:8px;font-size:12px;color:var(--muted);text-align:left;
@@ -165,6 +171,12 @@
           <option value="plaza">HIGH NOON · 正午廣場</option>
         </select>
       </label>
+      <label class="mapPicker" for="modeSelect">模式
+        <select id="modeSelect">
+          <option value="survival">生存 · 一波一波的敵人</option>
+          <option value="range">訓練場 · 假人不會開槍</option>
+        </select>
+      </label>
       <div class="keys">
         <div class="key"><b>W A S D</b><span>移動</span></div>
         <div class="key"><b>MOUSE</b><span>視角</span></div>
@@ -178,7 +190,8 @@
         <div class="key"><b>3</b><span><i>BREACH</i>：近距離散彈、6 發</span></div>
         <div class="key"><b>WHEEL</b><span>滾輪循環切換武器</span></div>
         <div class="key"><b>SHIFT</b><span>衝刺（槍口會散開）</span></div>
-        <div class="key"><b>CTRL</b><span>蹲下（壓低視線、槍更穩、躲得掉平射）</span></div>
+        <div class="key"><b>CTRL</b><span>蹲下；衝刺中按下是<i>滑鏟</i>，滑行中可以跳</span></div>
+        <div class="key"><b>T / X</b><span>訓練場：在面前佈置假人 / 統計歸零</span></div>
         <div class="key"><b>部位</b><span>爆頭 <i>2.5 倍</i>、軀幹 1 倍、腿 0.6 倍</span></div>
         <div class="key"><b>Q</b><span><i>聲納</i>：穿牆標記敵人 3 秒</span></div>
         <div class="key"><b>E</b><span><i class="v">ECHO</i>：回到三秒前的位置與血量</span></div>
@@ -205,6 +218,7 @@
     <div class="overlay" id="overPause" hidden>
       <div class="eyebrow">Paused</div>
       <h1>滑鼠已解除鎖定</h1>
+      <div class="panels">
       <div class="settings">
         <label for="setSens">滑鼠靈敏度
           <input type="range" id="setSens" min="0.3" max="3" step="0.05">
@@ -227,6 +241,35 @@
         </div>
         <p class="tracknote">音檔只存在你這台瀏覽器裡，不會寫進遊戲檔案</p>
         <button type="button" class="ghost fsbtn">全螢幕</button>
+      </div>
+      <div class="settings" id="rangeSet" hidden>
+        <label class="opt" for="rgMove">假人移動
+          <select id="rgMove"><option value="still">靜止</option><option value="strafe">左右平移</option></select>
+        </label>
+        <label class="opt" for="rgSpeed">平移速度
+          <select id="rgSpeed">
+            <option value="slow">慢 · 2.0 m/s（蹲走）</option>
+            <option value="mid">中 · 4.4 m/s（走路）</option>
+            <option value="fast">快 · 6.6 m/s（衝刺）</option>
+            <option value="random">隨機</option>
+          </select>
+        </label>
+        <label class="opt" for="rgStance">姿勢
+          <select id="rgStance"><option value="stand">站立</option><option value="crouch">蹲下</option><option value="both">站蹲交替</option></select>
+        </label>
+        <label class="opt" for="rgRandom">隨機間隔
+          <select id="rgRandom"><option value="1">開：換向、蹲起時機不固定</option><option value="0">關：固定節奏</option></select>
+        </label>
+        <label class="opt" for="rgShield">護盾
+          <select id="rgShield">
+            <option value="0">無</option><option value="1">白 · 50</option><option value="2">藍 · 75</option>
+            <option value="3">紫 · 100</option><option value="4">紅 · 125</option>
+          </select>
+        </label>
+        <label class="opt" for="rgInfinite">彈匣
+          <select id="rgInfinite"><option value="1">不消耗</option><option value="0">照常消耗、要換彈</option></select>
+        </label>
+      </div>
       </div>
       <button type="button" class="ghost" id="btnMenuPause">返回主選單</button>
       <p class="lede">點擊畫面回到遊戲。</p>
@@ -469,6 +512,28 @@ const P = {
   jumpSpeedCap:1.5,
   sonarCd:9, echoCd:16, echoBack:3.0,
 };
+// 滑鏟：照 Apex Legends（Source 引擎的後代）的規則，數值取自 apexmovement.tech 的實測。
+// Apex 用 hu/s，這裡全部換成「衝刺速度的倍數」，因為這個遊戲的跑速本來就和 Apex 不同：
+// Apex 持槍衝刺 260hu/s，速度 >200hu/s 才滑得起來（0.77 倍），進入時加速 +150hu/s（0.58 倍），
+// 加速後上限 400hu/s（1.54 倍）。加速有 2 秒冷卻，從上一次進入滑鏟起算（不論那次有沒有加速），
+// 所以連續滑鏟只有第一下會衝出去。
+// 滑鏟跳：速度掉到 350hu/s（1.35 倍）以下、或已經滑了 0.24 秒，兩者先到的那個才准起跳
+const SLIDE = {
+  enter:0.77, boost:0.58, cap:1.54, boostCd:2.0,
+  jumpSpeed:1.35, jumpDelay:0.24,
+  // Apex 滑鏟一樣吃地面摩擦，平地一定會停。這裡用指數衰減：
+  // 從加速後的全速約 1.2 秒降到蹲走速度，和 Apex 平地滑鏟約一秒的長度相當
+  friction:1.3,
+  exit:0.31,       // 掉到蹲走速度（Apex 80/260hu/s）以下就變回一般蹲姿
+  // 連跳懲罰：落地後 1 秒內又滑鏟跳，速度扣掉最多 100hu/s（0.385 倍），但不會低於衝刺速度。
+  // 少了它，壓著蹲和跳就能一路滑跳、永遠保持 1.3 倍以上的速度
+  hopWindow:1.0, hopPenalty:0.385,
+  // 下坡時摩擦依坡度打折：坡度 0.4 以上、正對下坡就完全不磨，Apex 的下坡滑鏟不會減速
+  slopeFree:0.4,
+  steer:1.6,       // 每秒最多修正幾弧度：滑行中只能小幅改方向，不能像走路一樣直角轉彎
+  maxK:2.2,        // 長下坡的速度上限（衝刺速度的倍數），避免一路累積到失控
+};
+const SPRINT_SPD = P.speed * P.sprintMul;
 const GUNS = {
   vector:{ key:"vector", name:"VECTOR",
            dmg:22, fireGap:0.075, mag:28, spread:0.030,
@@ -646,6 +711,24 @@ function groundAt(e){
     if (t > g){ g = t; groundOnRamp = !!w.ramp; }
   }
   return g;
+}
+// 腳下地面的坡度（每公尺水平升幾公尺），取法和 groundAt 相同：踩著的最高那塊。
+// 滑鏟用它算重力沿坡面的分量，下坡越滑越快、上坡很快停
+function rampGrad(e){
+  let g = 0, gx = 0, gy = 0;
+  for (const w of WALLS) if (w.ht &&
+      e.x+FOOT > w.x && e.x-FOOT < w.x+w.w && e.y+FOOT > w.y && e.y-FOOT < w.y+w.h){
+    const t = topAt(w, e.x, e.y, FOOT);
+    if (t > g){
+      g = t; gx = 0; gy = 0;
+      if (w.ramp){
+        const s = w.ht / ((w.ramp[1] === "x" ? w.w : w.h) * S);
+        if (w.ramp === "+x") gx = s; else if (w.ramp === "-x") gx = -s;
+        else if (w.ramp === "+y") gy = s; else gy = -s;
+      }
+    }
+  }
+  return {gx, gy};
 }
 // 走出邊緣後，碰撞圓還有一部分壓在箱子上方。放著不管的話，等人掉到比頂面低，
 // 那塊箱子開始擋人，碰撞解算會把人吸到箱子另一側（看起來是瞬移）。
@@ -911,6 +994,7 @@ const overStart = document.getElementById("overStart");
 const overDead  = document.getElementById("overDead");
 const overPause = document.getElementById("overPause");
 const mapSelect = document.getElementById("mapSelect");
+const modeSelect = document.getElementById("modeSelect");
 
 const renderer = new THREE.WebGLRenderer({canvas:glCanvas, antialias:true});
 renderer.setClearColor(0x03030A, 1);
@@ -4328,7 +4412,16 @@ function newGame(){
     streak:0, streakT:0,
     dmgArcs:[], flashLine:"", flashSub:"", flashT:0,
     seenTypes:new Set(),
+    // 滑鏟狀態：slideBoostAt 是上一次進入滑鏟的時間，加速冷卻從這裡算
+    sliding:false, slideT:0, slideBoostAt:-9, slideVis:0, crouchPrev:false, landT:-9,
+    // 訓練場
+    practice:modeSelect.value === "range", rs:freshRangeStats(), respawns:[],
+    breakMark:0, breakColor:"#FFFFFF",
   };
+}
+function freshRangeStats(){
+  // bStart/bDmg：目前這一串連續命中（中斷 1.5 秒就重算），DPS 用它算
+  return {dmg:0, heads:0, kills:0, ttk:-1, last:-9, bStart:0, bDmg:0};
 }
 
 function rosterFor(round){
@@ -4395,6 +4488,189 @@ function spawnRound(){
   } else banner("ROUND " + G.round);
 }
 
+// ── 訓練場 ──
+// 照 Apex 的 Firing Range：假人（DUMMIE）100 血加上可調的護盾，不會開槍，倒下後自動重生。
+// 假人放在 G.bots 裡，命中判定、聲納、小地圖都直接共用；AI 與開槍在 update 裡跳過
+const DUMMY_HP = 100;
+// 護盾等級：Apex 的 Evo 護盾容量，顏色也照遊戲裡傷害數字的顏色
+const SHIELD_TIERS = [
+  {cap:0,   color:"#F2ECFF"},
+  {cap:50,  color:"#E8E8E8"},
+  {cap:75,  color:"#3FA9FF"},
+  {cap:100, color:"#B45CFF"},
+  {cap:125, color:"#FF3B3B"},
+];
+// 頭盔只削減爆頭「多出來」的那部分傷害：Apex 白 20%、藍 40%、紫 50%。
+// 紅色是 Evo 最高等，Apex 沒有紅頭盔，比照紫色
+const HELMET = [0, 0.2, 0.4, 0.5, 0.5];
+// 平移速度：Apex 持槍蹲走 80、行走 173.5、衝刺 260hu/s（1hu = 2.54cm）換成像素
+const STRAFE_SPD = {slow:2.03/S, mid:4.41/S, fast:6.60/S};
+const STRAFE_RANGE = 2.0/S;     // 離起點左右各 2 公尺
+const DUMMY_ACCEL = 2400;       // px/s²：快速平移時約 0.18 秒反向，不是瞬間折返
+const DUMMY_REGEN = 3.0;        // 這麼久沒被打就補滿，方便一匣一匣比較傷害
+const DUMMY_RESPAWN = 1.4;
+const CROUCH_DROP = 0.28;       // 蹲下時骨盆降多少（模型尺度，乘 k 才是公尺）
+// 佈置距離（公尺）與左右錯開量：錯開才不會前面那隻擋住後面那隻
+const LANE = [8, 15, 22, 30];
+const LANE_SIDE = [-1.8, 1.8, -1.2, 1.2];
+
+const RANGE = {move:"strafe", speed:"mid", stance:"stand", random:1, shield:2, infinite:1};
+try {
+  const raw = localStorage.getItem("echo3d.range");
+  if (raw) Object.assign(RANGE, JSON.parse(raw));
+} catch(e){}
+
+// 假人外觀：同一套人形，迷彩換成素色訓練服，和敵人一眼分得出來
+function dummyObject(){
+  const obj = makeBotObject("grunt");
+  const camo = obj.userData.hitMats[0];
+  camo.map = null; camo.color.setHex(0xB9B2A4); camo.needsUpdate = true;
+  return obj;
+}
+function makeDummy(x, y, ax, ay){
+  const obj = dummyObject();
+  botLayer.add(obj);
+  const sh = SHIELD_TIERS[RANGE.shield].cap;
+  return {
+    type:"grunt", obj, dummy:true, homeX:x, homeY:y, ax, ay,
+    x, y, px:x, py:y, rad:TYPES.grunt.rad, hp:DUMMY_HP, maxHp:DUMMY_HP, shield:sh, maxShield:sh,
+    angle:0, vel:0, dir:Math.random() < 0.5 ? 1 : -1, turnT:0, spdKey:"mid",
+    crouch:0, crouchT:RANGE.stance === "crouch" ? 1 : 0, stanceT:0.8,
+    lastHit:-9, firstHit:-1, moved:0,
+    cool:0, see:0, revealed:0, flash:0, laser:null, strafe:1, stuck:0,
+    hitT:0, hitAngle:0, hitForce:0, headT:0, headForce:0,
+  };
+}
+function clearDummies(){
+  for (let i=G.bots.length-1;i>=0;i--){
+    if (G.bots[i].dummy){ botLayer.remove(G.bots[i].obj); G.bots.splice(i,1); }
+  }
+  G.respawns.length = 0;
+}
+function spotFree(x, y, r){
+  if (x < r || y < r || x > W-r || y > H-r) return false;
+  for (const w of WALLS) if (x+r > w.x && x-r < w.x+w.w && y+r > w.y && y-r < w.y+w.h) return false;
+  return true;
+}
+// 朝 ang 方向找每個 LANE 距離的落點：先試原本的距離與錯開量，被擋住就在前後 3 公尺、
+// 左右幾個錯開量裡找，要看得到而且站得下。距離至少比前一隻遠 3 公尺，不然就不叫靶道了
+function laneSpots(p, ang){
+  const fx = Math.cos(ang), fy = Math.sin(ang), ax = -fy, ay = fx;
+  const spots = [];
+  let prev = 0;
+  for (let i=0;i<LANE.length;i++){
+    const side = LANE_SIDE[i];
+    let hit = null;
+    for (const dd of [0, -1, 1, -2, 2, -3, 3]){
+      const d = LANE[i] + dd;
+      if (d < prev + 3) continue;
+      for (const s of [side, -side, 0, side*1.8, -side*1.8]){
+        const x = p.x + (fx*d + ax*s)/S, y = p.y + (fy*d + ay*s)/S;
+        if (spotFree(x, y, TYPES.grunt.rad + 4) && hasLOS(p.x, p.y, x, y, eyeH(), 1.4)){ hit = {x, y, d}; break; }
+      }
+      if (hit) break;
+    }
+    if (hit){ spots.push(hit); prev = hit.d; }
+  }
+  return {spots, ax, ay};
+}
+// T：沿著視線方向佈置，平移軸和視線垂直，所以假人是在你眼前左右移動。
+// auto（剛進訓練場時）：出生點朝向不一定開闊，改成 16 個方向裡挑放得最多的那個，
+// 同樣多就挑最接近原本朝向的
+function deployDummies(auto){
+  clearDummies();
+  const p = G.player;
+  let best = laneSpots(p, p.angle);
+  if (auto){
+    for (let k=1;k<=8 && best.spots.length < LANE.length;k++){
+      for (const sgn of [1, -1]){
+        const c = laneSpots(p, p.angle + sgn*k*Math.PI/8);
+        if (c.spots.length > best.spots.length){ best = c; best.turn = sgn*k*Math.PI/8; }
+      }
+    }
+    // 把視角轉過去，一進場就看著靶道
+    if (best.turn) yaw -= best.turn;
+  }
+  for (const s of best.spots) G.bots.push(makeDummy(s.x, s.y, best.ax, best.ay));
+  const placed = best.spots.length;
+  if (!placed) banner("NO CLEAR LANE", "前方太近就有牆，轉向開闊的方向再按 T");
+  else if (placed < LANE.length) banner("RANGE · " + placed + " TARGETS", "有些距離被擋住了，換個更開闊的方向按 T 可以放滿四隻");
+  else banner("RANGE · " + placed + " TARGETS", "T 在面前重新佈置 · X 統計歸零 · ESC 調整假人");
+  sfx("sine", 520, 0.12, 0.04, 780);
+}
+function resetRangeStats(){
+  G.rs = freshRangeStats();
+  G.shots = 0; G.hits = 0;
+  banner("STATS RESET");
+}
+function updateDummy(b, dt){
+  const p = G.player;
+  // 永遠面向玩家，像 Apex 的假人一樣正對靶道
+  b.angle = Math.atan2(p.y-b.y, p.x-b.x);
+  // 姿勢：交替模式下固定 1.4 秒換一次，開了隨機間隔就是 0.5～2.3 秒不定
+  if (RANGE.stance === "both"){
+    b.stanceT -= dt;
+    if (b.stanceT <= 0){
+      b.crouch = b.crouch ? 0 : 1;
+      b.stanceT = RANGE.random ? 0.5 + Math.random()*1.8 : 1.4;
+    }
+  } else b.crouch = RANGE.stance === "crouch" ? 1 : 0;
+  b.crouchT += (b.crouch - b.crouchT) * Math.min(1, dt*9);
+
+  let target = 0;
+  if (RANGE.move === "strafe"){
+    b.turnT -= dt;
+    // 沿平移軸離起點多遠；走到邊界一定折返，隨機間隔則是時間到就可能提早折返
+    const off = (b.x-b.homeX)*b.ax + (b.y-b.homeY)*b.ay;
+    const atEdge = off*b.dir >= STRAFE_RANGE;
+    if (atEdge || (RANGE.random && b.turnT <= 0)){
+      if (atEdge || Math.random() < 0.75) b.dir = -b.dir;
+      b.turnT = 0.25 + Math.random()*1.1;
+      b.spdKey = RANGE.speed === "random" ? ["slow","mid","fast"][(Math.random()*3)|0] : RANGE.speed;
+    }
+    if (RANGE.speed !== "random") b.spdKey = RANGE.speed;
+    // 蹲著最快只有蹲走速度
+    const spd = b.crouchT > 0.5 ? Math.min(STRAFE_SPD[b.spdKey], STRAFE_SPD.slow) : STRAFE_SPD[b.spdKey];
+    target = b.dir * spd;
+  }
+  const acc = DUMMY_ACCEL*dt;
+  b.vel += Math.max(-acc, Math.min(acc, target - b.vel));
+  b.px = b.x; b.py = b.y;
+  const hit = moveWithCollision(b, b.ax*b.vel*dt, b.ay*b.vel*dt);
+  if (hit.x || hit.y){ b.dir = -b.dir; b.vel = 0; }
+  b.moved = Math.hypot(b.x-b.px, b.y-b.py);
+
+  if (G.t - b.lastHit > DUMMY_REGEN && (b.hp < b.maxHp || b.shield < b.maxShield)){
+    b.hp = b.maxHp; b.shield = b.maxShield; b.firstHit = -1;
+  }
+}
+// 命中高度的分界：蹲下時整個上半身往下平移
+function dummyZones(b){
+  const z = zonesOf(b.type), d = CROUCH_DROP * botK(b.type) * b.crouchT;
+  return {legTop:z.legTop - d, torsoTop:z.torsoTop - d, headTop:z.headTop - d};
+}
+// 先扣護盾、溢出的扣血，跟 Apex 一樣。回傳實際造成的傷害與數字要用的顏色
+function damageDummy(b, dealt, zone){
+  const tier = SHIELD_TIERS.find(t => t.cap === b.maxShield) || SHIELD_TIERS[0];
+  const toShield = Math.min(b.shield, dealt);
+  const toHp = Math.min(Math.max(0, b.hp), dealt - toShield);
+  b.shield -= toShield;
+  b.hp -= dealt - toShield;
+  if (b.firstHit < 0) b.firstHit = G.t;
+  b.lastHit = G.t;
+  const real = toShield + toHp, rs = G.rs;
+  if (G.t - rs.last > 1.5){ rs.bStart = G.t; rs.bDmg = 0; }
+  rs.bDmg += real; rs.dmg += real; rs.last = G.t;
+  if (zone === "head") rs.heads++;
+  if (toShield > 0 && b.shield <= 0){
+    // 破盾：準心旁閃一圈護盾色，加一聲清脆的碎裂
+    G.breakMark = 1; G.breakColor = tier.color;
+    sfx("triangle", 1600, 0.16, 0.05, 520);
+    sfxNoise(0.12, 0.05, 5200);
+  }
+  return {real, color: toShield > 0 ? tier.color : null};
+}
+
 // ── 特效 ──
 // 火花池：材質與 Mesh 在開場一次建好，之後只切換 visible。
 // 原本每顆火花都 new 一個材質又從不釋放，一場下來會漏掉上千個，
@@ -4427,7 +4703,8 @@ function playerShoot(){
   const p = G.player, g = gun();
   if (p.reloading > 0 || p.cool > 0) return false;
   if (p.mags[g.key] <= 0){ startReload(); return false; }
-  p.mags[g.key]--; p.cool = g.fireGap;
+  if (!(G.practice && RANGE.infinite)) p.mags[g.key]--;
+  p.cool = g.fireGap;
   G.shots += (g.pellets || 1);
   const pellets = g.pellets || 1;
   const h0 = eyeH();
@@ -4576,6 +4853,20 @@ function useEcho(){
   banner("ECHO");
 }
 
+// ── 滑鏟（規則見 SLIDE）──
+function startSlide(p){
+  G.sliding = true; G.slideT = 0;
+  const sp = Math.hypot(p.vx, p.vy);
+  if (G.t - G.slideBoostAt >= SLIDE.boostCd && sp > 0){
+    const ns = Math.min(sp + SPRINT_SPD*SLIDE.boost, SPRINT_SPD*SLIDE.cap);
+    if (ns > sp){ p.vx *= ns/sp; p.vy *= ns/sp; }
+  }
+  G.slideBoostAt = G.t;
+  sfxNoise(0.55, 0.05, 650);
+  sfx("sine", 85, 0.18, 0.025, 55);
+}
+function endSlide(){ G.sliding = false; }
+
 // ─────────────────────────────────────────────
 // 每幀更新（純 2D 邏輯，跟 3D 版本完全共用）
 // ─────────────────────────────────────────────
@@ -4617,6 +4908,12 @@ function update(dt){
     G.timer -= dt;
     if (G.timer <= 0){ G.mode = "fight"; spawnRound(); }
   }
+  G.breakMark = Math.max(0, G.breakMark - dt*2.2);
+  for (let i=G.respawns.length-1;i>=0;i--){
+    const r = G.respawns[i];
+    r.t -= dt;
+    if (r.t <= 0){ G.bots.push(makeDummy(r.x, r.y, r.ax, r.ay)); G.respawns.splice(i,1); }
+  }
 
   if (G.mode !== "dead"){
     // 視角決定朝向：先由 yaw 推回 2D 的角度
@@ -4640,11 +4937,24 @@ function update(dt){
     G.adsT += ((wantAds ? 1 : 0) - G.adsT) * Math.min(1, dt*11);
     if (G.adsT < 0.002) G.adsT = 0;
 
-    // 跳躍與重力
-    if (keys.has(" ") && p.grounded && !G.crouching && G.mode !== "dead"){
+    // 跳躍與重力。滑鏟中也能跳（滑鏟跳），但要過了 Apex 的門檻（見 SLIDE）；
+    // 跳鍵一直按著的話，一過門檻就會自動起跳，等於 Apex 的輸入緩衝
+    const slideJumpOk = G.sliding &&
+      (G.slideT >= SLIDE.jumpDelay || Math.hypot(p.vx, p.vy) <= SPRINT_SPD*SLIDE.jumpSpeed);
+    if (keys.has(" ") && p.grounded && (!G.crouching || slideJumpOk) && G.mode !== "dead"){
       p.vz = P.jumpV; p.grounded = false;
-      const jsp = Math.hypot(p.vx, p.vy), jcap = P.speed * P.jumpSpeedCap;
-      if (jsp > jcap){ p.vx *= jcap/jsp; p.vy *= jcap/jsp; }
+      if (G.sliding){
+        // 滑鏟跳保留滑行的水平速度，不套一般起跳的速度上限——這正是它的用途
+        endSlide();
+        if (G.t - G.landT < SLIDE.hopWindow){
+          const jsp = Math.hypot(p.vx, p.vy);
+          const ns = Math.max(Math.min(jsp, SPRINT_SPD), jsp - SPRINT_SPD*SLIDE.hopPenalty);
+          if (jsp > 0){ p.vx *= ns/jsp; p.vy *= ns/jsp; }
+        }
+      } else {
+        const jsp = Math.hypot(p.vx, p.vy), jcap = P.speed * P.jumpSpeedCap;
+        if (jsp > jcap){ p.vx *= jcap/jsp; p.vy *= jcap/jsp; }
+      }
       sfxNoise(0.05, 0.02, 380);
     }
     if (!p.grounded){
@@ -4657,7 +4967,7 @@ function update(dt){
         // 靠 LEDGE_REACH 踩上邊緣時人還在往上或剛過頂點，不算重落地
         const impact = Math.max(0, -p.vz);
         G.stepLift += gz - p.z;
-        p.z = gz; p.vz = 0; p.grounded = true;
+        p.z = gz; p.vz = 0; p.grounded = true; G.landT = G.t;
         // 落地會吃掉動能：越重的落地下沉越深、水平速度損失越多。
         // 一般跳躍落地約 4.2m/s、跳上跳下箱子也在 6m/s 內，這些不減速（Valorant 的跳躍落地不會頓），
         // 只有從高台摔下來這種重落地才扣速度，否則每次落地都會先頓一下再重新加速
@@ -4666,15 +4976,27 @@ function update(dt){
         p.vx *= keep; p.vy *= keep;
         if (impact > 1.5){ sfxNoise(0.09, 0.035 + impact*0.006, 300); sfx("sine", 55, 0.10, 0.03, 38); }
         else sfxNoise(0.05, 0.016, 420);
+        // 壓著蹲落地、速度又夠快，就直接接滑鏟（Apex 的空中滑鏟）。
+        // 加速冷卻通常還沒好，所以是保留速度滑出去，不會再加速
+        if (keys.has("control") && Math.hypot(p.vx, p.vy) > SPRINT_SPD*SLIDE.enter) startSlide(p);
       }
       // 在空中槍口會散開，跳起來亂射不划算
       p.bloom = Math.min(0.16, p.bloom + dt*0.55);
     }
 
-    // 蹲下：視線壓低，而且槍口更穩（空中不能蹲）
-    G.crouching = keys.has("control") && p.grounded && G.mode !== "dead";
-    G.crouchT += ((G.crouching ? 1 : 0) - G.crouchT) * Math.min(1, dt*11);
-    if (G.crouching) p.bloom = Math.max(0, p.bloom - dt*0.25);
+    // 滑鏟：衝刺中（速度超過門檻）按下蹲就滑出去；放開蹲或離地就結束
+    const crouchKey = keys.has("control");
+    if (crouchKey && !G.crouchPrev && p.grounded && !G.sliding && G.mode !== "dead" &&
+        Math.hypot(p.vx, p.vy) > SPRINT_SPD*SLIDE.enter) startSlide(p);
+    G.crouchPrev = crouchKey;
+    if (G.sliding && (!crouchKey || !p.grounded)) endSlide();
+
+    // 蹲下：視線壓低，而且槍口更穩（空中不能蹲）。滑鏟也是蹲姿，但槍不會比較穩
+    G.crouching = crouchKey && p.grounded && G.mode !== "dead";
+    G.crouchT += ((G.crouching ? 1 : 0) - G.crouchT) * Math.min(1, dt*(G.sliding ? 16 : 11));
+    if (G.crouching && !G.sliding) p.bloom = Math.max(0, p.bloom - dt*0.25);
+    if (G.sliding) p.bloom = Math.min(0.12, p.bloom + dt*0.4);
+    G.slideVis += ((G.sliding ? 1 : 0) - G.slideVis) * Math.min(1, dt*(G.sliding ? 10 : 5));
     const bx = p.x, by = p.y;
 
     // 衝刺只在往前、地面、非瞄準時生效，而且會讓槍口散開
@@ -4696,7 +5018,33 @@ function update(dt){
     // 地面摩擦：放開按鍵後靠它把速度磨掉，所以停下來是滑一小段而不是瞬停。
     // 有按方向鍵時用原本的摩擦（轉向、急停反向的手感不變），
     // 沒按時用 Unreal 的煞車，從全速約 0.16 秒、0.4m 停住，站上窄箱頂才不會滑下去
-    if (p.grounded){
+    if (G.sliding){
+      // 滑鏟：不吃一般的摩擦與加速，改成慢慢衰減的滑行
+      G.slideT += dt;
+      // 坡面上的重力分量：加速度 = g·sinθ，方向朝下坡（坡度的反方向）
+      const rg = rampGrad(p), s2 = rg.gx*rg.gx + rg.gy*rg.gy;
+      if (s2 > 0){
+        const k = P.gravity / Math.sqrt(1 + s2) / S * dt;
+        p.vx -= rg.gx*k; p.vy -= rg.gy*k;
+      }
+      let sp = Math.hypot(p.vx, p.vy);
+      // 小幅修正方向：往按鍵方向轉，每秒最多轉 SLIDE.steer 弧度
+      if (wl && sp > 1){
+        const cur = Math.atan2(p.vy, p.vx), want = Math.atan2(wy, wx);
+        const diff = Math.atan2(Math.sin(want-cur), Math.cos(want-cur));
+        const a = cur + Math.max(-SLIDE.steer*dt, Math.min(SLIDE.steer*dt, diff));
+        p.vx = Math.cos(a)*sp; p.vy = Math.sin(a)*sp;
+      }
+      // 下坡打折：cos（速度方向和下坡方向的夾角）× 坡度比例
+      let fk = 1;
+      if (s2 > 0 && sp > 1){
+        const down = -(rg.gx*p.vx + rg.gy*p.vy) / (sp*Math.sqrt(s2));
+        fk = 1 - Math.max(0, down) * Math.min(1, Math.sqrt(s2)/SLIDE.slopeFree);
+      }
+      const ns = Math.min(sp * Math.exp(-SLIDE.friction*fk*dt), SPRINT_SPD*SLIDE.maxK);
+      if (sp > 0){ p.vx *= ns/sp; p.vy *= ns/sp; }
+      if (ns < SPRINT_SPD*SLIDE.exit) endSlide();
+    } else if (p.grounded){
       const sp = Math.hypot(p.vx, p.vy);
       if (sp > 0){
         const drop = wl ? Math.max(sp, P.stopSpeed) * P.friction * dt
@@ -4706,7 +5054,9 @@ function update(dt){
       }
     }
     // 加速：只補到目標速度為止，起步因此有一段加速過程
-    if (wl && p.grounded){
+    if (G.sliding){
+      // 滑行中的方向與速度上面已經處理過
+    } else if (wl && p.grounded){
       const cur = p.vx*wx + p.vy*wy;
       const add = maxSpd - cur;
       if (add > 0){
@@ -4749,7 +5099,7 @@ function update(dt){
     // 實際位移（撞牆時會小於預期），拿來驅動頭部晃動與腳步聲
     G.moved = Math.hypot(p.x-bx, p.y-by);
     G.moving = G.moved > P.speed*dt*0.18;
-    vm.stepDist += G.moved;
+    if (!G.sliding) vm.stepDist += G.moved;    // 滑行沒有腳步聲
     if (vm.stepDist > 62){
       vm.stepDist = 0;
       sfxNoise(0.07, 0.022, 520);
@@ -4778,6 +5128,7 @@ function update(dt){
       b.revealed = Math.max(0, b.revealed - dt);
       b.flash    = Math.max(0, b.flash - dt);
       b.cool     = Math.max(0, b.cool - dt);
+      if (b.dummy){ updateDummy(b, dt); continue; }
 
       const d = Math.hypot(p.x-b.x, p.y-b.y);
       const los = d < T.range && hasLOS(b.x,b.y,p.x,p.y,1.85*botK(b.type),eyeH());
@@ -4915,7 +5266,7 @@ function update(dt){
       if (bl.friendly){
         for (const b of G.bots){
           if (b.hp <= 0) continue;
-          const z = zonesOf(b.type);
+          const z = b.dummy ? dummyZones(b) : zonesOf(b.type);
           if (bl.h > z.headTop || bl.h < 0) continue;      // 從頭上飛過去
           // 頭比身體窄很多，所以橫向判定也要跟著收緊
           const isHead = bl.h > z.torsoTop;
@@ -4931,7 +5282,16 @@ function update(dt){
               const diff = Math.abs(((incoming - b.angle + Math.PI*3) % (Math.PI*2)) - Math.PI);
               if (diff < 1.31){ dealt = Math.round(dealt*TT.frontArmor); blocked = true; }
             }
-            b.hp -= dealt; b.flash = 0.1;
+            let popColor = null;
+            if (b.dummy){
+              if (zone === "head"){
+                const helm = HELMET[SHIELD_TIERS.findIndex(t => t.cap === b.maxShield)] || 0;
+                dealt = Math.round(bl.dmg * (1 + (ZONE.head - 1)*(1 - helm)));
+              }
+              const r = damageDummy(b, dealt, zone);
+              dealt = r.real; popColor = r.color;
+            } else b.hp -= dealt;
+            b.flash = 0.1;
             b.hitT = 0.25;
             b.hitAngle = Math.atan2(bl.vy, bl.vx);
             b.hitForce = Math.min(0.52, 0.08 + dealt/200);
@@ -4946,7 +5306,7 @@ function update(dt){
               blocked ? 3 : zone === "head" ? 10 : 6);
             G.pops.push({x:bl.x, y:bl.y, h:bl.h + 0.25,
                          text: blocked ? "BLOCKED" : String(dealt),
-                         life:0.9, max:0.9, blocked, zone,
+                         life:0.9, max:0.9, blocked, zone, color:popColor,
                          kill:(b.hp<=0)});
             G.hitMark = 1;
             if (zone === "head") G.headMark = 1;
@@ -4997,6 +5357,16 @@ function update(dt){
                       fallAxis:new THREE.Vector3(fallDirZ, 0, -fallDirX),
                       tiltQuat:new THREE.Quaternion()});
       G.bots.splice(i,1);
+      if (b.dummy){
+        // 假人不算分，記下 TTK（第一發命中到倒下）之後在原位重生
+        const ttk = G.t - b.firstHit;
+        G.rs.kills++; G.rs.ttk = ttk;
+        G.respawns.push({t:DUMMY_RESPAWN, x:b.homeX, y:b.homeY, ax:b.ax, ay:b.ay});
+        G.feed.unshift({text:"DOWN · TTK " + ttk.toFixed(2) + "s", score:0, life:2.6, max:2.6, pickup:true});
+        if (G.feed.length > 5) G.feed.pop();
+        sfxAt(b.x,b.y,"triangle",420,0.22,0.5,110);
+        continue;
+      }
       G.kills++;
       // 三秒內接著再殺會疊加，最多三倍
       G.streakT = 3.0;
@@ -5010,7 +5380,7 @@ function update(dt){
       sfxAt(b.x,b.y,"triangle",420,0.22,0.5,110);
     }
   }
-  if (G.mode === "fight" && G.bots.length === 0){
+  if (G.mode === "fight" && G.bots.length === 0 && !G.practice){
     G.score += 200 + (G.tookDamage ? 0 : 300);
     if (!G.tookDamage) banner("FLAWLESS  +300");
     G.player.hp = Math.min(P.maxHp, G.player.hp + 45);
@@ -5148,7 +5518,7 @@ function sync(dtLast){
   // 晃動強度依實際速度連續變化。用 G.moving 這種布林值硬切的話，
   // 速度衰減穿過門檻時鏡頭高度會瞬間歸零，走走停停就會看到跳動
   const spd = Math.hypot(p.vx, p.vy);
-  const bobTarget = onGround ? Math.min(1, spd / (P.speed*0.7)) : 0;
+  const bobTarget = onGround && !G.sliding ? Math.min(1, spd / (P.speed*0.7)) : 0;
   G.bobAmp += (bobTarget - G.bobAmp) * Math.min(1, dtLast*9);
   G.bobT += G.moved*0.055;
   const headY = Math.abs(Math.sin(G.bobT)) * 0.028 * G.bobAmp;
@@ -5162,7 +5532,7 @@ function sync(dtLast){
   // 瞄準的變焦
   const gAds = GUNS[G.player.gun];
   // 衝刺時視野外擴，這是最直接的速度感來源
-  const wantFov = SET.fov + (gAds.adsFov - SET.fov) * G.adsT + G.sprintT*(1-G.adsT)*8;
+  const wantFov = SET.fov + (gAds.adsFov - SET.fov) * G.adsT + (G.sprintT*8 + G.slideVis*6)*(1-G.adsT);
   if (Math.abs(camera.fov - wantFov) > 0.01){
     camera.fov = wantFov; camera.updateProjectionMatrix();
   }
@@ -5179,7 +5549,8 @@ function sync(dtLast){
   }
   // 橫向移動時輕微側傾
   G.lean += ((-G.strafe*0.025) - G.lean) * Math.min(1, dtLast*8);
-  camera.rotation.z = G.lean + Math.sin(G.bobT)*0.006*G.bobAmp;
+  // 滑鏟時鏡頭往一側微傾，速度感主要靠它和 FOV 外擴
+  camera.rotation.z = G.lean + Math.sin(G.bobT)*0.006*G.bobAmp + G.slideVis*0.045;
 
   for (const b of G.bots){
     b.obj.position.set(b.x*S, 0, b.y*S);
@@ -5221,6 +5592,16 @@ function sync(dtLast){
       ud.legR.lo.rotation.x = -Math.max(0,  sw) * 1.1;
       ud.hips.position.y = (0.92 + Math.abs(sw2)*0.09) * ud.k;
       ud.hips.rotation.z = sw2 * 0.06;
+    }
+    // 假人蹲姿：大腿往前抬 0.9 弧度、膝蓋往後折 1.6，腳掌剛好落回骨盆正下方，
+    // 骨盆因此降 CROUCH_DROP。走路的擺動縮小後疊在蹲姿上
+    if (b.dummy && b.crouchT > 0.001){
+      const c = b.crouchT;
+      for (const L of [ud.legL, ud.legR]){
+        L.up.rotation.x += (0.9 + L.up.rotation.x*0.3 - L.up.rotation.x) * c;
+        L.lo.rotation.x += (-1.6 + L.lo.rotation.x*0.3 - L.lo.rotation.x) * c;
+      }
+      ud.hips.position.y -= CROUCH_DROP * c;
     }
     // 中彈的頭 0.08 秒全身泛白；開槍則是槍口火光
     const hg = Math.max(0, (b.hitT - 0.17) / 0.08);
@@ -5383,6 +5764,19 @@ function drawUI(){
       uctx.stroke();
     }
 
+    // 破盾：準心外一圈斷開的護盾色弧線，往外擴散淡出
+    if (G.breakMark > 0){
+      const a = G.breakMark, r = 22 + (1-a)*14;
+      uctx.strokeStyle = G.breakColor;
+      uctx.globalAlpha = a;
+      uctx.lineWidth = 3;
+      for (let i=0;i<6;i++){
+        const a0 = i*Math.PI/3 + 0.18;
+        uctx.beginPath(); uctx.arc(cx, cy, r, a0, a0 + Math.PI/3 - 0.36); uctx.stroke();
+      }
+      uctx.globalAlpha = 1;
+    }
+
     // 受擊方向：以準心為中心，指向開槍的人
     for (const d of G.dmgArcs){
       const a = d.life/d.max;
@@ -5449,23 +5843,26 @@ function drawUI(){
     uctx.fillText("PRESS  R", w-28, h-30);
   }
 
-  // 回合與分數
-  uctx.textAlign = "center";
-  uctx.fillStyle = "#9184B4";
-  uctx.font = '600 11px "Chakra Petch", system-ui';
-  uctx.fillText("ROUND " + Math.max(1,G.round), cx, 26);
-  for (let i=0;i<G.bots.length;i++){
-    const x = cx - (G.bots.length-1)*7 + i*14;
-    uctx.fillStyle = "#" + TYPES[G.bots[i].type].color.toString(16).padStart(6,"0");
-    uctx.beginPath(); uctx.arc(x,44,3.6,0,Math.PI*2); uctx.fill();
+  // 回合與分數；訓練場改成統計面板
+  if (G.practice) drawRangeHud(w, h, cx);
+  else {
+    uctx.textAlign = "center";
+    uctx.fillStyle = "#9184B4";
+    uctx.font = '600 11px "Chakra Petch", system-ui';
+    uctx.fillText("ROUND " + Math.max(1,G.round), cx, 26);
+    for (let i=0;i<G.bots.length;i++){
+      const x = cx - (G.bots.length-1)*7 + i*14;
+      uctx.fillStyle = "#" + TYPES[G.bots[i].type].color.toString(16).padStart(6,"0");
+      uctx.beginPath(); uctx.arc(x,44,3.6,0,Math.PI*2); uctx.fill();
+    }
+    uctx.textAlign = "right";
+    uctx.fillStyle = "#9184B4";
+    uctx.font = '600 10px "Chakra Petch", system-ui';
+    uctx.fillText("SCORE", w-28, 24);
+    uctx.fillStyle = "#F2ECFF";
+    uctx.font = '600 25px "IBM Plex Mono", ui-monospace, monospace';
+    uctx.fillText(String(G.score).padStart(5,"0"), w-28, 46);
   }
-  uctx.textAlign = "right";
-  uctx.fillStyle = "#9184B4";
-  uctx.font = '600 10px "Chakra Petch", system-ui';
-  uctx.fillText("SCORE", w-28, 24);
-  uctx.fillStyle = "#F2ECFF";
-  uctx.font = '600 25px "IBM Plex Mono", ui-monospace, monospace';
-  uctx.fillText(String(G.score).padStart(5,"0"), w-28, 46);
 
   // 飄起來的傷害數字
   for (const q of G.pops){
@@ -5474,7 +5871,8 @@ function drawUI(){
     const a = Math.min(1, q.life/q.max*1.8);
     uctx.textAlign = "center";
     uctx.globalAlpha = a;
-    uctx.fillStyle = q.blocked         ? "#9AA8FF"
+    uctx.fillStyle = q.color           ? q.color
+                   : q.blocked         ? "#9AA8FF"
                    : q.zone === "head"  ? "#FFFFFF"
                    : q.zone === "leg"   ? "#B7A9D8"
                    : q.kill             ? "#FFF3D6" : "#FFB870";
@@ -5515,8 +5913,9 @@ function drawUI(){
   // 衝刺時準心散開，順便提示狀態
   if (G.sprinting || G.crouching || !p.grounded){
     uctx.textAlign = "center";
-    const label = !p.grounded ? "AIRBORNE" : G.crouching ? "CROUCH" : "SPRINT";
+    const label = !p.grounded ? "AIRBORNE" : G.sliding ? "SLIDE" : G.crouching ? "CROUCH" : "SPRINT";
     uctx.fillStyle = !p.grounded ? "rgba(255,200,120,.6)"
+                   : G.sliding ? "rgba(255,210,77,.75)"
                    : G.crouching ? "rgba(124,224,255,.65)" : "rgba(255,138,43,.6)";
     uctx.font = '600 10px "Chakra Petch", system-ui';
     uctx.fillText(label, w/2, h/2 + 54);
@@ -5560,6 +5959,65 @@ function drawUI(){
       uctx.fillText(G.flashSub, cx, cy-106);
     }
     uctx.globalAlpha = 1;
+  }
+}
+
+// 訓練場的 HUD：左側統計面板，每隻假人頭上的距離與護盾/血條（Apex 式的分段護盾格，一格 25）
+function drawRangeHud(w, h, cx){
+  const p = G.player, rs = G.rs;
+  uctx.textAlign = "center";
+  uctx.fillStyle = "#9184B4";
+  uctx.font = '600 11px "Chakra Petch", system-ui';
+  uctx.fillText("TRAINING RANGE", cx, 26);
+
+  const burst = rs.last - rs.bStart + gun().fireGap;
+  const rows = [
+    ["DAMAGE",   String(rs.dmg)],
+    ["DPS",      rs.bDmg > 0 ? String(Math.round(rs.bDmg / burst)) : "--"],
+    ["ACCURACY", G.shots ? Math.round(G.hits/G.shots*100) + "%" : "--"],
+    ["HEADSHOT", G.hits ? Math.round(rs.heads/G.hits*100) + "%" : "--"],
+    ["TTK",      rs.ttk >= 0 ? rs.ttk.toFixed(2) + "s" : "--"],
+    ["DOWNS",    String(rs.kills)],
+  ];
+  const x0 = 28, y0 = 196;
+  uctx.fillStyle = "rgba(8,6,20,.55)";
+  uctx.fillRect(x0, y0, 150, rows.length*19 + 34);
+  uctx.font = '600 10px "Chakra Petch", system-ui';
+  for (let i=0;i<rows.length;i++){
+    const yy = y0 + 14 + i*19;
+    uctx.textAlign = "left"; uctx.fillStyle = "#9184B4";
+    uctx.fillText(rows[i][0], x0 + 10, yy);
+    uctx.textAlign = "right"; uctx.fillStyle = "#F2ECFF";
+    uctx.font = '600 13px "IBM Plex Mono", ui-monospace, monospace';
+    uctx.fillText(rows[i][1], x0 + 140, yy);
+    uctx.font = '600 10px "Chakra Petch", system-ui';
+  }
+  uctx.textAlign = "left"; uctx.fillStyle = "rgba(145,132,180,.7)";
+  uctx.fillText("T 佈置  ·  X 歸零  ·  ESC 設定", x0 + 10, y0 + rows.length*19 + 20);
+
+  for (const b of G.bots){
+    if (!b.dummy) continue;
+    const z = dummyZones(b);
+    const d = Math.hypot(b.x-p.x, b.y-p.y) * S;
+    if (d > 60 || !hasLOS(p.x, p.y, b.x, b.y, eyeH(), z.headTop)) continue;
+    const sp = projectToScreen(b.x, z.headTop + 0.3, b.y, w, h);
+    if (!sp || sp.x < 0 || sp.x > w || sp.y < 0 || sp.y > h) continue;
+    const bw = 54, bx = sp.x - bw/2;
+    uctx.textAlign = "center";
+    uctx.fillStyle = "rgba(242,236,255,.8)";
+    uctx.font = '600 10px "IBM Plex Mono", ui-monospace, monospace';
+    uctx.fillText(Math.round(d) + "m", sp.x, sp.y - 12);
+    if (b.maxShield > 0){
+      const n = b.maxShield / 25, gap = 2, sw = (bw - gap*(n-1)) / n;
+      const tier = SHIELD_TIERS.find(t => t.cap === b.maxShield);
+      for (let i=0;i<n;i++){
+        const f = Math.max(0, Math.min(1, (b.shield - i*25) / 25));
+        uctx.fillStyle = "rgba(0,0,0,.5)"; uctx.fillRect(bx + i*(sw+gap), sp.y - 4, sw, 4);
+        uctx.fillStyle = tier.color;       uctx.fillRect(bx + i*(sw+gap), sp.y - 4, sw*f, 4);
+      }
+    }
+    uctx.fillStyle = "rgba(0,0,0,.5)"; uctx.fillRect(bx, sp.y + 2, bw, 3);
+    uctx.fillStyle = "#F2ECFF";        uctx.fillRect(bx, sp.y + 2, bw*Math.max(0, b.hp)/b.maxHp, 3);
   }
 }
 
@@ -5663,6 +6121,9 @@ function endGame(){
 function startGame(){
   clearScene();
   G = newGame();
+  // 訓練場直接進入交戰狀態（射擊、開鏡都要這個狀態），但不會生成敵人波次
+  if (G.practice){ G.mode = "fight"; deployDummies(true); }
+  rangeSet.hidden = !G.practice;
   overStart.hidden = true; overDead.hidden = true; overPause.hidden = true;
   audioOn();
   requestLock();
@@ -5698,7 +6159,7 @@ function layout(){
 addEventListener("resize", layout);
 
 // ── 輸入 ──
-const HANDLED = new Set(["w","a","s","d","q","e","r","f","1","2","3"," ","shift","control"]);
+const HANDLED = new Set(["w","a","s","d","q","e","r","f","t","x","1","2","3"," ","shift","control"]);
 addEventListener("keydown", ev => {
   const k = ev.key.toLowerCase();
   if (HANDLED.has(k)) ev.preventDefault();
@@ -5712,6 +6173,8 @@ addEventListener("keydown", ev => {
   if (k === "1") swapGun("vector");
   if (k === "2") swapGun("lance");
   if (k === "3") swapGun("breach");
+  if (k === "t" && G.practice) deployDummies();
+  if (k === "x" && G.practice) resetRangeStats();
 });
 addEventListener("keyup", ev => keys.delete(ev.key.toLowerCase()));
 // 視窗失去焦點或分頁被切走時，主動解除指標鎖定。
@@ -5860,6 +6323,22 @@ elTrack.addEventListener("change", () => {
   audioOn();
 });
 document.getElementById("btnClearTrack").addEventListener("click", clearTrack);
+
+// 訓練場設定：和其他設定一樣存在瀏覽器本機
+const rangeSet = document.getElementById("rangeSet");
+const RANGE_EL = {move:"rgMove", speed:"rgSpeed", stance:"rgStance", random:"rgRandom", shield:"rgShield", infinite:"rgInfinite"};
+for (const [key, id] of Object.entries(RANGE_EL)){
+  const el = document.getElementById(id);
+  el.value = String(RANGE[key]);
+  el.addEventListener("change", () => {
+    RANGE[key] = typeof RANGE[key] === "number" ? parseInt(el.value, 10) : el.value;
+    try { localStorage.setItem("echo3d.range", JSON.stringify(RANGE)); } catch(e){}
+    // 護盾等級改了就套到場上所有假人，並且補滿
+    if (key === "shield" && G) for (const b of G.bots) if (b.dummy){
+      b.maxShield = b.shield = SHIELD_TIERS[RANGE.shield].cap;
+    }
+  });
+}
 loadStoredTrack();
 applySettings();
 
@@ -5972,6 +6451,9 @@ function loop(now){
     botLayer.add(o);
     warm.push(o);
   }
+  // 訓練場假人的素色材質少了貼圖，是另一組著色器
+  const dm = dummyObject();
+  dm.visible = false; botLayer.add(dm); warm.push(dm);
   try {
     renderer.compile(scene, camera);
     renderer.compile(vmScene, vmCamera);

@@ -5678,12 +5678,16 @@ function loop(now){
       requestAnimationFrame(loop);
       return;
     }
-    update(dt);
-    sync(dt);
-    updateViewModel(dt);
-    updateDust(dt, G.player.x*S, G.player.y*S);
-    updateShells(dt);
-    updateDrops(dt);
+    // 暫停畫面開著（按 Esc 解除滑鼠鎖定）就整個停住：敵人、子彈、時間、動畫都不走，
+    // 畫面照畫，停在按下暫停的那一格
+    if (overPause.hidden){
+      update(dt);
+      sync(dt);
+      updateViewModel(dt);
+      updateDust(dt, G.player.x*S, G.player.y*S);
+      updateShells(dt);
+      updateDrops(dt);
+    }
     compMat.uniforms.uTime.value   = G.t;
     compMat.uniforms.uDamage.value = G.vignette*0.5;
     compMat.uniforms.uEcho.value   = G.echoFlash*0.35;

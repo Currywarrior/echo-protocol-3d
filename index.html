@@ -1612,7 +1612,8 @@ function buildMapGeometry(){
       depthWrite:false, color:0x000000,
     }));
   ao.rotation.x = -Math.PI/2;
-  ao.position.set(W*S/2, 0.012, H*S/2);
+  // 石板鋪面頂在 0.012，這層要高過它，重合會 z-fighting（貨箱腳下一圈閃）
+  ao.position.set(W*S/2, 0.02, H*S/2);
   ao.renderOrder = 1;
   mapLayer.add(ao);
 
@@ -3215,7 +3216,7 @@ function makeBotObject(type){
   const shadow = new THREE.Mesh(geo.shadow, new THREE.MeshBasicMaterial({
     map:tex.shadow, transparent:true, depthWrite:false, color:0x000000}));
   shadow.rotation.x = -Math.PI/2;
-  shadow.position.y = 0.012;
+  shadow.position.y = 0.02;
   shadow.renderOrder = 1;
   root.add(shadow);
 

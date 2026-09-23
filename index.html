@@ -1482,6 +1482,60 @@ addDoorFrames();
       }
     }
   }
+
+  // 沿牆的水平導管與垂掛線束。凸出牆面不超過 0.15m，
+  // 比最小的碰撞半徑（STALKER 11px ≈ 0.33m）小得多，不會變成碰得到的假掩體。
+  // 高度壓在 2.6m 以上，避開下面的通風口與電箱
+  const R2 = (() => { let a = 4099; return () => (a = (a*1103515245+12345) & 0x7fffffff) / 0x7fffffff; })();
+  const conduitGeo = new THREE.CylinderGeometry(0.035,0.035,1,8);
+  const bracketGeo = new THREE.BoxGeometry(0.07, 0.24, 0.14);
+  const bundleMat  = new THREE.MeshStandardMaterial({color:0x0E0A1E, roughness:0.6, metalness:0.2});
+  const brMats = [], dummy = new THREE.Object3D();
+  for (const w of WALLS){
+    const long = Math.max(w.w, w.h);
+    if (long < 170 || w.w >= W || w.h >= H) continue;
+    if (R2() < 0.35) continue;
+    const horiz = w.w >= w.h, side = R2() < 0.5 ? -1 : 1;
+    const cx = (w.x+w.w/2)*S, cz = (w.y+w.h/2)*S;
+    const half = (horiz ? w.h : w.w)*S/2, len = long*S - 0.6;
+    const y0 = 2.72 + R2()*0.12;
+    // 沿牆方向 t 與離牆距離 off 換成世界座標
+    const at = (t, off) => horiz ? [cx + t, cz + side*(half+off)] : [cx + side*(half+off), cz + t];
+    for (let k=0;k<2;k++){
+      const [px,pz] = at(0, 0.06);
+      const c = new THREE.Mesh(conduitGeo, metal);
+      c.scale.y = len;
+      if (horiz) c.rotation.z = Math.PI/2; else c.rotation.x = Math.PI/2;
+      c.position.set(px, y0 - k*0.1, pz);
+      mapLayer.add(c);
+    }
+    const nb = Math.max(2, Math.round(len/1.1));
+    const ts = [];
+    for (let i=0;i<nb;i++) ts.push(-len/2 + 0.15 + i*(len-0.3)/(nb-1));
+    for (const t of ts){
+      const [px,pz] = at(t, 0.05);
+      dummy.position.set(px, y0 - 0.05, pz);
+      dummy.rotation.set(0, horiz ? 0 : Math.PI/2, 0);
+      dummy.updateMatrix();
+      brMats.push(dummy.matrix.clone());
+    }
+    // 線束：只在部分支架間垂下，下垂量各不相同
+    for (let i=0;i<ts.length-1;i++){
+      if (R2() < 0.5) continue;
+      const sag = 0.1 + R2()*0.12, pts = [];
+      for (let s=0;s<=8;s++){
+        const u = s/8, [px,pz] = at(ts[i] + (ts[i+1]-ts[i])*u, 0.12);
+        pts.push(new THREE.Vector3(px, y0 - 0.16 - sag*4*u*(1-u), pz));
+      }
+      mapLayer.add(new THREE.Mesh(
+        new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 14, 0.028, 5), bundleMat));
+    }
+  }
+  if (brMats.length){
+    const br = new THREE.InstancedMesh(bracketGeo, dark, brMats.length);
+    brMats.forEach((m,i) => br.setMatrixAt(i, m));
+    mapLayer.add(br);
+  }
 })();
 
 // ── 天花板燈具與管線：給這個空間一點可辨識的地標 ──
@@ -1498,6 +1552,7 @@ addDoorFrames();
     blending:THREE.AdditiveBlending, depthWrite:false,
   });
   const poolGeo = new THREE.CircleGeometry(1.7, 28);
+  const lDummy = new THREE.Object3D(), slatMs = [], capMs = [];
 
   // 燈具位置是地圖資料的一部分，這樣換圖時地標也會一起換掉
   for (let i=0;i<activeMap.lights.length;i++){
@@ -1512,6 +1567,22 @@ addDoorFrames();
       f.position.set(px*S, WALL_H-0.15, py*S);
       if (L.dir === "y") f.rotation.y = Math.PI/2;
       mapLayer.add(f);
+      // 燈管底下的百葉格柵與兩端端蓋，平板發光條才讀得出是一盞燈
+      const ry = L.dir === "y" ? Math.PI/2 : 0;
+      for (let k=0;k<11;k++){
+        lDummy.position.set(px*S, WALL_H-0.19, py*S);
+        lDummy.rotation.set(0, ry, 0);
+        lDummy.translateZ(-1.0 + k*0.2);
+        lDummy.updateMatrix();
+        slatMs.push(lDummy.matrix.clone());
+      }
+      for (const e of [-1.24, 1.24]){
+        lDummy.position.set(px*S, WALL_H-0.12, py*S);
+        lDummy.rotation.set(0, ry, 0);
+        lDummy.translateZ(e);
+        lDummy.updateMatrix();
+        capMs.push(lDummy.matrix.clone());
+      }
       // 光柱：柔邊的截頭錐，在霧裡讀起來就是一道光
       const shaft = new THREE.Mesh(shaftGeo, shaftMat);
       shaft.position.set(px*S, (WALL_H-0.25)/2, py*S);
@@ -1528,6 +1599,15 @@ addDoorFrames();
         mapLayer.add(lamp);
       }
   }
+
+  const addInst = (geo, ms) => {
+    if (!ms.length) return;
+    const im = new THREE.InstancedMesh(geo, fixCold, ms.length);
+    ms.forEach((m,i) => im.setMatrixAt(i, m));
+    mapLayer.add(im);
+  };
+  addInst(new THREE.BoxGeometry(0.22, 0.035, 0.03), slatMs);
+  addInst(new THREE.BoxGeometry(0.38, 0.2, 0.07), capMs);
 
   // 沿著外牆拉一圈管線，讓牆面不是一片平的
   const pipeGeo = new THREE.CylinderGeometry(0.075,0.075, W*S-2, 10);

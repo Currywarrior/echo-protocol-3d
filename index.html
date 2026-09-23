@@ -332,6 +332,12 @@ const MAPS = {
 };
 
 let activeMap = MAPS.atrium;
+// 氛圍參數：地圖沒寫的就用這組，也就是原本寫死在各處的數值
+const ATMO_DEFAULT = {
+  bg:0x03030A, fog:0.062, hemiSky:0x3A2A62, hemiGround:0x120A24, hemi:0.85,
+  sensor:3.4, bloom:0.85, threshold:0.42, vignette:0.78,
+};
+function atmo(){ return Object.assign({}, ATMO_DEFAULT, activeMap.atmo || {}); }
 let WALLS = activeMap.walls;
 let SPAWNS = activeMap.spawns;
 // 牆的線段，給視線判定用（敵人 AI 要知道看不看得到你）
@@ -718,7 +724,8 @@ const camera = new THREE.PerspectiveCamera(78, 16/9, 0.1, 120);
 camera.rotation.order = "YXZ";
 
 // 環境光壓得很低：這個世界本來就該是暗的
-scene.add(new THREE.HemisphereLight(0x3A2A62, 0x120A24, 0.85));
+const hemiLight = new THREE.HemisphereLight(0x3A2A62, 0x120A24, 0.85);
+scene.add(hemiLight);
 
 // 掛在攝影機上的感測器光源，照得到的範圍就是玩家的有效視野
 const sensorLight = new THREE.PointLight(0xFF9A50, 3.4, VIEW_R*S, 1.25);
@@ -1670,6 +1677,23 @@ function useMap(id){
   SPAWNS = activeMap.spawns;
   rebuildSegments();
   buildMapGeometry();
+  applyAtmo();
+}
+// 霧、背景、環境光、泛光、暗角：這些決定一張圖是陰鬱還是明亮
+let ATMO = ATMO_DEFAULT;
+function applyAtmo(){
+  ATMO = atmo();
+  renderer.setClearColor(ATMO.bg, 1);
+  scene.fog.color.setHex(ATMO.bg);
+  scene.fog.density = ATMO.fog;
+  shaftMat.uniforms.uFog.value = ATMO.fog;
+  hemiLight.color.setHex(ATMO.hemiSky);
+  hemiLight.groundColor.setHex(ATMO.hemiGround);
+  hemiLight.intensity = ATMO.hemi;
+  sensorLight.intensity = ATMO.sensor;
+  // 後製材質宣告在後面；這個函式只在它們都建好之後才會被呼叫
+  brightMat.uniforms.threshold.value = ATMO.threshold;
+  compMat.uniforms.uVig.value = ATMO.vignette;
 }
 
 // ── 補給品：給你「離開掩體」的理由 ──
@@ -2194,12 +2218,12 @@ const compMat = new THREE.ShaderMaterial({
     tScene:{value:null}, tBloom:{value:null},
     uBloom:{value:0.85}, uTime:{value:0},
     uDamage:{value:0}, uLow:{value:0}, uEcho:{value:0},
-    uAberr:{value:1.0}, uGain:{value:1.0}, uRes:{value:new THREE.Vector2(1280,720)},
+    uAberr:{value:1.0}, uGain:{value:1.0}, uVig:{value:0.78}, uRes:{value:new THREE.Vector2(1280,720)},
   },
   vertexShader:VERT,
   fragmentShader:`
     uniform sampler2D tScene, tBloom;
-    uniform float uBloom, uTime, uDamage, uLow, uEcho, uAberr, uGain;
+    uniform float uBloom, uTime, uDamage, uLow, uEcho, uAberr, uGain, uVig;
     uniform vec2 uRes;
     varying vec2 vUv;
     float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453); }
@@ -2242,7 +2266,7 @@ const compMat = new THREE.ShaderMaterial({
       col += vec3(0.05,0.028,0.012) * smoothstep(0.86,1.0, sin(vUv.y*6.0 - uTime*0.8));
 
       // 暗角
-      col *= 1.0 - smoothstep(0.30, 1.05, r) * 0.78;
+      col *= 1.0 - smoothstep(0.30, 1.05, r) * uVig;
       // 受傷與低血量
       col += vec3(1.0,0.10,0.16) * uDamage * smoothstep(0.15,0.85,r);
       col += vec3(1.0,0.08,0.14) * uLow * smoothstep(0.30,0.95,r);
@@ -4269,7 +4293,7 @@ function loop(now){
       compMat.uniforms.uLow.value = 0;
       compMat.uniforms.uEcho.value = 0;
       compMat.uniforms.uGain.value = 1;
-      compMat.uniforms.uBloom.value = 0.85;
+      compMat.uniforms.uBloom.value = ATMO.bloom;
       renderPosted();
       uctx.setTransform(1,0,0,1,0,0);
       uctx.clearRect(0,0,uiCanvas.width,uiCanvas.height);
@@ -4287,7 +4311,7 @@ function loop(now){
     compMat.uniforms.uEcho.value   = G.echoFlash*0.35;
     compMat.uniforms.uGain.value   = 1 + G.adsT * (gun().scope ? 0.75 : 0.22);
     // 放大之後亮部佔的畫面比例變高，泛光要跟著收，否則整片糊成白的
-    compMat.uniforms.uBloom.value  = 0.85 * (1 - G.adsT*0.4);
+    compMat.uniforms.uBloom.value  = ATMO.bloom * (1 - G.adsT*0.4);
     compMat.uniforms.uLow.value =
       (G.mode !== "dead" && G.player.hp < 38 && G.player.hp > 0)
         ? (1 - G.player.hp/38) * (0.10 + 0.14*(0.5+0.5*Math.sin(G.t*7.5)))
@@ -4320,6 +4344,7 @@ function loop(now){
   for (const o of warm) botLayer.remove(o);
 })();
 
+applyAtmo();
 layout();
 G = newGame();
 G.mode = "break"; G.timer = 9e9;    // 開場停在簡報畫面

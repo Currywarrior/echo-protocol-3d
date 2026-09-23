@@ -198,6 +198,7 @@
         <div class="stat"><b id="dBest">0</b><span>Best</span></div>
       </div>
       <button id="btnRetry">再來一次</button>
+      <button type="button" class="ghost" id="btnMenuDead">返回主選單</button>
     </div>
 
     <div class="overlay" id="overPause" hidden>
@@ -226,6 +227,7 @@
         <p class="tracknote">音檔只存在你這台瀏覽器裡，不會寫進遊戲檔案</p>
         <button type="button" class="ghost fsbtn">全螢幕</button>
       </div>
+      <button type="button" class="ghost" id="btnMenuPause">返回主選單</button>
       <p class="lede">點擊畫面回到遊戲。</p>
     </div>
   </div>
@@ -4050,6 +4052,15 @@ function startGame(){
   try{ glCanvas.requestPointerLock?.()?.catch?.(()=>{}); }catch(e){}
 }
 
+// 回到開場的簡報畫面。中途離開不算一局結束，所以不更新最高分
+function backToMenu(){
+  clearScene();
+  G = newGame();
+  G.mode = "break"; G.timer = 9e9;
+  overDead.hidden = true; overPause.hidden = true; overStart.hidden = false;
+  document.exitPointerLock?.();
+}
+
 function layout(){
   const stage = document.getElementById("stage");
   const availW = stage.clientWidth - 32, availH = stage.clientHeight - 32;
@@ -4231,6 +4242,8 @@ mapSelect.addEventListener("change", () => {
 });
 document.getElementById("btnStart").addEventListener("click", startGame);
 document.getElementById("btnRetry").addEventListener("click", startGame);
+document.getElementById("btnMenuDead").addEventListener("click", backToMenu);
+document.getElementById("btnMenuPause").addEventListener("click", backToMenu);
 
 // ── 主迴圈 ──
 let last = performance.now();

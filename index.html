@@ -346,9 +346,9 @@ const MAPS = {
       propMetal:0x8C7862, propDark:0x5C4A3A,
     },
     atmo:{
-      bg:0xF0DCC0, fog:0.006, hemiSky:0xB8D0EC, hemiGround:0xC89A6A, hemi:0.95,
+      bg:0xF0DCC0, fog:0.006, hemiSky:0xB8D0EC, hemiGround:0xC89A6A, hemi:0.8,
       sensor:0.6, bloom:0.18, threshold:0.95, vignette:0.22, grade:0.35,
-      sunColor:0xFFD6A0, sunI:2.3, sunDir:[0.62,0.55,0.42],
+      sunColor:0xFFD6A0, sunI:1.85, sunDir:[0.62,0.55,0.42],
       skyTop:0x5A92DA, skyHorizon:0xF8D4A8,
       // 清晰度：露天圖不需要感測器的色差、掃描線與顆粒，另外加一點銳化
       aberr:0, scan:0, noise:0.01, sharp:0.35,
@@ -1964,188 +1964,525 @@ function botMeshes(type){
   }
   return botGeoCache[type];
 }
-// 幾何體依兵種快取共用。原本每隻敵人都重新建二十幾個幾何體，
-// 一回合七隻就是一百多個——改成共用之後才有餘裕把細節加上去
-// 體型設定：四種敵人要能只靠輪廓分辨，因為在黑暗中你先看到的是剪影。
-// 這也是戰術資訊——衝過來的是哪一種決定你要不要換槍
-const BUILD = {
-  grunt:   {shoulder:1.00, limb:1.00, lean: 0.00, helmet:true,  crest:false, optic:false, pack:1.00},
-  stalker: {shoulder:0.80, limb:1.20, lean: 0.34, helmet:false, crest:true,  optic:false, pack:0.55},
-  lancer:  {shoulder:0.88, limb:1.14, lean: 0.16, helmet:true,  crest:false, optic:true,  pack:0.85},
-  warden:  {shoulder:1.40, limb:0.84, lean:-0.08, helmet:true,  crest:false, optic:false, pack:1.60},
+// ─────────────────────────────────────────────
+// 敵人：寫實比例的士兵
+// 全身以 k 為單位建模、最後整隻縮放，比例直接對齊 zonesOf 的判定分區：
+// 胯 0.92、肩線 1.70、頭頂 2.08。節點結構（hips / upper / head / 四肢兩節）
+// 沿用舊模型，sync 裡的走路與受擊動畫不必改
+// ─────────────────────────────────────────────
+// 兵種靠裝備輪廓區分：頭盔步槍兵、毛帽衝鋒槍、圓帽狙擊、重甲盾兵
+const SOLDIER = {
+  grunt:  {camo:["#5E5239","#48452E","#766A4E","#332B1F"], vest:0x5A4C36, mask:0x4A4032, head:"helmet", glasses:true,
+           gun:"carbine", pack:true,  bulk:1.00, lean:0.06, blade:0.35},
+  stalker:{camo:["#3A3C40","#232528","#55575A","#2E2D2A"], vest:0x1F2022, mask:0x1B1B1C, head:"beanie", glasses:false,
+           gun:"smg",     pack:false, bulk:0.90, lean:0.22, blade:0.35},
+  lancer: {camo:["#434C30","#2C3522","#5B5A40","#221F17"], vest:0x3C452C, mask:0x363B28, head:"boonie", glasses:false,
+           gun:"sniper",  pack:true,  bulk:0.95, lean:0.05, blade:0.30},
+  warden: {camo:["#2C2F28","#1E211B","#3C4038","#161814"], vest:0x1A1C17, mask:0x161714, head:"heavy",  glasses:false,
+           gun:"carbine", pack:false, bulk:1.18, lean:0.00, blade:0,   shield:true},
 };
 
-const BOT_GEO = {};
-function botGeo(type){
-  if (BOT_GEO[type]) return BOT_GEO[type];
-  const k = botK(type);
-  const G2 = {
-    pelvis:  new THREE.CylinderGeometry(0.26*k, 0.22*k, 0.22*k, 12),
-    torso:   new THREE.CylinderGeometry(0.25*k, 0.31*k, 0.60*k, 14),
-    chest:   new THREE.CapsuleGeometry(0.22*k, 0.20*k, 3, 12),
-    pack:    new THREE.CapsuleGeometry(0.15*k, 0.26*k, 3, 10),
-    neck:    new THREE.CylinderGeometry(0.085*k, 0.10*k, 0.10*k, 8),
-    head:    new THREE.SphereGeometry(0.185*k, 18, 14),
-    helmet:  new THREE.SphereGeometry(0.205*k, 18, 12, 0, Math.PI*2, 0, Math.PI*0.62),
-    visor:   new THREE.CapsuleGeometry(0.075*k, 0.22*k, 3, 10),
-    shoulder:new THREE.SphereGeometry(0.135*k, 12, 10),
-    upArm:   new THREE.CapsuleGeometry(0.075*k, 0.20*k, 3, 10),
-    joint:   new THREE.SphereGeometry(0.068*k, 10, 8),
-    loArm:   new THREE.CapsuleGeometry(0.062*k, 0.20*k, 3, 10),
-    hand:    new THREE.SphereGeometry(0.072*k, 10, 8),
-    hipBall: new THREE.SphereGeometry(0.105*k, 12, 9),
-    upLeg:   new THREE.CapsuleGeometry(0.098*k, 0.24*k, 3, 10),
-    knee:    new THREE.SphereGeometry(0.088*k, 10, 8),
-    loLeg:   new THREE.CapsuleGeometry(0.080*k, 0.26*k, 3, 10),
-    boot:    new THREE.CapsuleGeometry(0.090*k, 0.13*k, 3, 10),
-    crest:   new THREE.CapsuleGeometry(0.022*k, 0.30*k, 2, 6),
-    optic:   new THREE.CylinderGeometry(0.075*k, 0.090*k, 0.16*k, 12),
-    lens:    new THREE.CylinderGeometry(0.058*k, 0.058*k, 0.02*k, 12),
+// 橫截面放樣：每一層是 [y, 半寬, 前方深度, 後方深度]，前方是 -z。
+// 人體的軀幹、四肢、頭都不是圓柱——胸口比背平、小腿肚往後鼓，
+// 前後深度分開給，剖面才像人
+const TEX_WORLD = 0.45;    // 布料貼圖在身上重複一次的長度（k 單位）
+function sectionGeo(prof, N){
+  const pos = [], uv = [], idx = [];
+  for (const [y, w, df, db] of prof){
+    for (let j=0;j<=N;j++){
+      const t = j/N*Math.PI*2, s = Math.sin(t), c = Math.cos(t);
+      pos.push(w*c, y, s < 0 ? df*s : db*s);
+      uv.push(t*(w + (df+db)/2)/2/TEX_WORLD, y/TEX_WORLD);
+    }
+  }
+  for (let i=0;i<prof.length-1;i++) for (let j=0;j<N;j++){
+    const a = i*(N+1)+j, b = a+N+1;
+    idx.push(a,b,a+1, b,b+1,a+1);
+  }
+  // 剖面可能由上往下或由下往上排，用第一個面的法線判斷，朝內就整個翻面
+  const P = i => new THREE.Vector3(pos[i*3], pos[i*3+1], pos[i*3+2]);
+  const mid = Math.floor(N/4);
+  let a0 = mid, b0 = mid+N+1;
+  for (let i=0;i<prof.length-1 && prof[i][1] < 0.002;i++){ a0 += N+1; b0 += N+1; }
+  const n = P(b0).sub(P(a0)).cross(P(a0+1).sub(P(a0)));
+  const out = P(a0).setY(0);
+  if (n.dot(out) < 0) for (let i=0;i<idx.length;i+=3){ const t = idx[i+1]; idx[i+1] = idx[i+2]; idx[i+2] = t; }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  // 接縫上的兩排頂點位置相同、法線卻各算各的，平均掉才不會出現一條硬邊
+  const nr = g.attributes.normal;
+  for (let i=0;i<prof.length;i++){
+    const a = i*(N+1), b = a+N;
+    const x = (nr.getX(a)+nr.getX(b))/2, y = (nr.getY(a)+nr.getY(b))/2, z = (nr.getZ(a)+nr.getZ(b))/2;
+    nr.setXYZ(a,x,y,z); nr.setXYZ(b,x,y,z);
+  }
+  return g;
+}
+// 圓角方塊：把細分方塊的頂點夾進內縮的核心，再往外推一個圓角半徑。
+// 裝備、口袋、槍件都是方的，但真實物件沒有銳利到會反光成一條線的直角
+function roundBox(w, h, d, r){
+  const g = new THREE.BoxGeometry(w, h, d, 4, 4, 4);
+  const p = g.attributes.position, nr = g.attributes.normal, uv = g.attributes.uv;
+  const v = new THREE.Vector3(), c = new THREE.Vector3(), n = new THREE.Vector3();
+  const hi = new THREE.Vector3(w/2-r, h/2-r, d/2-r), lo = hi.clone().negate();
+  for (let i=0;i<p.count;i++){
+    v.fromBufferAttribute(p, i);
+    // 貼圖座標依原本的面向做平面投影，所有方塊的布紋密度才一致
+    const ax = Math.abs(nr.getX(i)), ay = Math.abs(nr.getY(i));
+    if (ax > 0.5) uv.setXY(i, v.z/TEX_WORLD, v.y/TEX_WORLD);
+    else if (ay > 0.5) uv.setXY(i, v.x/TEX_WORLD, v.z/TEX_WORLD);
+    else uv.setXY(i, v.x/TEX_WORLD, v.y/TEX_WORLD);
+    c.copy(v).clamp(lo, hi);
+    n.copy(v).sub(c);
+    if (n.lengthSq() > 1e-12){
+      n.normalize();
+      v.copy(c).addScaledVector(n, r);
+      nr.setXYZ(i, n.x, n.y, n.z);
+    }
+    p.setXYZ(i, v.x, v.y, v.z);
+  }
+  return g;
+}
+
+// ── 士兵用的程序貼圖（全部兵種共用，只生成一次） ──
+let SOLDIER_TEX = null;
+function soldierTex(){
+  if (SOLDIER_TEX) return SOLDIER_TEX;
+  const rnd = (() => { let a = 777; return () => (a = (a*1103515245+12345) & 0x7fffffff) / 0x7fffffff; })();
+  // 迷彩：不規則色塊一層層疊上去，色塊由數個橢圓團聚成，邊緣才有機
+  const camo = cols => {
+    const N = 512, c = mkCanvas(N), x = c.getContext("2d");
+    x.fillStyle = cols[0]; x.fillRect(0,0,N,N);
+    for (let L=1; L<cols.length; L++){
+      x.fillStyle = cols[L];
+      for (let b=0; b<(L === 3 ? 22 : 34); b++){
+        const cx = rnd()*N, cy = rnd()*N, sz = (L === 3 ? 7 : 12) + rnd()*22;
+        for (let e=0;e<6;e++){
+          const ex = cx + (rnd()-0.5)*sz*2.2, ey = cy + (rnd()-0.5)*sz*1.4;
+          const rx = sz*(0.35+rnd()*0.5), ry = sz*(0.25+rnd()*0.4), ro = rnd()*Math.PI;
+          // 靠邊的色塊在對側再畫一次，貼圖重複時才接得起來
+          for (const ox of [-N,0,N]) for (const oy of [-N,0,N]){
+            x.beginPath(); x.ellipse(ex+ox, ey+oy, rx, ry, ro, 0, Math.PI*2); x.fill();
+          }
+        }
+      }
+    }
+    // 布料纖維的細碎明暗
+    for (let i=0;i<9000;i++){
+      x.fillStyle = rnd() < 0.5 ? "rgba(0,0,0,0.07)" : "rgba(255,255,255,0.05)";
+      x.fillRect(rnd()*N, rnd()*N, 1+rnd()*2, 1);
+    }
+    return texFrom(c);
   };
-  BOT_GEO[type] = G2;
-  return G2;
+  // 布料的法線：細密的斜紋編織加上幾道壓出來的皺褶
+  const fab = mkCanvas(256), fx = fab.getContext("2d");
+  fx.fillStyle = "#808080"; fx.fillRect(0,0,256,256);
+  for (let y=0;y<256;y+=2) for (let xx=0;xx<256;xx+=2){
+    const v = 118 + (((xx>>1) + (y>>1)) % 3) * 10;
+    fx.fillStyle = `rgb(${v},${v},${v})`; fx.fillRect(xx, y, 2, 1);
+  }
+  fx.save(); fx.filter = "blur(3px)"; fx.lineCap = "round";
+  for (let i=0;i<14;i++){
+    const v = rnd() < 0.5 ? 70 : 190;
+    fx.strokeStyle = `rgba(${v},${v},${v},0.55)`; fx.lineWidth = 3 + rnd()*5;
+    const x0 = rnd()*256, y0 = rnd()*256, a = (rnd()-0.5)*0.9;
+    fx.beginPath(); fx.moveTo(x0, y0); fx.lineTo(x0 + Math.cos(a)*120, y0 + Math.sin(a)*120); fx.stroke();
+  }
+  fx.restore();
+  // 戰術背心：MOLLE 織帶一條條橫過去，加上縫線
+  const ve = mkCanvas(256), vx = ve.getContext("2d");
+  vx.fillStyle = "#9A9A9A"; vx.fillRect(0,0,256,256);
+  for (let y=6;y<256;y+=32){
+    vx.fillStyle = "#7C7C7C"; vx.fillRect(0, y, 256, 14);
+    vx.fillStyle = "#B0B0B0"; vx.fillRect(0, y, 256, 1.5);
+    vx.fillStyle = "#5E5E5E"; vx.fillRect(0, y+13, 256, 1.5);
+    for (let xx=0;xx<256;xx+=38){ vx.fillStyle = "#4E4E4E"; vx.fillRect(xx, y, 2, 14); }
+  }
+  for (let i=0;i<4000;i++){
+    const v = 120 + rnd()*60 | 0;
+    vx.fillStyle = `rgba(${v},${v},${v},0.25)`; vx.fillRect(rnd()*256, rnd()*256, 1, 1);
+  }
+  // 腳下的柔邊陰影：動態物件沒有進靜態陰影貼圖，靠這片接觸陰影落地
+  const sh = mkCanvas(64), sx = sh.getContext("2d");
+  const gr = sx.createRadialGradient(32,32,0, 32,32,32);
+  gr.addColorStop(0, "rgba(0,0,0,0.75)"); gr.addColorStop(0.55, "rgba(0,0,0,0.35)"); gr.addColorStop(1, "rgba(0,0,0,0)");
+  sx.fillStyle = gr; sx.fillRect(0,0,64,64);
+  // 槍口火光：中央白熱、往外轉橘再淡掉
+  const mf = mkCanvas(64), mx = mf.getContext("2d");
+  const g2 = mx.createRadialGradient(32,32,0, 32,32,32);
+  g2.addColorStop(0, "rgba(255,250,230,1)"); g2.addColorStop(0.3, "rgba(255,190,90,0.8)"); g2.addColorStop(1, "rgba(255,120,30,0)");
+  mx.fillStyle = g2; mx.fillRect(0,0,64,64);
+
+  SOLDIER_TEX = {
+    camo: Object.fromEntries(Object.keys(SOLDIER).map(t => [t, camo(SOLDIER[t].camo)])),
+    fabricN: texFrom(heightToNormal(fab, 1.6)),
+    vest: texFrom(ve), vestN: texFrom(heightToNormal(ve, 2.2)),
+    shadow: new THREE.CanvasTexture(sh), flash: new THREE.CanvasTexture(mf),
+  };
+  return SOLDIER_TEX;
+}
+
+// ── 幾何體：依兵種快取，一回合七隻敵人共用同一份 ──
+const SOLDIER_GEO = {};
+function soldierGeo(){
+  if (SOLDIER_GEO.torso) return SOLDIER_GEO;
+  const Q = 20;
+  Object.assign(SOLDIER_GEO, {
+    // 軀幹：腰窄、胸厚、肩線到脖子是斜方肌的斜坡
+    torso: sectionGeo([
+      [0.00,0.001,0.001,0.001],[0.00,0.155,0.105,0.105],[0.12,0.145,0.100,0.100],[0.30,0.160,0.115,0.110],
+      [0.50,0.180,0.128,0.118],[0.64,0.190,0.115,0.110],[0.72,0.150,0.090,0.090],[0.78,0.075,0.065,0.068],
+      [0.82,0.055,0.055,0.055],[0.82,0.001,0.001,0.001]], Q),
+    pelvis: sectionGeo([
+      [0.08,0.001,0.001,0.001],[0.08,0.158,0.105,0.108],[0.00,0.162,0.108,0.118],[-0.08,0.155,0.100,0.115],
+      [-0.14,0.120,0.080,0.090],[-0.16,0.001,0.001,0.001]], Q),
+    // 背心外殼略大於軀幹，前後加厚放防彈板
+    vest: sectionGeo([
+      [0.22,0.170,0.140,0.135],[0.30,0.180,0.150,0.140],[0.50,0.195,0.160,0.150],[0.64,0.198,0.150,0.140],
+      [0.66,0.001,0.001,0.001]], Q),
+    belt: sectionGeo([
+      [0.00,0.172,0.118,0.118],[0.075,0.168,0.114,0.114],[0.075,0.001,0.001,0.001]], Q),
+    neck: sectionGeo([[0.76,0.050,0.050,0.056],[0.90,0.048,0.046,0.054]], 14),
+    // 頭：下巴收窄、後腦勺比前額突出，正面由眉骨、鼻樑撐出輪廓
+    head: sectionGeo([
+      [-0.130,0.001,0.001,0.001],[-0.125,0.030,0.070,0.020],[-0.100,0.055,0.085,0.040],[-0.060,0.068,0.095,0.070],
+      [-0.020,0.075,0.100,0.090],[0.020,0.080,0.098,0.100],[0.050,0.082,0.100,0.105],[0.090,0.078,0.090,0.100],
+      [0.120,0.060,0.070,0.080],[0.140,0.030,0.035,0.040],[0.148,0.001,0.001,0.001]], 22),
+    nose: new THREE.SphereGeometry(1, 10, 8),
+    // 面巾：從脖子包到鼻樑下緣，比臉大一圈，鼻子那一層往前鼓
+    gaiter: sectionGeo([
+      [-0.20,0.057,0.058,0.064],[-0.16,0.058,0.064,0.062],[-0.135,0.066,0.084,0.060],[-0.10,0.074,0.100,0.064],[-0.06,0.080,0.108,0.080],
+      [-0.025,0.083,0.116,0.095],[-0.005,0.085,0.114,0.104]], 22),
+    // 眉骨：一道橫的弧，讓眼窩有深度，眼睛才不是貼在平面上
+    brow: sectionGeo([[0.012,0.074,0.100,0.098],[0.0,0.076,0.104,0.1],[-0.012,0.074,0.100,0.098]], 22),
+    // 四肢：大腿、小腿肚、三角肌、前臂都有各自的鼓起
+    thigh: sectionGeo([
+      [0.02,0.001,0.001,0.001],[0.02,0.080,0.085,0.085],[-0.05,0.090,0.095,0.092],[-0.20,0.080,0.085,0.082],
+      [-0.38,0.060,0.065,0.062],[-0.46,0.052,0.056,0.056],[-0.46,0.001,0.001,0.001]], 16),
+    shin: sectionGeo([
+      [0.02,0.001,0.001,0.001],[0.02,0.050,0.052,0.055],[-0.08,0.056,0.055,0.068],[-0.22,0.048,0.048,0.056],
+      [-0.36,0.038,0.040,0.042],[-0.42,0.037,0.040,0.041],[-0.42,0.001,0.001,0.001]], 16),
+    // 手臂的份量有一半是寬鬆的袖子，不能照裸臂的粗細做
+    upArm: sectionGeo([
+      [0.05,0.001,0.001,0.001],[0.05,0.058,0.064,0.064],[-0.03,0.072,0.074,0.072],[-0.16,0.064,0.066,0.066],
+      [-0.30,0.056,0.058,0.058],[-0.36,0.052,0.054,0.054],[-0.36,0.001,0.001,0.001]], 16),
+    foreArm: sectionGeo([
+      [0.02,0.001,0.001,0.001],[0.02,0.052,0.054,0.054],[-0.07,0.056,0.056,0.056],[-0.20,0.046,0.044,0.045],
+      [-0.27,0.038,0.036,0.036],[-0.29,0.030,0.028,0.028],[-0.29,0.001,0.001,0.001]], 16),
+    band: sectionGeo([[0.022,0.070,0.072,0.070],[-0.022,0.068,0.070,0.068]], 16),
+    // 護膝、護肘：真實士兵本來就會戴，剛好蓋住兩節四肢的接縫
+    kneePad: roundBox(0.090, 0.110, 0.045, 0.018),
+    elbowPad: roundBox(0.075, 0.080, 0.040, 0.016),
+    palm: roundBox(0.055, 0.085, 0.090, 0.022),
+    thumb: new THREE.CapsuleGeometry(0.014, 0.035, 3, 8),
+    boot: roundBox(0.090, 0.095, 0.250, 0.030),
+    sole: roundBox(0.094, 0.022, 0.256, 0.008),
+    plate: roundBox(0.270, 0.300, 0.040, 0.014),
+    pouch: roundBox(0.070, 0.100, 0.045, 0.010),
+    smallPouch: roundBox(0.060, 0.065, 0.040, 0.010),
+    strap: roundBox(0.060, 0.020, 0.250, 0.008),
+    pack: roundBox(0.260, 0.340, 0.130, 0.040),
+    eyeBand: new THREE.CylinderGeometry(1, 1, 1, 18, 1, true, Math.PI-0.95, 1.9),
+    eye: new THREE.SphereGeometry(1, 8, 6),
+    earCup: new THREE.CylinderGeometry(0.036, 0.038, 0.028, 16).rotateZ(0),
+    helmet: new THREE.SphereGeometry(1, 26, 14, 0, Math.PI*2, 0, Math.PI*0.54),
+    rail: roundBox(0.010, 0.022, 0.100, 0.004),
+    nvgMount: roundBox(0.035, 0.040, 0.016, 0.006),
+    visor: new THREE.SphereGeometry(1, 20, 10, Math.PI*1.5-0.95, 1.9, Math.PI*0.40, Math.PI*0.30),
+    boonieCrown: new THREE.CylinderGeometry(0.088, 0.100, 0.075, 22),
+    boonieBrim: new THREE.CylinderGeometry(0.110, 0.165, 0.030, 24, 1, true),
+    beanie: new THREE.SphereGeometry(1, 22, 12, 0, Math.PI*2, 0, Math.PI*0.48),
+    pauldron: roundBox(0.170, 0.070, 0.190, 0.030),
+    shield: roundBox(0.580, 0.720, 0.050, 0.020),
+    shieldPort: roundBox(0.200, 0.060, 0.012, 0.004),
+    shieldPortFrame: roundBox(0.230, 0.090, 0.008, 0.004),
+    shieldRim: roundBox(0.600, 0.740, 0.030, 0.014),
+    shadow: new THREE.CircleGeometry(0.42, 22),
+    flash: new THREE.PlaneGeometry(0.26, 0.26),
+  });
+  return SOLDIER_GEO;
+}
+
+// 槍：原點在握把（右手握的位置），槍管朝 -z。
+// 回傳護木位置（左手）、槍口位置、槍托末端到握把的距離
+function makeBotGun(kind, M){
+  const g = new THREE.Group();
+  const part = (geo, mat, x, y, z, rx) => {
+    const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z);
+    if (rx) m.rotation.x = rx;
+    g.add(m); return m;
+  };
+  const tube = (r, len, mat, x, y, z) => part(new THREE.CylinderGeometry(r, r, len, 12), mat, x, y, z, Math.PI/2);
+  let fore, muzzle, stock;
+  if (kind === "smg"){
+    part(roundBox(0.045,0.070,0.22,0.008), M.poly, 0, 0.035, -0.05);
+    part(roundBox(0.042,0.045,0.10,0.008), M.poly, 0, 0.032, -0.21);
+    part(roundBox(0.022,0.012,0.30,0.003), M.metal, 0, 0.075, -0.12);
+    tube(0.021, 0.17, M.metal, 0, 0.035, -0.345);           // 滅音管
+    part(roundBox(0.025,0.160,0.040,0.005), M.metal, 0, -0.060, -0.10);
+    part(roundBox(0.030,0.085,0.040,0.006), M.poly, 0, -0.025, 0.005, -0.35);
+    part(roundBox(0.018,0.045,0.140,0.005), M.metal, 0, 0.030, 0.10);
+    part(roundBox(0.030,0.040,0.050,0.006), M.poly, 0, 0.100, -0.06);
+    fore = -0.20; muzzle = -0.44; stock = 0.17;
+  } else if (kind === "sniper"){
+    part(roundBox(0.050,0.065,0.34,0.008), M.metal, 0, 0.035, -0.08);
+    part(roundBox(0.055,0.050,0.30,0.010), M.poly, 0, 0.030, -0.40);
+    tube(0.012, 0.34, M.metal, 0, 0.040, -0.72);
+    tube(0.020, 0.06, M.metal, 0, 0.040, -0.91);
+    // 瞄準鏡：鏡管、物鏡鐘、目鏡、兩個鏡環
+    tube(0.020, 0.30, M.metal, 0, 0.115, -0.12);
+    tube(0.032, 0.07, M.metal, 0, 0.115, -0.30);
+    tube(0.026, 0.05, M.metal, 0, 0.115,  0.05);
+    part(new THREE.CylinderGeometry(0.028,0.028,0.004,14), M.lens, 0, 0.115, -0.337, Math.PI/2);
+    for (const z of [-0.20, -0.02]) part(roundBox(0.030,0.050,0.020,0.004), M.metal, 0, 0.085, z);
+    part(roundBox(0.030,0.080,0.080,0.006), M.metal, 0, -0.030, -0.12);
+    part(roundBox(0.030,0.085,0.040,0.006), M.poly, 0, -0.025, 0.005, -0.35);
+    part(roundBox(0.045,0.120,0.260,0.020), M.poly, 0, 0.005, 0.22);
+    // 收起來的腳架
+    for (const x of [-0.012, 0.012]) part(new THREE.CylinderGeometry(0.006,0.006,0.20,6), M.metal, x, -0.005, -0.60, Math.PI/2);
+    fore = -0.36; muzzle = -0.94; stock = 0.35;
+  } else {
+    part(roundBox(0.045,0.060,0.26,0.008), M.metal, 0, 0.035, -0.07);
+    part(roundBox(0.050,0.050,0.26,0.010), M.poly, 0, 0.037, -0.33);
+    part(roundBox(0.024,0.012,0.50,0.003), M.metal, 0, 0.071, -0.20);
+    tube(0.011, 0.12, M.metal, 0, 0.037, -0.52);
+    tube(0.017, 0.055, M.metal, 0, 0.037, -0.60);
+    part(roundBox(0.028,0.150,0.065,0.006), M.metal, 0, -0.045, -0.12, 0.25);
+    part(roundBox(0.030,0.085,0.040,0.006), M.poly, 0, -0.025, 0.005, -0.35);
+    tube(0.016, 0.14, M.metal, 0, 0.030, 0.13);
+    part(roundBox(0.040,0.080,0.100,0.012), M.poly, 0, 0.020, 0.22);
+    // 內紅點：機身加一片會反光的鏡片
+    part(roundBox(0.030,0.040,0.060,0.006), M.metal, 0, 0.095, -0.08);
+    part(new THREE.CylinderGeometry(0.012,0.012,0.004,12), M.lens, 0, 0.098, -0.112, Math.PI/2);
+    fore = -0.33; muzzle = -0.63; stock = 0.27;
+  }
+  return {g, fore, muzzle, stock};
+}
+
+// 雙骨骼 IK：肩膀 S 到目標 T，求上臂與前臂的朝向。pole 決定手肘往哪邊彎。
+// 四肢的網格沿 -y 延伸，所以是把 (0,-1,0) 轉到骨頭方向
+const DOWN = new THREE.Vector3(0,-1,0);
+function solveLimb(S, T, L1, L2, pole){
+  const d = T.clone().sub(S);
+  const len = Math.min(L1+L2-0.001, Math.max(Math.abs(L1-L2)+0.001, d.length()));
+  const dir = d.normalize();
+  const cosA = (L1*L1 + len*len - L2*L2) / (2*L1*len);
+  const perp = pole.clone().addScaledVector(dir, -pole.dot(dir)).normalize();
+  const E = S.clone().addScaledVector(dir, L1*cosA).addScaledVector(perp, L1*Math.sqrt(Math.max(0, 1-cosA*cosA)));
+  const W = S.clone().addScaledVector(dir, len);
+  const qUp = new THREE.Quaternion().setFromUnitVectors(DOWN, E.clone().sub(S).normalize());
+  const fore = W.sub(E).normalize().applyQuaternion(qUp.clone().invert());
+  const qLo = new THREE.Quaternion().setFromUnitVectors(DOWN, fore);
+  return {qUp, qLo};
 }
 
 function makeBotObject(type){
-  const T = TYPES[type];
-  const k = botK(type);
-  const g = botGeo(type);
-  const B = BUILD[type] || BUILD.grunt;
+  const T = TYPES[type], C = SOLDIER[type] || SOLDIER.grunt;
+  const k = botK(type), bulk = C.bulk;
+  const geo = soldierGeo(), tex = soldierTex();
   const root = new THREE.Group();
+  root.scale.setScalar(k);
 
-  // 熱源分層：軀幹最燙、四肢次之、裝備是冷的
-  const hot  = new THREE.MeshBasicMaterial({color:T.color});
-  const warm = new THREE.MeshBasicMaterial({color:T.color});
-  warm.color.multiplyScalar(0.62);
-  const limb = new THREE.MeshBasicMaterial({color:T.color});
-  limb.color.multiplyScalar(0.48);
-  const core = new THREE.MeshBasicMaterial({color:0xFFF3D6});
-  const cold = new THREE.MeshBasicMaterial({color:0x0C0820});
-
-  const put = (geo, mat, x, y, z, parent) => {
-    const m = new THREE.Mesh(geo, mat);
+  // 材質每隻獨立：屍體淡出時會逐一把材質改成半透明，共用的話活著的也會跟著變透明
+  const std = o => new THREE.MeshStandardMaterial(o);
+  const M = {
+    camo:  std({map:tex.camo[type], normalMap:tex.fabricN, roughness:0.92}),
+    vest:  std({map:tex.vest, normalMap:tex.vestN, color:C.vest, roughness:0.85}),
+    gear:  std({color:0x1F1E1C, normalMap:tex.fabricN, roughness:0.8}),
+    mask:  std({color:C.mask, normalMap:tex.fabricN, roughness:0.95}),
+    skin:  std({color:0x7E5A46, roughness:0.62}),
+    eye:   std({color:0x1A1410, roughness:0.2}),
+    shell: std({map:tex.camo[type], color:0xC8C0B0, roughness:0.65, metalness:0.05}),
+    poly:  std({color:0x202124, roughness:0.62, metalness:0.1}),
+    metal: std({color:0x2C2E31, roughness:0.38, metalness:0.75}),
+    lens:  std({color:0x203040, roughness:0.05, metalness:0.9}),
+    glass: std({color:0x121418, roughness:0.08, metalness:0.6}),
+    // 臂章是唯一保留兵種色的地方，微微自發光，暗處也認得出是哪一種
+    band:  std({color:T.color, emissive:T.color, emissiveIntensity:0.35, roughness:0.7}),
+  };
+  const put = (g, mat, x, y, z, parent) => {
+    const m = new THREE.Mesh(g, mat);
     m.position.set(x, y, z);
     (parent || root).add(m);
     return m;
   };
 
   const hips = new THREE.Group();
-  hips.position.y = 0.92*k;
+  hips.position.y = 0.92;
   root.add(hips);
-  // 上半身的前傾：STALKER 壓低身體衝刺，WARDEN 反而挺身把盾推在前面
+  const pel = put(geo.pelvis, M.camo, 0, 0, 0, hips);
+  pel.scale.set(bulk, 1, bulk);
+  const belt = put(geo.belt, M.gear, 0, 0.02, 0, hips);
+  belt.scale.set(bulk, 1, bulk);
+  for (const x of [-0.13, 0.13]) put(geo.smallPouch, M.vest, x*bulk, 0.02, 0.06, hips).rotation.y = x > 0 ? 0.9 : -0.9;
+
+  // 上半身：前傾之外再側轉一個角度，擺出持槍的射擊站姿，槍再轉回來朝正前方
   const upper = new THREE.Group();
-  upper.rotation.x = B.lean;
+  upper.rotation.set(-C.lean, -C.blade, 0);
   hips.add(upper);
   const upperRestQuat = new THREE.Quaternion().copy(upper.quaternion);
   const hitAxis = new THREE.Vector3();
   const hitQuat = new THREE.Quaternion();
 
-  put(g.pelvis, warm, 0, 0.02*k, 0, hips);
-  const torso = put(g.torso, hot, 0, 0.40*k, 0, upper);
-  torso.scale.x = torso.scale.z = B.shoulder*0.5 + 0.5;
-  // 胸甲與背包：冷色的裝備壓在發燙的身體上，層次才出得來
-  const chest = put(g.chest, cold, 0, 0.44*k, -0.10*k, upper);
-  chest.scale.set(1.15*B.shoulder, 0.85, 0.55);
-  const pack = put(g.pack, cold, 0, 0.42*k, 0.20*k, upper);
-  pack.scale.set(1.25*B.pack, B.pack, 0.7*B.pack);
+  const torso = put(geo.torso, M.camo, 0, 0, 0, upper);
+  torso.scale.set(bulk, 1, bulk);
+  const vest = put(geo.vest, M.vest, 0, 0, 0, upper);
+  vest.scale.set(bulk, 1, bulk);
+  put(geo.plate, M.vest, 0, 0.45, -0.150*bulk, upper).scale.x = bulk;
+  put(geo.plate, M.vest, 0, 0.45,  0.140*bulk, upper).scale.x = bulk;
+  for (const x of [-0.08, 0, 0.08]) put(geo.pouch, M.vest, x*bulk, 0.33, -0.188*bulk, upper);
+  for (const x of [-0.115, 0.115]) put(geo.strap, M.vest, x*bulk, 0.665, 0, upper);
+  if (C.pack) put(geo.pack, M.vest, 0, 0.42, 0.24*bulk, upper);
 
-  put(g.neck, warm, 0, 0.74*k, 0, upper);
+  put(geo.neck, M.mask, 0, 0, 0, upper);
   const head = new THREE.Group();
-  head.position.y = 0.90*k;
+  head.position.y = 0.97;
+  // 抵銷上半身的前傾與側轉，視線維持朝前
+  head.rotation.set(C.lean*0.8, C.blade, 0);
   upper.add(head);
-  put(g.head, core, 0, 0, 0, head);
+  // 頭是皮膚，下半臉用戰術面巾包住：露出顴骨與眼睛那一圈，人味才出得來，
+  // 又不必做嘴巴這種最容易掉進恐怖谷的部位
+  put(geo.head, C.head === "heavy" ? M.mask : M.skin, 0, 0, 0, head);
+  put(geo.nose, M.skin, 0, 0.002, -0.097, head).scale.set(0.011, 0.018, 0.012);
+  put(geo.brow, M.skin, 0, 0.046, -0.004, head);
+  put(geo.gaiter, M.mask, 0, 0, 0, head);
+  // 通訊耳罩：真實士兵幾乎都會戴，比起在頭套下面做耳朵，這個輪廓才讀得出是人
+  if (C.head !== "heavy") for (const x of [-1, 1]){
+    put(geo.earCup, M.poly, x*0.088, 0.0, 0.008, head).rotation.z = x*Math.PI/2;
+    put(geo.earCup, M.gear, x*0.1, 0.0, 0.008, head).scale.set(0.7, 0.35, 0.7);
+  }
   const headRestQuat = new THREE.Quaternion().copy(head.quaternion);
   const headQuat = new THREE.Quaternion();
-  const helm = B.helmet ? put(g.helmet, warm, 0, 0, 0, head) : null;
-  if (helm) helm.rotation.x = -0.18;
-  // STALKER 沒有頭盔，頭是裸露的熱源，配一片感測鰭
-  if (B.crest){
-    const cr = put(g.crest, warm, 0, 0.14*k, 0.02*k, head);
-    cr.rotation.x = 0.35;
+  // 頭套開一條眼縫露出皮膚；戴護目鏡的再蓋一片深色鏡片
+  if (C.head !== "heavy"){
+    // 包覆式護目鏡：細的鏡框加上略微外凸的鏡片
+    if (C.glasses){
+      put(geo.eyeBand, M.glass, 0, 0.024, 0, head).scale.set(0.0845, 0.022, 0.1045);
+      put(geo.eyeBand, M.poly, 0, 0.036, 0, head).scale.set(0.086, 0.004, 0.1055);
+    }
+    else for (const x of [-0.031, 0.031]) put(geo.eye, M.eye, x, 0.024, -0.096, head).scale.set(0.013, 0.006, 0.004);
   }
-  // LANCER 側邊掛一顆光學瞄準莢艙，那是它遠距離的來源
-  if (B.optic){
-    const op = put(g.optic, cold, 0.17*k, 0.03*k, -0.02*k, head);
-    op.rotation.z = Math.PI/2;
-    const ln = put(g.lens, core, 0.25*k, 0.03*k, -0.02*k, head);
-    ln.rotation.z = Math.PI/2;
+  if (C.head === "helmet" || C.head === "heavy"){
+    const heavy = C.head === "heavy";
+    const hm = put(geo.helmet, M.shell, 0, 0.03, heavy ? 0.0 : 0.006, head);
+    hm.scale.set(heavy ? 0.130 : 0.122, heavy ? 0.135 : 0.125, heavy ? 0.140 : 0.132);
+    hm.rotation.x = heavy ? 0.05 : 0.2;
+    if (!heavy){
+      for (const x of [-0.121, 0.121]) put(geo.rail, M.poly, x, 0.05, 0.005, head);
+      put(geo.nvgMount, M.poly, 0, 0.098, -0.118, head);
+    } else {
+      // 重甲：整片深色面罩蓋住臉
+      put(geo.visor, M.glass, 0, 0.0, 0, head).scale.set(0.108, 0.118, 0.118);
+    }
+  } else if (C.head === "beanie"){
+    put(geo.beanie, M.mask, 0, 0.032, 0.004, head).scale.set(0.094, 0.124, 0.114);
+    // 反折的帽緣
+    put(geo.band, M.mask, 0, 0.046, 0.004, head).scale.set(1.38, 0.9, 1.62);
+  } else if (C.head === "boonie"){
+    put(geo.boonieCrown, M.camo, 0, 0.115, 0.004, head).scale.set(0.95, 1, 1.12);
+    // 帽簷是單面的圓錐環，背面也要畫
+    const brimMat = M.camo.clone(); brimMat.side = THREE.DoubleSide;
+    put(geo.boonieBrim, brimMat, 0, 0.078, 0.004, head).scale.set(0.95, 1, 1.12);
   }
-  // 面罩橫跨眼部，玻璃擋紅外線所以是暗的
-  const visor = put(g.visor, cold, 0, -0.015*k, -0.115*k, head);
-  visor.rotation.z = Math.PI/2;
-  visor.scale.set(1, 1, 0.55);
 
-  // 四肢：上下兩節之間夾關節球，接合處才不會是斷開的
-  const mkLimb = (up, jointG, lo, endG, upLen0, loLen0) => {
-    const upLen = upLen0 * B.limb, loLen = loLen0 * B.limb;
-    const root2 = new THREE.Group();
-    put(g.joint, warm, 0, 0, 0, root2);
-    const upM = put(up, limb, 0, -upLen*0.5, 0, root2);
-    upM.scale.y = B.limb;
-    const loG = new THREE.Group();
-    loG.position.y = -upLen;
-    root2.add(loG);
-    put(jointG, warm, 0, 0, 0, loG);
-    const loM = put(lo, limb, 0, -loLen*0.5, 0, loG);
-    loM.scale.y = B.limb;
-    put(endG, warm, 0, -loLen, 0, loG);
-    return {up:root2, lo:loG};
+  // 四肢：上下兩節群組，走路與受擊動畫轉的就是這幾個節點
+  const mkLimb = (upG, loG, L1, padGeo, padZ, endGeo, endMat) => {
+    const r = new THREE.Group();
+    put(upG, M.camo, 0, 0, 0, r).scale.set(bulk, 1, bulk);
+    const lo = new THREE.Group();
+    lo.position.y = -L1;
+    r.add(lo);
+    put(loG, M.camo, 0, 0, 0, lo).scale.set(bulk, 1, bulk);
+    put(padGeo, M.gear, 0, 0, padZ*bulk, lo);
+    return {up:r, lo, end:put(endGeo, endMat, 0, 0, 0, lo)};
   };
-
-  const armL = mkLimb(g.upArm, g.joint, g.loArm, g.hand, 0.30*k, 0.30*k);
-  const armR = mkLimb(g.upArm, g.joint, g.loArm, g.hand, 0.30*k, 0.30*k);
-  const sw = 0.29*k*B.shoulder;
-  // WARDEN 的護肩特別厚，那是它最好認的特徵
-  const shL = put(g.shoulder, warm, -sw, 0.60*k, 0, upper);
-  const shR = put(g.shoulder, warm,  sw, 0.60*k, 0, upper);
-  shL.scale.setScalar(B.shoulder); shR.scale.setScalar(B.shoulder);
-  armL.up.position.set(-sw, 0.60*k, 0);
-  armR.up.position.set( sw, 0.60*k, 0);
-  upper.add(armL.up, armR.up);
-
-  const legL = mkLimb(g.upLeg, g.knee, g.loLeg, g.boot, 0.34*k, 0.34*k);
-  const legR = mkLimb(g.upLeg, g.knee, g.loLeg, g.boot, 0.34*k, 0.34*k);
-  put(g.hipBall, warm, -0.14*k, 0, 0, hips);
-  put(g.hipBall, warm,  0.14*k, 0, 0, hips);
-  legL.up.position.set(-0.14*k, 0, 0);
-  legR.up.position.set( 0.14*k, 0, 0);
-  hips.add(legL.up, legR.up);
-
-  // 武器：長度對應射程
-  const gunLen = type === "lancer" ? 0.95 : type === "stalker" ? 0.42 : 0.62;
-  const gunGeo = new THREE.BoxGeometry(0.085*k, 0.095*k, gunLen*k);
-  const gun = put(gunGeo, cold, 0.17*k*B.shoulder, 0.50*k, -0.34*k, upper);
-  const gunEdge = new THREE.LineSegments(new THREE.EdgesGeometry(gunGeo),
-    new THREE.LineBasicMaterial({color:0x6A5AA8}));
-  gunEdge.position.copy(gun.position);
-  upper.add(gunEdge);
-
-  // 有正面裝甲的敵人，胸前掛一塊看得出來的盾板
-  if (T.frontArmor){
-    const shieldGeo = new THREE.BoxGeometry(0.62*k, 0.72*k, 0.07*k);
-    const shield = put(shieldGeo, new THREE.MeshBasicMaterial({color:0x6A57C4}),
-                       0, 0.46*k, -0.30*k, upper);
-    const rim = new THREE.LineSegments(new THREE.EdgesGeometry(shieldGeo),
-      new THREE.LineBasicMaterial({color:0xBFA8FF}));
-    rim.position.copy(shield.position);
-    upper.add(rim);
+  const LA = 0.36, LF = 0.34;
+  const arms = [-1, 1].map(s => {
+    const a = mkLimb(geo.upArm, geo.foreArm, LA, geo.elbowPad, 0.04, geo.palm, M.gear);
+    a.end.position.y = -LF + 0.02;
+    put(geo.thumb, M.gear, -s*0.028, -LF + 0.03, -0.03, a.lo).rotation.x = 0.8;
+    a.up.position.set(s*0.185*bulk, 0.70, 0);
+    upper.add(a.up);
+    return a;
+  });
+  const [armL, armR] = arms;
+  // 臂章在左上臂
+  put(geo.band, M.band, 0, -0.10, 0, armL.up).scale.set(bulk*1.04, 1, bulk*1.04);
+  if (C.shield){
+    for (const a of arms) put(geo.pauldron, M.vest, 0, 0.02, 0, a.up).rotation.z = 0.25;
   }
+  const legs = [-1, 1].map(s => {
+    const l = mkLimb(geo.thigh, geo.shin, 0.46, geo.kneePad, -0.06, geo.boot, M.gear);
+    l.end.position.set(0, -0.415, -0.035);
+    put(geo.sole, M.poly, 0, -0.455, -0.035, l.lo);
+    l.up.position.set(s*0.095*bulk, -0.02, 0);
+    hips.add(l.up);
+    return l;
+  });
+  const [legL, legR] = legs;
 
-  // 體溫光暈：永遠面向鏡頭的加法混色貼片，遠處先看到的是一團熱
-  const halo = new THREE.Mesh(
-    // 尺寸收緊，讓它貼著軀幹而不是往外糊到腿上
-    new THREE.PlaneGeometry(1.15*k, 1.45*k),
-    new THREE.MeshBasicMaterial({
-      map:DECAL_TEX, color:T.color, transparent:true, opacity:0.32,
-      blending:THREE.AdditiveBlending, depthWrite:false,
-    }));
-  // 熱暈跟著上半身走，否則爆頭甩動時會在頭下方留下像殘影的第二個熱源
-  halo.position.y = 0.46*k;
-  upper.add(halo);
+  // 武器與持槍姿勢
+  const gun = makeBotGun(C.gun, M);
+  const ang = C.shield ? 0 : C.blade;
+  const dir = new THREE.Vector3(-Math.sin(ang), 0, -Math.cos(ang));
+  // 槍托末端抵在右胸肩窩，往前推出握把位置
+  const pocket = new THREE.Vector3(C.shield ? 0.30*bulk : 0.14*bulk, 0.68, C.shield ? -0.10 : -0.14*bulk);
+  const grip = pocket.clone().addScaledVector(dir, gun.stock).setY(0.64);
+  gun.g.position.copy(grip);
+  // 上半身前傾會把槍口一起往下壓，補回來讓槍維持水平
+  gun.g.rotation.set(C.lean, ang, 0, "YXZ");
+  upper.add(gun.g);
+  // 護木位置跟著槍的實際旋轉算，左手才會正好托在上面
+  const foreHand = grip.clone().add(new THREE.Vector3(0, -0.012, gun.fore).applyEuler(gun.g.rotation));
+  const shoulderR = armR.up.position.clone(), shoulderL = armL.up.position.clone();
+  const poseR = solveLimb(shoulderR, grip, LA, LF, new THREE.Vector3(1, -1, 0.3));
+  armR.up.quaternion.copy(poseR.qUp); armR.lo.quaternion.copy(poseR.qLo);
+  // 盾兵左手握盾把，其他人左手托護木
+  const leftT = C.shield ? new THREE.Vector3(-0.05*bulk, 0.46, -0.40) : foreHand;
+  const poseL = solveLimb(shoulderL, leftT, LA, LF, new THREE.Vector3(-1, -1, 0.2));
+  armL.up.quaternion.copy(poseL.qUp); armL.lo.quaternion.copy(poseL.qLo);
+  if (C.shield){
+    // 防彈盾：深色複合材料本體、一圈橡膠包邊、上方的觀察窗
+    const sg = new THREE.Group();
+    sg.position.set(-0.03*bulk, 0.44, -0.47);
+    upper.add(sg);
+    put(geo.shield, M.poly, 0, 0, 0, sg);
+    put(geo.shieldRim, M.gear, 0, 0, 0, sg);
+    put(geo.shieldPort, M.glass, 0, 0.24, -0.028, sg);
+    put(geo.shieldPortFrame, M.metal, 0, 0.24, -0.026, sg);
+  }
+  // 槍口火光：兩片交叉的加法混色貼片，開火那幾十毫秒才顯示
+  const flashMat = new THREE.MeshBasicMaterial({map:tex.flash, transparent:true, depthWrite:false,
+    blending:THREE.AdditiveBlending});
+  const muzzle = new THREE.Group();
+  muzzle.position.set(0, 0.037, gun.muzzle - 0.08);
+  for (const ry of [0, Math.PI/2]){
+    const f = new THREE.Mesh(geo.flash, flashMat);
+    f.rotation.y = ry;
+    f.scale.set(1, 1, 1);
+    muzzle.add(f);
+  }
+  const fc = new THREE.Mesh(geo.flash, flashMat);
+  fc.position.z = 0.1;
+  muzzle.add(fc);
+  muzzle.visible = false;
+  gun.g.add(muzzle);
+
+  const shadow = new THREE.Mesh(geo.shadow, new THREE.MeshBasicMaterial({
+    map:tex.shadow, transparent:true, depthWrite:false, color:0x000000}));
+  shadow.rotation.x = -Math.PI/2;
+  shadow.position.y = 0.012;
+  shadow.renderOrder = 1;
+  root.add(shadow);
 
   root.userData = {
-    hot, core, torso, hips, upper, head, armL, armR, legL, legR, halo, k, phase:0,
+    // k 已經套在 root 的縮放上，sync 裡乘 ud.k 的位移要用 1
+    hips, upper, head, armL, armR, legL, legR, k:1, phase:0, muzzle,
     upperRestQuat, hitAxis, hitQuat, headRestQuat, headQuat,
+    hitMats:[M.camo, M.vest, M.gear, M.mask, M.shell], hitGlow:0,
   };
 
   // 被聲納標記時用的穿牆輪廓
@@ -2153,8 +2490,8 @@ function makeBotObject(type){
     color:0x7CE0FF, transparent:true, opacity:0.5,
     depthTest:false, wireframe:true,
   });
-  const ghost = new THREE.Mesh(new THREE.CapsuleGeometry(0.30*k, 0.85*k, 3, 8), ghostMat);
-  ghost.position.y = 1.15*k;
+  const ghost = new THREE.Mesh(new THREE.CapsuleGeometry(0.30, 0.85, 3, 8), ghostMat);
+  ghost.position.y = 1.15;
   ghost.visible = false;
   ghost.renderOrder = 999;
   root.add(ghost);
@@ -3227,6 +3564,7 @@ function botShoot(b){
     dmg:T.dmg, friendly:false, life:1.6, srcX:b.x, srcY:b.y, mesh:null,
   });
   b.flash = 0.07;
+  b.muzzle = 0.05;
   spawnSpark(b.x + Math.cos(a)*20, b.y + Math.sin(a)*20, 0xFFC27A, 3);
   flashLightAt(b.x, b.y, b.type === "lancer" ? 7 : 4.2);
   if (b.type === "lancer"){ sfxAt(b.x,b.y,"sawtooth",120,0.2,0.5,45); sfxNoiseAt(b.x,b.y,0.16,0.4,1100); }
@@ -3882,25 +4220,22 @@ function sync(dtLast){
       const sw2 = Math.cos(ud.phase) * 0.30 * amp;
       ud.legL.up.rotation.x =  sw;
       ud.legR.up.rotation.x = -sw;
-      ud.legL.lo.rotation.x = Math.max(0, -sw*0.85);
-      ud.legR.lo.rotation.x = Math.max(0,  sw*0.85);
-      ud.armL.up.rotation.x = -sw*0.42;
-      ud.armR.up.rotation.x =  sw*0.42 - 0.85;   // 右手持槍，固定端起來
-      ud.armL.up.rotation.z =  0.25;
-      ud.armR.up.rotation.z = -0.30;
+      // 膝蓋只會往後彎（負的 x 旋轉），腿往後擺、準備抬起時彎得最多。
+      // 手臂由建模時的 IK 固定在槍上，走路不擺
+      ud.legL.lo.rotation.x = -Math.max(0, -sw) * 1.1;
+      ud.legR.lo.rotation.x = -Math.max(0,  sw) * 1.1;
       ud.hips.position.y = (0.92 + Math.abs(sw2)*0.09) * ud.k;
       ud.hips.rotation.z = sw2 * 0.06;
     }
-    if (ud.halo){
-      // 公告板：抵銷掉本體的旋轉，永遠正對鏡頭
-      ud.halo.rotation.y = camera.rotation.y - b.obj.rotation.y;
-      // 熱暈是給遠處辨識用的。近距離還疊上去，會把本來就亮的身體
-      // 推過曝成一團白，反而看不出兵種與頭部位置
-      const halod = Math.hypot(b.x - p.x, b.y - p.y) * S;
-      ud.halo.visible = b.type !== "stalker" && halod > 3.2;
-      ud.halo.material.opacity = Math.min(0.38, 0.015 + halod*0.036);
+    // 中彈的頭 0.08 秒全身泛白；開槍則是槍口火光
+    const hg = Math.max(0, (b.hitT - 0.17) / 0.08);
+    if (hg !== ud.hitGlow){
+      ud.hitGlow = hg;
+      for (const m of ud.hitMats) m.emissive.setScalar(hg * 0.55);
     }
-    b.obj.userData.hot.color.setHex(b.flash > 0 ? 0xFFFFFF : TYPES[b.type].color);
+    b.muzzle = Math.max(0, (b.muzzle || 0) - dtLast);
+    ud.muzzle.visible = b.muzzle > 0;
+    if (ud.muzzle.visible) ud.muzzle.rotation.z = Math.random() * Math.PI;
     // STALKER 貼近時，穿牆線框會和頭部疊成會閃的第二顆頭；小地圖仍保留標記
     const revealDist = Math.hypot(b.x - p.x, b.y - p.y) * S;
     b.obj.userData.ghost.visible = b.type !== "stalker" && b.revealed > 0 && revealDist > 3.2;

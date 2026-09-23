@@ -375,6 +375,14 @@ const MAPS = {
       {x:560,y:66,w:160,h:22,ht:1.05},{x:560,y:632,w:160,h:22,ht:1.05},
       {x:120,y:200,w:60,h:22,ht:1.05},{x:120,y:498,w:60,h:22,ht:1.05},
       {x:1100,y:290,w:60,h:22,ht:1.05},{x:1100,y:408,w:60,h:22,ht:1.05},
+      // 中央矮牆外側的石階（0.55m，跳得上去）：先踩石階再上牆頂，站高就能越過矮牆開槍。
+      // 石階和牆等長、緊貼，合起來仍是一個長方形，敵人不會卡在凹角
+      {x:440,y:320,w:30,h:80,ht:0.55},{x:810,y:320,w:30,h:80,ht:0.55},
+      // 西北、東南兩座高台（1.5m）加斜坡：Valorant 式的制高點，
+      // 視野好但站上去全身都露出來。平台與斜坡同寬相接，平面上也是一個長方形，
+      // 四周至少留 30px 以上的通道，避免敵人擠進窄縫
+      {x:190,y:60,w:60,h:48,ht:1.5},{x:250,y:60,w:90,h:48,ht:1.5,ramp:"-x"},
+      {x:1030,y:612,w:60,h:48,ht:1.5},{x:940,y:612,w:90,h:48,ht:1.5,ramp:"+x"},
       // 樹：碰撞只有樹幹那一小塊，樹冠純粹是視覺與斑駁的樹影
       {x:300,y:250,w:20,h:20,tree:true},{x:300,y:450,w:20,h:20,tree:true},
       {x:960,y:250,w:20,h:20,tree:true},{x:960,y:450,w:20,h:20,tree:true},
@@ -382,7 +390,7 @@ const MAPS = {
     ],
     spawns:[
       {x:1160,y:360},{x:1160,y:220},{x:1160,y:500},{x:640,y:122},
-      {x:640,y:600},{x:860,y:360},{x:300,y:90},{x:980,y:630},
+      {x:640,y:600},{x:860,y:360},{x:300,y:152},{x:960,y:580},
     ],
     player:{x:120,y:360,angle:0},
     lights:[],
@@ -524,7 +532,9 @@ function hasLOS(ax,ay,bx,by,ah,bh){
       };
       if (clip(ax,dx,w.x,w.x+w.w) && clip(ay,dy,w.y,w.y+w.h) && t0 < t1){
         const h0 = ah + (bh-ah)*t0, h1 = ah + (bh-ah)*t1;
-        if (Math.min(h0,h1) < w.ht - 0.02) return false;
+        // 斜坡頂面是平面、視線是直線，兩者的高度差沿線段線性變化，只要比進出兩點
+        const top0 = topAt(w, ax+dx*t0, ay+dy*t0), top1 = topAt(w, ax+dx*t1, ay+dy*t1);
+        if (h0 < top0 - 0.02 || h1 < top1 - 0.02) return false;
       }
     }
   }
@@ -537,24 +547,46 @@ function inWall(x,y){
 // 子彈用：高度 h 比矮牆頂還高就從上面飛過去
 function inWallAt(x,y,h){
   for (const w of WALLS)
-    if (x>w.x && x<w.x+w.w && y>w.y && y<w.y+w.h && h < (w.ht || WALL_H)) return true;
+    if (x>w.x && x<w.x+w.w && y>w.y && y<w.y+w.h && h < (w.ht ? topAt(w,x,y) : WALL_H)) return true;
   return false;
 }
+// 可站立地形（有 ht 的矮牆、箱子、斜坡）在 (x,y) 的頂面高度。
+// 點在範圍外就取範圍內最近的點，也就是圓形判定碰到的那個邊緣。
+// 斜坡沿 ramp 指的方向從 0 線性升到 ht。
+// r 是站立者的半徑：腳底圓盤踩到的最高點才是站的高度，所以取樣點往上坡挪 r。
+// 少了這步，走到坡頂時圓盤先碰到旁邊的平台，高度會一次跳好幾十公分
+function topAt(w, x, y, r){
+  if (!w.ramp) return w.ht;
+  if (r){
+    if (w.ramp === "+x") x += r; else if (w.ramp === "-x") x -= r;
+    else if (w.ramp === "+y") y += r; else y -= r;
+  }
+  const cx = Math.max(w.x, Math.min(w.x+w.w, x)), cy = Math.max(w.y, Math.min(w.y+w.h, y));
+  const t = w.ramp === "+x" ? (cx-w.x)/w.w : w.ramp === "-x" ? (w.x+w.w-cx)/w.w
+          : w.ramp === "+y" ? (cy-w.y)/w.h : (w.y+w.h-cy)/w.h;
+  return w.ht * t;
+}
+// 不用跳就能走上去的高度（台階、斜坡）
+const STEP_UP = 0.36;
+// 跳起來時腳離頂面還差這麼多也算踩上去：跳躍頂點 0.77m，
+// 靠這段寬容剛好搆得到 1.05m 的矮牆，不需要另外的攀爬操作
+const LEDGE_REACH = 0.32;
 function aabbHit(e,w){
   return e.x+e.rad > w.x && e.x-e.rad < w.x+w.w &&
          e.y+e.rad > w.y && e.y-e.rad < w.y+w.h;
 }
 // 回傳這一步撞到了哪個軸，呼叫端才能把該方向的速度歸零，
 // 否則貼著牆時速度會一直累積，離開牆的瞬間會彈射出去
-// h 是移動者的腳離地高度（只有玩家會傳）：已經高過矮牆頂就從上面走過去。
-// 敵人不傳，維持純平面的碰撞
-function moveWithCollision(e,dx,dy,h){
-  const blocks = w => !(h !== undefined && w.ht && h >= w.ht - 0.02);
-  let hx = false, hy = false;
+// h 是移動者的腳離地高度（只有玩家會傳），reach 是還能往上踩多少：
+// 碰到的頂面在 h + reach 以內就從上面走過去，交給 groundAt 把人抬上去。
+// 敵人不傳，維持純平面的碰撞（斜坡與箱子對它們就是障礙物）
+function moveWithCollision(e,dx,dy,h,reach){
+  const blocks = w => !(h !== undefined && w.ht && topAt(w, e.x, e.y, e.rad) <= h + (reach || 0) + 0.02);
+  let hx = false, hy = false, hard = false;
   if (dx){
     const x0 = e.x;
     e.x += dx;
-    for (const w of WALLS) if (blocks(w) && aabbHit(e,w)){ e.x = dx>0 ? w.x-e.rad : w.x+w.w+e.rad; hx = true; }
+    for (const w of WALLS) if (blocks(w) && aabbHit(e,w)){ e.x = dx>0 ? w.x-e.rad : w.x+w.w+e.rad; hx = true; if (!w.ht) hard = true; }
     // 保險：連續吸附多面牆有可能把座標推到別的地方去（看起來就是瞬移）。
     // 解算後還是卡在牆裡就整個退回原位，寧可不動也不要跳走
     if (hx){ for (const w of WALLS) if (blocks(w) && aabbHit(e,w)){ e.x = x0; break; } }
@@ -562,24 +594,22 @@ function moveWithCollision(e,dx,dy,h){
   if (dy){
     const y0 = e.y;
     e.y += dy;
-    for (const w of WALLS) if (blocks(w) && aabbHit(e,w)){ e.y = dy>0 ? w.y-e.rad : w.y+w.h+e.rad; hy = true; }
+    for (const w of WALLS) if (blocks(w) && aabbHit(e,w)){ e.y = dy>0 ? w.y-e.rad : w.y+w.h+e.rad; hy = true; if (!w.ht) hard = true; }
     if (hy){ for (const w of WALLS) if (blocks(w) && aabbHit(e,w)){ e.y = y0; break; } }
   }
-  return {x:hx, y:hy};
+  // hard：撞到的是整面高牆，而不只是還踩不上去的矮地形
+  return {x:hx, y:hy, hard};
 }
-// 腳下的地面高度：站在矮牆上就是牆頂
+// 腳下的地面高度：站在矮牆、箱子或斜坡上就是它的頂面。
+// groundOnRamp 記錄這個高度是不是斜坡給的：斜坡上的高度是連續變化，鏡頭不需要平滑
+let groundOnRamp = false;
 function groundAt(e){
-  let g = 0;
-  for (const w of WALLS) if (w.ht && aabbHit(e,w)) g = Math.max(g, w.ht);
+  let g = 0; groundOnRamp = false;
+  for (const w of WALLS) if (w.ht && aabbHit(e,w)){
+    const t = topAt(w, e.x, e.y, e.rad);
+    if (t > g){ g = t; groundOnRamp = !!w.ramp; }
+  }
   return g;
-}
-// 貼著的矮牆有多高（判定圈外擴幾像素，剛好貼住牆面也算），沒貼著回傳 0
-function lowWallTouching(e){
-  const r = e.rad; e.rad = r + 4;
-  let top = 0;
-  for (const w of WALLS) if (w.ht && aabbHit(e,w)) top = Math.max(top, w.ht);
-  e.rad = r;
-  return top;
 }
 // 2D 朝向角 → Three.js 的 Y 軸旋轉（物件預設面向 -Z）
 function yawOf(a){ return Math.atan2(-Math.cos(a), -Math.sin(a)); }
@@ -1544,8 +1574,54 @@ function addTree(cx, cz){
   }
 }
 
+// 斜坡：楔形實體。先在「沿 +x 升高」的標準方向建好，再依 ramp 轉到實際方向
+function addRamp(w){
+  const alongX = w.ramp[1] === "x";
+  const L = (alongX ? w.w : w.h)*S, D = (alongX ? w.h : w.w)*S, Hh = w.ht;
+  const a = [-L/2,0,-D/2], b = [-L/2,0,D/2], c = [L/2,0,D/2], d = [L/2,0,-D/2];
+  const e = [L/2,Hh,D/2], f = [L/2,Hh,-D/2];
+  const tris = [a,b,e, a,e,f,  d,f,e, d,e,c,  b,c,e,  a,f,d];
+  // 繞行方向不用手算：法線朝向實體中心就翻面
+  const mid = [L/6, Hh/3, 0], pos = [], uv = [];
+  for (let i=0;i<tris.length;i+=3){
+    let [p0,p1,p2] = [tris[i],tris[i+1],tris[i+2]];
+    const u = p1.map((v,k)=>v-p0[k]), v = p2.map((v,k)=>v-p0[k]);
+    const n = [u[1]*v[2]-u[2]*v[1], u[2]*v[0]-u[0]*v[2], u[0]*v[1]-u[1]*v[0]];
+    const cen = [0,1,2].map(k => (p0[k]+p1[k]+p2[k])/3 - mid[k]);
+    if (n[0]*cen[0] + n[1]*cen[1] + n[2]*cen[2] < 0) [p1,p2] = [p2,p1];
+    // 貼圖用最接近的軸向平面投影，密度與牆一致
+    const ax = Math.abs(n[0]) >= Math.max(Math.abs(n[1]), Math.abs(n[2])) ? 0
+             : Math.abs(n[1]) >= Math.abs(n[2]) ? 1 : 2;
+    for (const q of [p0,p1,p2]){
+      pos.push(...q);
+      const [s1,s2] = ax === 0 ? [q[2],q[1]] : ax === 1 ? [q[0],q[2]] : [q[0],q[1]];
+      uv.push(s1*0.42, s2*0.42);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+  geo.computeVertexNormals();
+  const g = new THREE.Group();
+  g.position.set((w.x+w.w/2)*S, 0, (w.y+w.h/2)*S);
+  g.rotation.y = {"+x":0, "-x":Math.PI, "+y":-Math.PI/2, "-y":Math.PI/2}[w.ramp];
+  g.add(new THREE.Mesh(geo, wallMats[(w.x*7 + w.y*13) % wallMats.length]));
+  g.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo), edgeMat));
+  // 防滑條：一眼就看得出這是能走上去的坡，而不是一塊斜放的牆
+  const ang = Math.atan2(Hh, L), slope = Math.hypot(L, Hh);
+  const treadGeo = new THREE.BoxGeometry(0.07, 0.025, D - 0.3);
+  for (let s = 0.35; s < slope - 0.2; s += 0.42){
+    const t = new THREE.Mesh(treadGeo, trimMat);
+    t.position.set(-L/2 + Math.cos(ang)*s, Math.sin(ang)*s + 0.012, 0);
+    t.rotation.z = ang;
+    g.add(t);
+  }
+  mapLayer.add(g);
+}
+
 for (const w of WALLS){
   if (w.tree){ addTree((w.x+w.w/2)*S, (w.y+w.h/2)*S); continue; }
+  if (w.ramp){ addRamp(w); continue; }
   const gw = w.w*S, gd = w.h*S, wh = w.ht || WALL_H;
   const geo = rescaleBoxUV(new THREE.BoxGeometry(gw, wh, gd), gw, wh, gd, 0.42);
   // 每面牆的貼圖錯開一段，板縫與鉚釘才不會每面都排在同樣位置
@@ -3674,7 +3750,7 @@ function newGame(){
     fps:0, fpsAcc:0, fpsN:0,
     moved:0, moving:false, sprinting:false, crouching:false, crouchT:0, strafe:0,
     bobT:0, bobAmp:0, lean:0, deadT:0,
-    ads:false, adsT:0, adsOn:false, landDip:0, sprintT:0,
+    ads:false, adsT:0, adsOn:false, landDip:0, stepLift:0, sprintT:0,
     pops:[], feed:[], corpses:[], shocks:[], pickups:[], echoFlash:0, lowBeat:0,
     streak:0, streakT:0,
     dmgArcs:[], flashLine:"", flashSub:"", flashT:0,
@@ -3940,6 +4016,7 @@ function update(dt){
   if (G.flashT > 0) G.flashT -= dt;
   G.kick *= Math.pow(0.004, dt);
   G.landDip *= Math.pow(0.00004, dt);   // 落地下沉很快彈回來
+  G.stepLift *= Math.pow(0.00001, dt);  // 踩上台階時鏡頭約 0.1 秒追上腳的高度
   mouseDX *= Math.pow(0.0008, dt); mouseDY *= Math.pow(0.0008, dt);
   // 停火後才開始回正，所以連射時槍口會一路往上爬
   if (rcHold > 0) rcHold -= dt;
@@ -3997,18 +4074,14 @@ function update(dt){
     }
     if (!p.grounded){
       p.vz -= P.gravity*dt;
-      // 攀爬：跳起來貼著矮牆、按著空白鍵，牆頂在手搆得到的範圍（0.8m）內就撐上去。
-      // 單靠跳只到 0.77m，搆不到 1.05m 的矮牆頂；牆也不能為此降低，否則蹲著就擋不住子彈
-      if (keys.has(" ") && G.mode !== "dead"){
-        const top = lowWallTouching(p);
-        if (top > p.z && top - p.z < 0.8) p.vz = Math.max(p.vz, 2.6);
-      }
       p.z  += p.vz*dt;
       // 別撞到天花板（露天地圖沒有天花板）
       if (!activeMap.outdoor && p.z > WALL_H - EYE - 0.25){ p.z = WALL_H - EYE - 0.25; p.vz = Math.min(0, p.vz); }
       const gz = groundAt(p);
       if (p.z <= gz){
-        const impact = -p.vz;
+        // 靠 LEDGE_REACH 踩上邊緣時人還在往上或剛過頂點，不算重落地
+        const impact = Math.max(0, -p.vz);
+        G.stepLift += gz - p.z;
         p.z = gz; p.vz = 0; p.grounded = true;
         // 落地會吃掉動能：越重的落地下沉越深、水平速度損失越多
         G.landDip = Math.min(0.20, impact*0.040);
@@ -4063,14 +4136,25 @@ function update(dt){
         p.vy += wy*Math.min(acc, add);
       }
     }
-    const hitAx = moveWithCollision(p, p.vx*dt, p.vy*dt, p.z);
-    // 從矮牆頂走出邊緣就往下掉；反過來，回溯只記平面座標，
-    // 拉回到當時站在矮牆上的位置時要把人抬上去，否則會卡在牆裡動不了
+    const onRampBefore = p.grounded && groundAt(p) > 0 && groundOnRamp;
+    const hitAx = moveWithCollision(p, p.vx*dt, p.vy*dt, p.z, p.grounded ? STEP_UP : LEDGE_REACH);
     const gHere = groundAt(p);
-    if (p.grounded && p.z > gHere + 0.001){ p.grounded = false; p.vz = 0; }
-    else if (p.grounded && p.z < gHere) p.z = gHere;
-    if (hitAx.x) p.vx = 0;     // 撞牆就把該方向的速度吃掉，否則會沿牆累積
-    if (hitAx.y) p.vy = 0;
+    if (p.grounded && Math.abs(p.z - gHere) > 0.001){
+      // 往上（台階）直接抬上去；往下差距小（下台階、下斜坡）就貼著地面走，
+      // 不然每幀都會短暫離地又落地。差距大才是真的走出邊緣，開始往下掉
+      if (p.z < gHere || p.z - gHere <= STEP_UP){
+        // 台階是一次跳好幾十公分，鏡頭用 stepLift 在 0.1 秒內跟上；
+        // 斜坡上是連續變化，再平滑只會讓鏡頭一路落後腳底
+        if (!groundOnRamp && !onRampBefore) G.stepLift += gHere - p.z;
+        p.z = gHere;
+      } else { p.grounded = false; p.vz = 0; }
+    }
+    // 撞牆就把該方向的速度吃掉，否則會沿牆累積。
+    // 例外是在空中撞到還差一點才踩得上的矮地形：保留往前的速度，
+    // 升到夠高的那一幀才會順勢跨上去，而不是停在牆邊垂直掉回原地
+    const keepMomentum = !p.grounded && !hitAx.hard;
+    if (hitAx.x && !keepMomentum) p.vx = 0;
+    if (hitAx.y && !keepMomentum) p.vy = 0;
 
     // 實際位移（撞牆時會小於預期），拿來驅動頭部晃動與腳步聲
     G.moved = Math.hypot(p.x-bx, p.y-by);
@@ -4278,7 +4362,7 @@ function update(dt){
       } else {
         const p2 = G.player;
         const topH = eyeH() + 0.16;
-        if (p2.iframe <= 0 && bl.h > 0.05 && bl.h < topH &&
+        if (p2.iframe <= 0 && bl.h > p2.z + 0.05 && bl.h < topH &&
             Math.hypot(bl.x-p2.x, bl.y-p2.y) < p2.rad){
           p2.hp -= bl.dmg;
           G.vignette = 1; G.kick = Math.min(0.12, G.kick+0.05); G.tookDamage = true;
@@ -4475,7 +4559,7 @@ function sync(dtLast){
   const still = 1 - G.bobAmp;
   const breath = Math.sin(G.t*1.15) * 0.0075 * still;
   camera.position.set(p.x*S + headX*Math.cos(yaw),
-                      EYE - G.crouchT*0.55 + p.z + G.kick*0.5 + headY + breath - G.landDip,
+                      EYE - G.crouchT*0.55 + p.z - G.stepLift + G.kick*0.5 + headY + breath - G.landDip,
                       p.y*S - headX*Math.sin(yaw));
   // 瞄準的變焦
   const gAds = GUNS[G.player.gun];

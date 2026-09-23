@@ -6452,7 +6452,7 @@ function captureCode(code){
   }
   BINDS[id][slot] = code;
   saveBinds();
-  renderBinds(); refreshKeyHints();
+  renderBinds(); refreshKeyHints(); lockGameKeys();
 }
 function captureKey(ev){
   ev.preventDefault();
@@ -6480,7 +6480,7 @@ for (const b of document.querySelectorAll(".keysbtn")){
 document.getElementById("btnBindDone").addEventListener("click", ev => { ev.stopPropagation(); closeKeys(); });
 document.getElementById("btnBindReset").addEventListener("click", ev => {
   ev.stopPropagation();
-  resetBinds(); saveBinds(); renderBinds(); refreshKeyHints();
+  resetBinds(); saveBinds(); renderBinds(); refreshKeyHints(); lockGameKeys();
 });
 refreshKeyHints();
 
@@ -6523,8 +6523,24 @@ function updateFsLabel(){
 for (const b of document.querySelectorAll(".fsbtn")){
   b.addEventListener("click", ev => { ev.stopPropagation(); toggleFullscreen(); });
 }
+// Ctrl+W（蹲 + 前進，滑鏟時很容易同時按到）是 Chrome 的「關閉分頁」，網頁平常攔不下來。
+// 全螢幕時可以用 Keyboard Lock API 把綁定用到的鍵借過來，Ctrl+W 就會送進遊戲而不是關分頁。
+// Escape 刻意不借：借了之後 Esc 要長按才能離開全螢幕與解除滑鼠鎖定
+function lockGameKeys(){
+  if (!document.fullscreenElement || !navigator.keyboard || !navigator.keyboard.lock) return;
+  const codes = new Set(["KeyW", "KeyT", "KeyN", "Tab"]);
+  for (const a of ACTIONS) for (const c of BINDS[a.id]){
+    if (c && c !== "Escape" && !c.startsWith("Mouse") && !c.startsWith("Wheel")) codes.add(c);
+  }
+  navigator.keyboard.lock([...codes]).catch(() => {});
+}
+// 沒有全螢幕時的保險：遊戲進行中關分頁，先跳「確定要離開網站嗎？」
+addEventListener("beforeunload", ev => {
+  if (G && overStart.hidden && G.mode !== "dead"){ ev.preventDefault(); ev.returnValue = ""; }
+});
 document.addEventListener("fullscreenchange", () => {
   updateFsLabel();
+  lockGameKeys();
   layout();
   // 尺寸在轉場結束後才穩定，再補算一次
   setTimeout(layout, 120);

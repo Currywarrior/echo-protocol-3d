@@ -5114,7 +5114,7 @@ function startGame(){
   G = newGame();
   overStart.hidden = true; overDead.hidden = true; overPause.hidden = true;
   audioOn();
-  try{ glCanvas.requestPointerLock?.()?.catch?.(()=>{}); }catch(e){}
+  requestLock();
 }
 
 // 回到開場的簡報畫面。中途離開不算一局結束，所以不更新最高分
@@ -5167,13 +5167,45 @@ addEventListener("keyup", ev => keys.delete(ev.key.toLowerCase()));
 function dropPointerLock(){
   if (document.pointerLockElement) document.exitPointerLock?.();
 }
-addEventListener("blur", () => { keys.clear(); mouse.down = false; dropPointerLock(); });
-document.addEventListener("visibilitychange", () => { if (document.hidden) dropPointerLock(); });
+// 鎖定請求一律走這裡。點一下畫面會同時觸發畫布的 mousedown 與外框的 click，
+// 兩個都送請求時 Chrome 會先解再鎖（紀錄裡看得到 lock=false 緊接 lock=true），
+// 這種抖動正是容易留下舊鎖定範圍的時機，所以請求還沒回應前不再送第二次
+let lockPending = false;
+function requestLock(){
+  if (lockPending || document.pointerLockElement) return;
+  lockPending = true;
+  lockLog("request");
+  try{ glCanvas.requestPointerLock?.()?.catch?.(()=>{}); }catch(e){ lockPending = false; }
+}
+// 鎖定事件紀錄：游標被關住的問題在自動化環境重現不了，只能跟系統端的 ClipCursor 記錄
+// 逐秒對時間。記最近 200 筆到 localStorage，DevTools 主控台打 echoLockLog() 就印得出來
+function lockLog(ev){
+  try {
+    const r = frame.getBoundingClientRect();
+    const now = new Date();
+    const line = now.toTimeString().slice(0,8) + "." + String(now.getMilliseconds()).padStart(3,"0") + " " + ev +
+      " lock=" + !!document.pointerLockElement + " focus=" + document.hasFocus() +
+      " fs=" + !!document.fullscreenElement + " dpr=" + devicePixelRatio +
+      " win=" + screenX + "," + screenY + " " + innerWidth + "x" + innerHeight +
+      " frame=" + Math.round(r.left) + "," + Math.round(r.top) + " " + Math.round(r.width) + "x" + Math.round(r.height);
+    const log = JSON.parse(localStorage.getItem("echoLockLog") || "[]");
+    log.push(line); if (log.length > 200) log.splice(0, log.length - 200);
+    localStorage.setItem("echoLockLog", JSON.stringify(log));
+  } catch(e){}
+}
+window.echoLockLog = () => { try { console.log(JSON.parse(localStorage.getItem("echoLockLog") || "[]").join("\n")); } catch(e){} };
+document.addEventListener("pointerlockerror", () => { lockPending = false; lockLog("lockerror"); });
+addEventListener("focus", () => lockLog("focus"));
+// 鎖定中視窗尺寸改變（切全螢幕、拖到另一個縮放比例不同的螢幕）就先解鎖：
+// Chrome 用 ClipCursor 實作鎖定，範圍在尺寸變動時可能沒跟著更新，會把游標關在舊的矩形裡
+addEventListener("resize", () => { lockLog("resize"); dropPointerLock(); });
+addEventListener("blur", () => { lockLog("blur"); keys.clear(); mouse.down = false; dropPointerLock(); });
+document.addEventListener("visibilitychange", () => { lockLog("visibility hidden=" + document.hidden); if (document.hidden) dropPointerLock(); });
 
 glCanvas.addEventListener("mousedown", ev => {
   ev.preventDefault();
   audioOn();
-  if (!locked){ try{ glCanvas.requestPointerLock?.()?.catch?.(()=>{}); }catch(e){} return; }  // 第一下只負責鎖定，不會誤射
+  if (!locked){ requestLock(); return; }  // 第一下只負責鎖定，不會誤射
   if (ev.button === 2){ if (G) G.adsOn = !G.adsOn; return; }   // 右鍵切換瞄準
   if (ev.button !== 0) return;
   mouse.down = true;
@@ -5201,6 +5233,8 @@ addEventListener("wheel", ev => {
 }, {passive:false});
 
 document.addEventListener("pointerlockchange", () => {
+  lockPending = false;
+  lockLog("lockchange");
   // 鎖定請求是非同步的：點下去之後馬上切走，鎖可能在視窗已經失焦時才生效，這時立刻放掉
   if (document.pointerLockElement && (document.hidden || !document.hasFocus())){ dropPointerLock(); return; }
   locked = document.pointerLockElement === glCanvas;
@@ -5233,7 +5267,7 @@ addEventListener("mousemove", ev => {
 frame.addEventListener("click", (ev) => {
   if (ev.target.closest(".settings") || ev.target.closest(".fsbtn")) return;   // 在調設定，不要把滑鼠鎖回去
   if (!locked && G && G.mode !== "dead" && overStart.hidden && overDead.hidden){
-    try{ glCanvas.requestPointerLock?.()?.catch?.(()=>{}); }catch(e){}
+    requestLock();
   }
 });
 
@@ -5302,9 +5336,9 @@ document.addEventListener("fullscreenchange", () => {
   layout();
   // 尺寸在轉場結束後才穩定，再補算一次
   setTimeout(layout, 120);
-  if (G && G.mode !== "dead" && overStart.hidden && overDead.hidden && overPause.hidden && document.hasFocus()){
-    try{ glCanvas.requestPointerLock?.()?.catch?.(()=>{}); }catch(e){}
-  }
+  // 不在這裡自動重新鎖定：轉場期間尺寸還在變，Chrome 算出的鎖定範圍可能是錯的。
+  // 尺寸變動時 resize 已經解鎖，會跳出暫停畫面，玩家點一下畫面就重新鎖在正確的範圍
+  lockLog("fullscreenchange");
 });
 updateFsLabel();
 

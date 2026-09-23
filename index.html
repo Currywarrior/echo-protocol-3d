@@ -334,21 +334,24 @@ const MAPS = {
     name:"HIGH NOON",
     // 露天：不蓋天花板、有太陽與天空、用灰階貼圖再上色
     outdoor:true,
-    // 環境刻意選低彩度、略偏冷的淺水泥色：敵人全是暖色，
-    // 背景一旦也偏暖就會和它們搶對比
+    // 午後斜陽的暖色調：淺砂岩牆、暖米色鋪面、偏低的金色太陽。
+    // 敵人也是暖色，所以環境只用低彩度的淺暖色，飽和的橘與洋紅仍然只屬於敵人；
+    // 陰影靠偏藍的天光補，冷暖對比留在光影裡而不是在物件顏色上
     theme:{
       neutral:true,
-      walls:[0xC4C6CB,0xB9BCC2,0xCECDC8], edge:0x6A6A70,
-      trim:0xBFC0C4, panel:0xB4B6BA, strip:0x5FC8C0,
-      floor:0x9A9892, ceiling:0x000000, light:0xFFFFFF,
-      glow:0xFFFFFF, cold:0x9A9CA0, pipe:0x8A8C90, terrain:0xB4B6BA,
-      propMetal:0x7C8088, propDark:0x4A4D54,
+      walls:[0xE6CFAA,0xDCC29C,0xEAD8BA], edge:0x8C6E50,
+      trim:0xF0E2C8, panel:0xCFB08A, strip:0x5FC8C0,
+      floor:0xD2B894, ceiling:0x000000, light:0xFFFFFF,
+      glow:0xFFFFFF, cold:0xB09A80, pipe:0x9A8570, terrain:0xCFB08A,
+      propMetal:0x8C7862, propDark:0x5C4A3A,
     },
     atmo:{
-      bg:0xCFE3F2, fog:0.02, hemiSky:0x9CC4F0, hemiGround:0x8C8070, hemi:0.75,
-      sensor:0.8, bloom:0.3, threshold:0.9, vignette:0.35, grade:0.25,
-      sunColor:0xFFF3E0, sunI:1.5, sunDir:[0.55,0.9,0.35],
-      skyTop:0x4A86C8, skyHorizon:0xCFE3F2,
+      bg:0xF0DCC0, fog:0.006, hemiSky:0xB8D0EC, hemiGround:0xC89A6A, hemi:0.95,
+      sensor:0.6, bloom:0.18, threshold:0.95, vignette:0.22, grade:0.35,
+      sunColor:0xFFD6A0, sunI:2.3, sunDir:[0.62,0.55,0.42],
+      skyTop:0x5A92DA, skyHorizon:0xF8D4A8,
+      // 清晰度：露天圖不需要感測器的色差、掃描線與顆粒，另外加一點銳化
+      aberr:0, scan:0, noise:0.01, sharp:0.35,
     },
     walls:[
       {x:0,y:0,w:W,h:24},{x:0,y:H-24,w:W,h:24},
@@ -366,13 +369,29 @@ const MAPS = {
       // 四角的箱體
       {x:90,y:80,w:60,h:60},{x:1130,y:80,w:60,h:60},
       {x:90,y:580,w:60,h:60},{x:1130,y:580,w:60,h:60},
+      // 矮牆（ht 是牆高，公尺）：站著看得過去也射得過去，蹲下才是掩體。
+      // 不擋視線，所以敵人仍然看得到你、會朝牆打
+      {x:470,y:320,w:24,h:80,ht:1.05},{x:786,y:320,w:24,h:80,ht:1.05},
+      {x:560,y:66,w:160,h:22,ht:1.05},{x:560,y:632,w:160,h:22,ht:1.05},
+      {x:120,y:200,w:60,h:22,ht:1.05},{x:120,y:498,w:60,h:22,ht:1.05},
+      {x:1100,y:290,w:60,h:22,ht:1.05},{x:1100,y:408,w:60,h:22,ht:1.05},
+      // 樹：碰撞只有樹幹那一小塊，樹冠純粹是視覺與斑駁的樹影
+      {x:300,y:250,w:20,h:20,tree:true},{x:300,y:450,w:20,h:20,tree:true},
+      {x:960,y:250,w:20,h:20,tree:true},{x:960,y:450,w:20,h:20,tree:true},
+      {x:420,y:620,w:20,h:20,tree:true},{x:840,y:80,w:20,h:20,tree:true},
     ],
     spawns:[
-      {x:1160,y:360},{x:1160,y:220},{x:1160,y:500},{x:640,y:80},
-      {x:640,y:640},{x:820,y:360},{x:300,y:90},{x:980,y:630},
+      {x:1160,y:360},{x:1160,y:220},{x:1160,y:500},{x:640,y:122},
+      {x:640,y:600},{x:860,y:360},{x:300,y:90},{x:980,y:630},
     ],
     player:{x:120,y:360,angle:0},
     lights:[],
+    // 樹下的草地，只是地面材質，不影響移動
+    terrain:[
+      {x:262,y:212,w:96,h:96,kind:"grass"},{x:262,y:412,w:96,h:96,kind:"grass"},
+      {x:922,y:212,w:96,h:96,kind:"grass"},{x:922,y:412,w:96,h:96,kind:"grass"},
+      {x:370,y:596,w:110,h:72,kind:"grass"},{x:790,y:52,w:110,h:72,kind:"grass"},
+    ],
   },
 };
 
@@ -383,6 +402,8 @@ const ATMO_DEFAULT = {
   sensor:3.4, bloom:0.85, threshold:0.42, vignette:0.78, grade:1,
   // 以下只有露天地圖（outdoor:true）會用到
   sunColor:0xFFFFFF, sunI:0, sunDir:[0.5,1,0.3], skyTop:0x000000, skyHorizon:0x000000,
+  // 後製的感測器質感：色差、掃描線、噪點，以及露天圖用的銳化
+  aberr:1, scan:0.07, noise:0.045, sharp:0,
 };
 function atmo(){ return Object.assign({}, ATMO_DEFAULT, activeMap.atmo || {}); }
 let WALLS = activeMap.walls;
@@ -392,6 +413,7 @@ let SEGS = [];
 function rebuildSegments(){
   SEGS.length = 0;
   for (const w of WALLS){
+    if (w.ht) continue;   // 矮牆看得過去，不擋視線也不悶聲音
     const {x,y} = w, X = x+w.w, Y = y+w.h;
     SEGS.push({x1:x,y1:y,x2:X,y2:y},{x1:X,y1:y,x2:X,y2:Y},
               {x1:X,y1:Y,x2:x,y2:Y},{x1:x,y1:Y,x2:x,y2:y});
@@ -489,6 +511,12 @@ function hasLOS(ax,ay,bx,by){
 }
 function inWall(x,y){
   for (const w of WALLS) if (x>w.x && x<w.x+w.w && y>w.y && y<w.y+w.h) return true;
+  return false;
+}
+// 子彈用：高度 h 比矮牆頂還高就從上面飛過去
+function inWallAt(x,y,h){
+  for (const w of WALLS)
+    if (x>w.x && x<w.x+w.w && y>w.y && y<w.y+w.h && h < (w.ht || WALL_H)) return true;
   return false;
 }
 function aabbHit(e,w){
@@ -789,7 +817,8 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.shadowMap.autoUpdate = false;
 const sun = new THREE.DirectionalLight(0xFFFFFF, 0);
-sun.shadow.mapSize.set(2048, 2048);
+// 4096：每個陰影像素約 1.2cm，斜陽拉長的影子邊緣才不會糊成一片
+sun.shadow.mapSize.set(4096, 4096);
 // 正交陰影相機蓋住整張圖（約 38m x 22m）
 Object.assign(sun.shadow.camera, {left:-24, right:24, top:24, bottom:-24, near:1, far:90});
 sun.shadow.bias = -0.0004;
@@ -814,7 +843,8 @@ const skyMat = new THREE.ShaderMaterial({
     varying vec3 vDir;
     void main(){
       float h = max(vDir.y, 0.0);
-      vec3 col = mix(uHorizon, uTop, pow(h, 0.55));
+      // 指數小於 1：離開地平線不遠就轉成天藍，暖色只留在低空一圈，天空才不會混成灰
+      vec3 col = mix(uHorizon, uTop, pow(h, 0.35));
       float s = max(dot(normalize(vDir), uSunDir), 0.0);
       col += uSun * (pow(s, 900.0) * 3.0 + pow(s, 24.0) * 0.25);
       gl_FragColor = vec4(col, 1.0);
@@ -1375,12 +1405,44 @@ const spillMat = new THREE.MeshBasicMaterial({
   stripMat.color.setHex(theme.strip);
   floorMat.color.setHex(theme.floor);
   ceilMat.color.setHex(theme.ceiling);
+  // 草地貼圖：灰階的短草葉筆觸，顏色交給材質染。只有用到草地的地圖才畫
+  let grassMat = null;
+  if ((activeMap.terrain || []).some(t => t.kind === "grass")){
+    const gc = mkCanvas(256), gx = gc.getContext("2d");
+    gx.fillStyle = "#8a8a8a"; gx.fillRect(0,0,256,256);
+    let a = 9173;
+    const R = () => (a = (a*1103515245+12345) & 0x7fffffff) / 0x7fffffff;
+    gx.lineWidth = 1.2;
+    for (let i=0;i<5200;i++){
+      const px = R()*256, py = R()*256, v = 90 + R()*130 | 0, len = 3 + R()*6, tilt = (R()-0.5)*0.9;
+      gx.strokeStyle = `rgb(${v},${v},${v})`;
+      gx.beginPath(); gx.moveTo(px,py); gx.lineTo(px + tilt*len, py - len); gx.stroke();
+    }
+    grassMat = new THREE.MeshStandardMaterial({
+      map:texFrom(gc, 3, 3), normalMap:texFrom(heightToNormal(gc, 2.5), 3, 3),
+      color:0xA2AE78, roughness:1,
+    });
+  }
   for (const t of (activeMap.terrain || [])){
     const slab = new THREE.Mesh(
-      new THREE.BoxGeometry(t.w*S, 0.035, t.h*S), terrainMat);
+      new THREE.BoxGeometry(t.w*S, 0.035, t.h*S), t.kind === "grass" ? grassMat : terrainMat);
     slab.position.set((t.x+t.w/2)*S, 0.018, (t.y+t.h/2)*S);
     mapLayer.add(slab);
-    if (t.kind === "channel"){
+    if (t.kind === "grass"){
+      // 草地四周一圈矮石緣，取代發光的邊條：日光下不需要發光導引
+      const curbX = new THREE.BoxGeometry(t.w*S + 0.12, 0.08, 0.12);
+      const curbZ = new THREE.BoxGeometry(0.12, 0.08, t.h*S - 0.12);
+      for (const y of [t.y, t.y+t.h]){
+        const c = new THREE.Mesh(curbX, trimMat);
+        c.position.set((t.x+t.w/2)*S, 0.04, y*S);
+        mapLayer.add(c);
+      }
+      for (const x of [t.x, t.x+t.w]){
+        const c = new THREE.Mesh(curbZ, trimMat);
+        c.position.set(x*S, 0.04, (t.y+t.h/2)*S);
+        mapLayer.add(c);
+      }
+    } else if (t.kind === "channel"){
       const railGeo = new THREE.BoxGeometry(t.w*S-0.18, 0.025, 0.035);
       for (const y of [t.y+10, t.y+t.h-10]){
         const rail = new THREE.Mesh(railGeo, stripMat);
@@ -1420,16 +1482,40 @@ function addStrip(len, cx, cz, rotY){
   gl2.renderOrder = 2;
   mapLayer.add(gl2);
 }
+// 樹：樹幹加幾團低面數的樹冠。平面著色讓每個面迎光角度不同，
+// 在斜陽下自然分出亮面與暗面，不需要葉子貼圖
+const trunkMat  = new THREE.MeshStandardMaterial({color:0x5E5248, roughness:0.95});
+const leafMats  = [0x5A7E52, 0x4C6E48, 0x688A5C].map(c =>
+  new THREE.MeshStandardMaterial({color:c, roughness:0.9, flatShading:true}));
+const trunkGeo  = new THREE.CylinderGeometry(0.12, 0.2, 2.8, 9);
+const leafGeo   = new THREE.IcosahedronGeometry(1, 1);
+function addTree(cx, cz){
+  const trunk = new THREE.Mesh(trunkGeo, trunkMat);
+  trunk.position.set(cx, 1.4, cz);
+  mapLayer.add(trunk);
+  // 用位置當種子，樹冠的團塊排法每棵不同，但每次載入都一樣
+  let a = Math.floor(cx*97 + cz*131);
+  const R = () => (a = (a*1103515245+12345) & 0x7fffffff) / 0x7fffffff;
+  for (let i=0;i<4;i++){
+    const r = 0.8 + R()*0.55, ang = i*1.7 + R();
+    const leaf = new THREE.Mesh(leafGeo, leafMats[i % leafMats.length]);
+    leaf.scale.set(r, r*0.8, r);
+    leaf.position.set(cx + Math.cos(ang)*0.55*(i>0), 3.1 + R()*0.5, cz + Math.sin(ang)*0.55*(i>0));
+    leaf.rotation.set(R()*3, R()*3, 0);
+    mapLayer.add(leaf);
+  }
+}
 
 for (const w of WALLS){
-  const gw = w.w*S, gd = w.h*S;
-  const geo = rescaleBoxUV(new THREE.BoxGeometry(gw, WALL_H, gd), gw, WALL_H, gd, 0.42);
+  if (w.tree){ addTree((w.x+w.w/2)*S, (w.y+w.h/2)*S); continue; }
+  const gw = w.w*S, gd = w.h*S, wh = w.ht || WALL_H;
+  const geo = rescaleBoxUV(new THREE.BoxGeometry(gw, wh, gd), gw, wh, gd, 0.42);
   // 每面牆的貼圖錯開一段，板縫與鉚釘才不會每面都排在同樣位置
   const uvA = geo.attributes.uv, uOff = ((w.x*0.37 + w.y*0.61) % 1);
   for (let i=0;i<uvA.count;i++) uvA.setX(i, uvA.getX(i) + uOff);
   // 用座標當種子挑變體，同一面牆每次載入都長一樣
   const m = new THREE.Mesh(geo, wallMats[(w.x*7 + w.y*13) % wallMats.length]);
-  m.position.set((w.x+w.w/2)*S, WALL_H/2, (w.y+w.h/2)*S);
+  m.position.set((w.x+w.w/2)*S, wh/2, (w.y+w.h/2)*S);
   mapLayer.add(m);
   const e = new THREE.LineSegments(new THREE.EdgesGeometry(geo), edgeMat);
   e.position.copy(m.position);
@@ -1440,7 +1526,7 @@ for (const w of WALLS){
   const trimOut = 0.055;
   const corniceGeo = new THREE.BoxGeometry(gw + trimOut*2, 0.16, gd + trimOut*2);
   const cornice = new THREE.Mesh(corniceGeo, trimMat);
-  cornice.position.set((w.x+w.w/2)*S, WALL_H - 0.08, (w.y+w.h/2)*S);
+  cornice.position.set((w.x+w.w/2)*S, wh - 0.08, (w.y+w.h/2)*S);
   mapLayer.add(cornice);
   const baseGeo = new THREE.BoxGeometry(gw + trimOut*2, 0.22, gd + trimOut*2);
   const baseb = new THREE.Mesh(baseGeo, trimMat);
@@ -1460,7 +1546,7 @@ for (const w of WALLS){
       along ? rescaleBoxUV(new THREE.BoxGeometry(panW, 1.25, gd + 0.02), panW, 1.25, gd + 0.02, 0.42)
             : rescaleBoxUV(new THREE.BoxGeometry(gw + 0.02, 1.25, panW), gw + 0.02, 1.25, panW, 0.42),
       panelMat);
-    inset.position.set((w.x+w.w/2)*S, WALL_H*0.52, (w.y+w.h/2)*S);
+    inset.position.set((w.x+w.w/2)*S, wh*0.52, (w.y+w.h/2)*S);
     mapLayer.add(inset);
     const e3 = new THREE.LineSegments(new THREE.EdgesGeometry(inset.geometry), edgeMat);
     e3.position.copy(inset.position);
@@ -1469,7 +1555,7 @@ for (const w of WALLS){
 
   // 夠長的內牆才鋪燈條，外牆與小柱子留白
   const isOuter = (w.w >= W || w.h >= H);
-  if (!isOuter && Math.max(w.w, w.h) >= 150){
+  if (!isOuter && !w.ht && Math.max(w.w, w.h) >= 150){
     if (w.w >= w.h){
       addStrip(gw-0.2, (w.x+w.w/2)*S, w.y*S - 0.03, 0);
       addStrip(gw-0.2, (w.x+w.w/2)*S, (w.y+w.h)*S + 0.03, Math.PI);
@@ -1525,8 +1611,10 @@ function addDoorFrame(cx, cz, opening, depth, rotY){
 function addDoorFrames(){
   for (let i=0;i<WALLS.length;i++){
     const a = WALLS[i];
+    if (a.ht || a.tree) continue;
     for (let j=i+1;j<WALLS.length;j++){
       const b = WALLS[j];
+      if (b.ht || b.tree) continue;
       if (a.x === b.x && a.w === b.w){
         const first = a.y < b.y ? a : b, second = first === a ? b : a;
         const gap = second.y - (first.y + first.h);
@@ -1564,7 +1652,7 @@ addDoorFrames();
   for (const w of WALLS){
     // 只在夠長的牆面上掛東西，小柱子留白
     const long = Math.max(w.w, w.h);
-    if (long < 140) continue;
+    if (long < 140 || w.ht) continue;
     const horiz = w.w >= w.h;
     const n = Math.min(5, Math.floor(long/150));
     for (let i=0;i<n;i++){
@@ -1823,6 +1911,10 @@ function applyAtmo(){
   brightMat.uniforms.threshold.value = ATMO.threshold;
   compMat.uniforms.uVig.value = ATMO.vignette;
   compMat.uniforms.uGrade.value = ATMO.grade;
+  compMat.uniforms.uAberr.value = ATMO.aberr;
+  compMat.uniforms.uScan.value  = ATMO.scan;
+  compMat.uniforms.uNoise.value = ATMO.noise;
+  compMat.uniforms.uSharp.value = ATMO.sharp;
   const out = !!activeMap.outdoor;
   ceil.visible = !out;
   sky.visible = out;
@@ -2363,12 +2455,13 @@ const compMat = new THREE.ShaderMaterial({
     tScene:{value:null}, tBloom:{value:null},
     uBloom:{value:0.85}, uTime:{value:0},
     uDamage:{value:0}, uLow:{value:0}, uEcho:{value:0},
-    uAberr:{value:1.0}, uGain:{value:1.0}, uVig:{value:0.78}, uGrade:{value:1.0}, uRes:{value:new THREE.Vector2(1280,720)},
+    uAberr:{value:1.0}, uGain:{value:1.0}, uVig:{value:0.78}, uGrade:{value:1.0},
+    uScan:{value:0.07}, uNoise:{value:0.045}, uSharp:{value:0}, uRes:{value:new THREE.Vector2(1280,720)},
   },
   vertexShader:VERT,
   fragmentShader:`
     uniform sampler2D tScene, tBloom;
-    uniform float uBloom, uTime, uDamage, uLow, uEcho, uAberr, uGain, uVig, uGrade;
+    uniform float uBloom, uTime, uDamage, uLow, uEcho, uAberr, uGain, uVig, uGrade, uScan, uNoise, uSharp;
     uniform vec2 uRes;
     varying vec2 vUv;
     float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453); }
@@ -2395,6 +2488,14 @@ const compMat = new THREE.ShaderMaterial({
       col.r = texture2D(tScene, vUv + d*ab).r;
       col.g = texture2D(tScene, vUv).g;
       col.b = texture2D(tScene, vUv - d*ab).b;
+      // 銳化（反銳化遮罩）：原圖減掉上下左右四鄰的平均，把邊緣的反差拉回來，
+      // 抵銷多重取樣與貼圖過濾造成的些微柔焦
+      if (uSharp > 0.0){
+        vec2 px = 1.0 / uRes;
+        vec3 nb = texture2D(tScene, vUv + vec2(px.x,0.0)).rgb + texture2D(tScene, vUv - vec2(px.x,0.0)).rgb
+                + texture2D(tScene, vUv + vec2(0.0,px.y)).rgb + texture2D(tScene, vUv - vec2(0.0,px.y)).rgb;
+        col = max(col + (col - nb*0.25) * uSharp, vec3(0.0));
+      }
 
       // 感測器增益：只抬暗部，中間調以上維持原樣。
       // 全域 gamma 會把中間調一起拉高（0.5 變 0.75）讓整個畫面泛白；
@@ -2409,8 +2510,8 @@ const compMat = new THREE.ShaderMaterial({
       col = aces(col * 1.08);
 
       // 感測器的逐行掃描與緩慢捲動的更新帶
-      col *= 0.93 + 0.07 * sin(vUv.y * uRes.y * 1.6);
-      col += vec3(0.05,0.028,0.012) * smoothstep(0.86,1.0, sin(vUv.y*6.0 - uTime*0.8));
+      col *= 1.0 - uScan + uScan * sin(vUv.y * uRes.y * 1.6);
+      col += vec3(0.05,0.028,0.012) * smoothstep(0.86,1.0, sin(vUv.y*6.0 - uTime*0.8)) * (uScan / 0.07);
 
       // 暗角
       col *= 1.0 - smoothstep(0.30, 1.05, r) * uVig;
@@ -2421,7 +2522,7 @@ const compMat = new THREE.ShaderMaterial({
       col += vec3(0.55,0.40,1.0) * uEcho;
 
       // 感測器噪點
-      col += (hash(vUv*uRes + uTime*60.0) - 0.5) * (0.045 + (uGain-1.0)*0.055);
+      col += (hash(vUv*uRes + uTime*60.0) - 0.5) * (uNoise + (uGain-1.0)*0.055);
       gl_FragColor = vec4(col, 1.0);
     }`,
 });
@@ -3464,7 +3565,7 @@ function update(dt){
         sfxNoiseAt(bl.x,bl.y,0.04,0.055,3200);
         dead = true; break;
       }
-      if (inWall(bl.x,bl.y)){
+      if (inWallAt(bl.x,bl.y,bl.h)){
         spawnSpark(bl.x,bl.y,0x9B6BE8,4);
         addDecal(bl.x, bl.y, bl.h);
         sfxNoiseAt(bl.x,bl.y,0.05,0.16,1600);
@@ -4157,8 +4258,11 @@ function drawMinimap(x, ox, oy, size){
   x.fillRect(ox,oy,size,mh);
   x.strokeStyle = "rgba(196,86,42,.35)"; x.lineWidth = 1;
   x.strokeRect(ox+.5,oy+.5,size-1,mh-1);
-  x.fillStyle = "rgba(196,86,42,.34)";
-  for (const w of WALLS) x.fillRect(ox+w.x*k, oy+w.y*k, w.w*k, w.h*k);
+  for (const w of WALLS){
+    // 矮牆畫淡一點：它擋腳步但不擋視線
+    x.fillStyle = w.ht ? "rgba(196,86,42,.16)" : "rgba(196,86,42,.34)";
+    x.fillRect(ox+w.x*k, oy+w.y*k, w.w*k, w.h*k);
+  }
 
   // 只畫被聲納標記到的敵人，否則等於作弊
   for (const b of G.bots){

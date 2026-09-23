@@ -4806,7 +4806,14 @@ function update(dt){
       }
       // 側閃一旦開始就持續一段時間。原本側移一走得動，卡住計時就歸零，
       // 下一幀立刻轉回去撞牆，貼牆時每 0.3 秒抽搐一下
-      if (b.stuck > 0.3) b.dodge = 0.4;
+      // 剛生成的敵人 dodge 是 undefined，undefined <= 0 是 false，所以要寫成 !(> 0)
+      if (b.stuck > 0.3 && !(b.dodge > 0)){
+        b.dodge = 0.6;
+        // 側閃方向順著剛才沿牆滑動的方向（想走的方向在牆面上的分量），也就是離繞過障礙物最近的那一邊。
+        // 原本方向是隨機的：柱子旁邊往反方向閃，閃完又滑回原處，會在柱子邊來回好幾秒
+        const tx2 = b.hitX ? 0 : (Math.sign(ax) || 1), ty2 = b.hitX ? (Math.sign(ay) || 1) : 0;
+        if (b.hitX || b.hitY) b.strafe = (-ay*tx2 + ax*ty2) >= 0 ? 1 : -1;
+      }
       if (b.dodge > 0){
         b.dodge -= dt;
         const t2 = Math.atan2(ay,ax) + Math.PI/2*b.strafe;
@@ -4814,7 +4821,8 @@ function update(dt){
         if (b.stuck > 0.95){ b.stuck = 0; b.strafe *= -1; }
       }
       b.px = b.x; b.py = b.y;
-      moveWithCollision(b, ax*T.speed*dt, ay*T.speed*dt);
+      const bhit = moveWithCollision(b, ax*T.speed*dt, ay*T.speed*dt);
+      b.hitX = bhit.x; b.hitY = bhit.y;
       const bmoved = Math.hypot(b.x-b.px, b.y-b.py);
       b.moved = bmoved;
       b.stuck = bmoved < T.speed*dt*0.4 ? b.stuck + dt : 0;

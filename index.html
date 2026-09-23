@@ -913,6 +913,69 @@ ceil.rotation.x = Math.PI/2;
 ceil.position.set(W*S/2, WALL_H, H*S/2);
 scene.add(ceil);
 
+// ── 柔邊光效 ──
+// 均勻半透明的幾何體，輪廓就是一條硬邊，看起來像紙片而不是光。
+// 光柱改用 shader：表面越正對視線代表光穿過的厚度越厚，越亮；
+// 輪廓處表面與視線平行，淡到零，錐體的邊就消失了
+const shaftMat = new THREE.ShaderMaterial({
+  uniforms:{ uColor:{value:new THREE.Color()}, uFog:{value:scene.fog.density} },
+  vertexShader:`
+    varying float vH; varying vec3 vN; varying vec3 vV;
+    void main(){
+      vH = uv.y;
+      vec4 mv = modelViewMatrix * vec4(position, 1.0);
+      vN = normalMatrix * normal;
+      vV = -mv.xyz;
+      gl_Position = projectionMatrix * mv;
+    }`,
+  fragmentShader:`
+    uniform vec3 uColor; uniform float uFog;
+    varying float vH; varying vec3 vN; varying vec3 vV;
+    void main(){
+      float d = length(vV);
+      float facing = abs(dot(normalize(vN), vV / d));
+      float edge = pow(facing, 1.5);
+      // 燈具處最濃，往地面散開變淡
+      float fall = mix(0.12, 1.0, vH * vH);
+      // 走進光柱時不要整片糊住視線
+      float near = smoothstep(0.6, 3.0, d);
+      float fog = exp(-uFog * uFog * d * d);
+      gl_FragColor = vec4(uColor * (0.2 * edge * fall * near * fog), 1.0);
+    }`,
+  transparent:true, depthWrite:false,
+  blending:THREE.AdditiveBlending, side:THREE.DoubleSide,
+});
+const shaftGeo = new THREE.CylinderGeometry(0.28, 1.35, WALL_H-0.25, 20, 1, true);
+// 地上的亮斑：中心亮、往外淡出的圓
+const POOL_TEX = (() => {
+  const c = mkCanvas(128), x = c.getContext("2d");
+  const g = x.createRadialGradient(64,64,0, 64,64,64);
+  g.addColorStop(0, "rgba(255,255,255,1)");
+  g.addColorStop(0.45, "rgba(255,255,255,.45)");
+  g.addColorStop(1, "rgba(255,255,255,0)");
+  x.fillStyle = g; x.fillRect(0,0,128,128);
+  return new THREE.CanvasTexture(c);
+})();
+// 燈條溢光：寬度方向中間（貼牆處）最亮往兩側淡出，長度方向兩端也收掉
+const SPILL_TEX = (() => {
+  const c = document.createElement("canvas");
+  c.width = 256; c.height = 64;
+  const x = c.getContext("2d");
+  const v = x.createLinearGradient(0,0,0,64);
+  v.addColorStop(0, "rgba(255,255,255,0)");
+  v.addColorStop(0.5, "rgba(255,255,255,1)");
+  v.addColorStop(1, "rgba(255,255,255,0)");
+  x.fillStyle = v; x.fillRect(0,0,256,64);
+  x.globalCompositeOperation = "destination-in";
+  const u = x.createLinearGradient(0,0,256,0);
+  u.addColorStop(0, "rgba(0,0,0,0)");
+  u.addColorStop(0.06, "rgba(0,0,0,1)");
+  u.addColorStop(0.94, "rgba(0,0,0,1)");
+  u.addColorStop(1, "rgba(0,0,0,0)");
+  x.fillStyle = u; x.fillRect(0,0,256,64);
+  return new THREE.CanvasTexture(c);
+})();
+
 // ── 接觸陰影 ──
 // 沒有即時陰影可用（太貴），所以把牆腳的暗角預先畫成一張遮罩，
 // 用一層半透明黑鋪在地板上。少了這個，牆會像是浮在地面上
@@ -1019,6 +1082,10 @@ const terrainMat = new THREE.MeshStandardMaterial({
 });
 
 const stripMat = new THREE.MeshBasicMaterial({color:0x3FD9E0});
+const spillMat = new THREE.MeshBasicMaterial({
+  map:SPILL_TEX, color:0x2FA8B8, transparent:true, opacity:0.2,
+  blending:THREE.AdditiveBlending, depthWrite:false,
+});
   for (let i=0;i<wallMats.length;i++) wallMats[i].color.setHex(theme.walls[i]);
   edgeMat.color.setHex(theme.edge);
   trimMat.color.setHex(theme.trim);
@@ -1058,19 +1125,17 @@ const stripGeoCache = {}, stripGlowCache = {};
 function addStrip(len, cx, cz, rotY){
   const key = len.toFixed(2);
   if (!stripGeoCache[key]) stripGeoCache[key] = new THREE.BoxGeometry(len, 0.035, 0.022);
-  if (!stripGlowCache[key]) stripGlowCache[key] = new THREE.PlaneGeometry(len, 0.55);
+  if (!stripGlowCache[key]) stripGlowCache[key] = new THREE.PlaneGeometry(len, 1.1);
   const m = new THREE.Mesh(stripGeoCache[key], stripMat);
   m.position.set(cx, 0.10, cz);
   m.rotation.y = rotY;
   mapLayer.add(m);
-  // 燈條打在地上的溢光
-  const gl2 = new THREE.Mesh(stripGlowCache[key], new THREE.MeshBasicMaterial({
-    color:0x2FA8B8, transparent:true, opacity:0.11,
-    blending:THREE.AdditiveBlending, depthWrite:false,
-  }));
+  // 燈條打在地上的溢光。平面置中在燈條上，靠牆那一半被牆擋掉，
+  // 不必算朝外的方向（之前算的位移在東西向牆上是反的，整片溢光被推進牆裡）
+  const gl2 = new THREE.Mesh(stripGlowCache[key], spillMat);
   gl2.rotation.x = -Math.PI/2;
   gl2.rotation.z = -rotY;
-  gl2.position.set(cx + Math.sin(rotY)*0.30, 0.025, cz + Math.cos(rotY)*0.30);
+  gl2.position.set(cx, 0.025, cz);
   gl2.renderOrder = 2;
   mapLayer.add(gl2);
 }
@@ -1264,6 +1329,12 @@ addDoorFrames();
   const pipeMat = new THREE.MeshLambertMaterial({color:theme.pipe});
   const fixGeo  = new THREE.BoxGeometry(0.16, 0.06, 2.2);
   const housing = new THREE.BoxGeometry(0.34, 0.14, 2.5);
+  shaftMat.uniforms.uColor.value.setHex(theme.glow);
+  const poolMat = new THREE.MeshBasicMaterial({
+    map:POOL_TEX, color:theme.glow, transparent:true, opacity:0.2,
+    blending:THREE.AdditiveBlending, depthWrite:false,
+  });
+  const poolGeo = new THREE.CircleGeometry(1.7, 28);
 
   // 燈具位置是地圖資料的一部分，這樣換圖時地標也會一起換掉
   for (let i=0;i<activeMap.lights.length;i++){
@@ -1278,23 +1349,12 @@ addDoorFrames();
       f.position.set(px*S, WALL_H-0.15, py*S);
       if (L.dir === "y") f.rotation.y = Math.PI/2;
       mapLayer.add(f);
-      // 光柱：加法混色的錐體，在霧裡讀起來就是一道光
-      const shaft = new THREE.Mesh(
-        new THREE.ConeGeometry(1.25, WALL_H-0.25, 14, 1, true),
-        new THREE.MeshBasicMaterial({
-          color:theme.glow, transparent:true, opacity:0.045,
-          blending:THREE.AdditiveBlending, depthWrite:false,
-          side:THREE.DoubleSide,
-        }));
+      // 光柱：柔邊的截頭錐，在霧裡讀起來就是一道光
+      const shaft = new THREE.Mesh(shaftGeo, shaftMat);
       shaft.position.set(px*S, (WALL_H-0.25)/2, py*S);
       mapLayer.add(shaft);
       // 燈正下方在地上打出一圈亮斑
-      const pool = new THREE.Mesh(
-        new THREE.CircleGeometry(1.5, 22),
-        new THREE.MeshBasicMaterial({
-          color:theme.glow, transparent:true, opacity:0.05,
-          blending:THREE.AdditiveBlending, depthWrite:false,
-        }));
+      const pool = new THREE.Mesh(poolGeo, poolMat);
       pool.rotation.x = -Math.PI/2;
       pool.position.set(px*S, 0.02, py*S);
       mapLayer.add(pool);

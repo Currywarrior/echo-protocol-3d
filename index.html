@@ -566,8 +566,10 @@ function topAt(w, x, y, r){
           : w.ramp === "+y" ? (cy-w.y)/w.h : (w.y+w.h-cy)/w.h;
   return w.ht * t;
 }
-// 不用跳就能走上去的高度（台階、斜坡）
-const STEP_UP = 0.36;
+// 不用跳就能走上去的高度（台階、斜坡）。對齊主流 FPS：
+// Unreal（Valorant）角色移動預設 MaxStepHeight 45cm，Source（CS）sv_stepsize 18 單位約 0.46m。
+// 0.55m 的石階仍然要跳
+const STEP_UP = 0.45;
 // 跳起來時腳離頂面還差這麼多也算踩上去：跳躍頂點 0.77m，
 // 靠這段寬容剛好搆得到 1.05m 的矮牆，不需要另外的攀爬操作
 const LEDGE_REACH = 0.32;
@@ -600,16 +602,41 @@ function moveWithCollision(e,dx,dy,h,reach){
   // hard：撞到的是整面高牆，而不只是還踩不上去的矮地形
   return {x:hx, y:hy, hard};
 }
+// 站立的支撐只看腳底中心附近 FOOT 這一小圈，不是整個碰撞圓（半徑 13px ≈ 0.39m）。
+// 用整個圓的話，身體中心超出邊緣 0.39m 還站得住，0.72m 寬的矮牆上等於一直半懸空，
+// 低頭看到的是底下兩公尺外的地板，會有浮在空中的感覺
+const FOOT = 4;
 // 腳下的地面高度：站在矮牆、箱子或斜坡上就是它的頂面。
 // groundOnRamp 記錄這個高度是不是斜坡給的：斜坡上的高度是連續變化，鏡頭不需要平滑
 let groundOnRamp = false;
 function groundAt(e){
   let g = 0; groundOnRamp = false;
-  for (const w of WALLS) if (w.ht && aabbHit(e,w)){
-    const t = topAt(w, e.x, e.y, e.rad);
+  for (const w of WALLS) if (w.ht &&
+      e.x+FOOT > w.x && e.x-FOOT < w.x+w.w && e.y+FOOT > w.y && e.y-FOOT < w.y+w.h){
+    const t = topAt(w, e.x, e.y, FOOT);
     if (t > g){ g = t; groundOnRamp = !!w.ramp; }
   }
   return g;
+}
+// 走出邊緣後，碰撞圓還有一部分壓在箱子上方。放著不管的話，等人掉到比頂面低，
+// 那塊箱子開始擋人，碰撞解算會把人吸到箱子另一側（看起來是瞬移）。
+// 所以在空中壓著矮地形時就往外推：正常慢慢滑出去，已經會被擋住就一次推出
+function slideOffLedges(p, dt){
+  for (const w of WALLS){
+    if (!w.ht || !aabbHit(p,w)) continue;
+    // 最淺的那一側就是往外的方向
+    const pen = [[p.x+p.rad-w.x,-1,0],[w.x+w.w-(p.x-p.rad),1,0],
+                 [p.y+p.rad-w.y,0,-1],[w.y+w.h-(p.y-p.rad),0,1]];
+    let [depth,nx,ny] = pen[0];
+    for (const q of pen) if (q[0] < depth) [depth,nx,ny] = q;
+    const blocking = topAt(w, p.x, p.y, p.rad) > p.z + LEDGE_REACH + 0.02;
+    if (!blocking){
+      // 正在往箱子衝（跳上去的途中）就不推，否則會把人推離想踩上去的邊緣
+      if (p.vx*nx + p.vy*ny < -20) continue;
+      depth = Math.min(depth, 110*dt);
+    }
+    moveWithCollision(p, nx*(depth+0.01), ny*(depth+0.01), p.z, LEDGE_REACH);
+  }
 }
 // 2D 朝向角 → Three.js 的 Y 軸旋轉（物件預設面向 -Z）
 function yawOf(a){ return Math.atan2(-Math.cos(a), -Math.sin(a)); }
@@ -4137,6 +4164,7 @@ function update(dt){
       }
     }
     const onRampBefore = p.grounded && groundAt(p) > 0 && groundOnRamp;
+    if (!p.grounded) slideOffLedges(p, dt);
     const hitAx = moveWithCollision(p, p.vx*dt, p.vy*dt, p.z, p.grounded ? STEP_UP : LEDGE_REACH);
     const gHere = groundAt(p);
     if (p.grounded && Math.abs(p.z - gHere) > 0.001){

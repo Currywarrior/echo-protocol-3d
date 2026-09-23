@@ -1370,8 +1370,11 @@ function addDoorFrame(cx, cz, opening, depth, rotY){
     const m = new THREE.Mesh(geo, trimMat);
     m.position.set(x,y,z); g.add(m);
   };
-  putFrame(postGeo, -opening/2-postW/2, postY, 0);
-  putFrame(postGeo,  opening/2+postW/2, postY, 0);
+  // 柱子往門洞內側多凸出一點。貼齊的話柱子內側面會和牆的斷面完全重合，
+  // 深度值一模一樣，GPU 每幀輪流畫兩者，整面一直閃
+  const postIn = 0.015;
+  putFrame(postGeo, -opening/2-postW/2+postIn, postY, 0);
+  putFrame(postGeo,  opening/2+postW/2-postIn, postY, 0);
   putFrame(beamGeo, 0, beamY, 0);
   // 門檻上的警示斜紋
   const paint = new THREE.Mesh(new THREE.PlaneGeometry(opening, 0.42), doorPaintMat);

@@ -117,6 +117,20 @@
   .settings input[type=range]{width:100%;accent-color:var(--heat);}
   .panels{display:flex;flex-wrap:wrap;justify-content:center;align-items:flex-start;gap:14px;width:100%;}
   .settings label.opt{grid-template-columns:1fr 200px;}
+  /* 按鍵設定：兩欄排列，動作多時可以捲動 */
+  .bindlist{
+    display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:4px 18px;
+    width:min(100%,760px);max-height:52vh;overflow-y:auto;
+    border:1px solid var(--line);border-radius:3px;background:var(--panel);padding:10px 14px;
+  }
+  .bindrow{display:grid;grid-template-columns:1fr 92px 92px;align-items:center;gap:6px;font-size:12px;color:var(--muted);text-align:left;}
+  .bindkey{
+    font:600 11px "IBM Plex Mono",ui-monospace,monospace;letter-spacing:.04em;padding:6px 4px;
+    background:transparent;color:var(--ink);border:1px solid var(--line);
+  }
+  .bindkey:hover{transform:none;box-shadow:none;border-color:var(--heat);}
+  .bindkey.wait{color:#1A0A02;background:var(--heat);border-color:var(--heat);}
+  .bindbtns{display:flex;gap:12px;}
   .settings select{
     width:100%;padding:6px 8px;color:var(--ink);background:var(--panel);
     border:1px solid var(--line);border-radius:3px;font:600 11px "Chakra Petch",system-ui;
@@ -178,25 +192,26 @@
         </select>
       </label>
       <div class="keys">
-        <div class="key"><b>W A S D</b><span>移動</span></div>
+        <div class="key"><b data-act="forward left back right">W A S D</b><span>移動</span></div>
         <div class="key"><b>MOUSE</b><span>視角</span></div>
-        <div class="key"><b>LMB</b><span>射擊</span></div>
-        <div class="key"><b>RMB</b><span>切換瞄準（<i>LANCE</i> 是倍率鏡）</span></div>
-        <div class="key"><b>SPACE</b><span>跳躍（空中槍口會散）</span></div>
-        <div class="key"><b>R</b><span>換彈</span></div>
-        <div class="key"><b>F</b><span>檢視武器</span></div>
-        <div class="key"><b>1</b><span><i>VECTOR</i>：連發、28 發</span></div>
-        <div class="key"><b>2</b><span><i>LANCE</i>：一槍一殺、5 發</span></div>
-        <div class="key"><b>3</b><span><i>BREACH</i>：近距離散彈、6 發</span></div>
-        <div class="key"><b>WHEEL</b><span>滾輪循環切換武器</span></div>
-        <div class="key"><b>SHIFT</b><span>衝刺（槍口會散開）</span></div>
-        <div class="key"><b>CTRL</b><span>蹲下；衝刺中按下是<i>滑鏟</i>，滑行中可以跳</span></div>
-        <div class="key"><b>T / X</b><span>訓練場：在面前佈置假人 / 統計歸零</span></div>
+        <div class="key"><b data-act="fire">LMB</b><span>射擊</span></div>
+        <div class="key"><b data-act="ads">RMB</b><span>切換瞄準（<i>LANCE</i> 是倍率鏡）</span></div>
+        <div class="key"><b data-act="jump">SPACE</b><span>跳躍（空中槍口會散）</span></div>
+        <div class="key"><b data-act="reload">R</b><span>換彈</span></div>
+        <div class="key"><b data-act="inspect">F</b><span>檢視武器</span></div>
+        <div class="key"><b data-act="gun1">1</b><span><i>VECTOR</i>：連發、28 發</span></div>
+        <div class="key"><b data-act="gun2">2</b><span><i>LANCE</i>：一槍一殺、5 發</span></div>
+        <div class="key"><b data-act="gun3">3</b><span><i>BREACH</i>：近距離散彈、6 發</span></div>
+        <div class="key"><b>設定</b><span>按鍵都能在<i>按鍵設定</i>改；滾輪預設上 = 前進、下 = 跳</span></div>
+        <div class="key"><b data-act="sprint">SHIFT</b><span>衝刺（槍口會散開）</span></div>
+        <div class="key"><b data-act="crouch">CTRL</b><span>蹲下；衝刺中按下是<i>滑鏟</i>，滑行中可以跳</span></div>
+        <div class="key"><b data-act="deploy resetStats">T / X</b><span>訓練場：在面前佈置假人 / 統計歸零</span></div>
         <div class="key"><b>部位</b><span>爆頭 <i>2.5 倍</i>、軀幹 1 倍、腿 0.6 倍</span></div>
-        <div class="key"><b>Q</b><span><i>聲納</i>：穿牆標記敵人 3 秒</span></div>
-        <div class="key"><b>E</b><span><i class="v">ECHO</i>：回到三秒前的位置與血量</span></div>
+        <div class="key"><b data-act="sonar">Q</b><span><i>聲納</i>：穿牆標記敵人 3 秒</span></div>
+        <div class="key"><b data-act="echo">E</b><span><i class="v">ECHO</i>：回到三秒前的位置與血量</span></div>
       </div>
       <button id="btnStart">開始部署</button>
+      <button type="button" class="ghost keysbtn">按鍵設定</button>
       <button type="button" class="ghost fsbtn">全螢幕</button>
       <p class="hint">點擊畫面會鎖定滑鼠，按 ESC 解除</p>
     </div>
@@ -240,6 +255,7 @@
           <button type="button" id="btnClearTrack">清除</button>
         </div>
         <p class="tracknote">音檔只存在你這台瀏覽器裡，不會寫進遊戲檔案</p>
+        <button type="button" class="ghost keysbtn">按鍵設定</button>
         <button type="button" class="ghost fsbtn">全螢幕</button>
       </div>
       <div class="settings" id="rangeSet" hidden>
@@ -274,9 +290,20 @@
       <button type="button" class="ghost" id="btnMenuPause">返回主選單</button>
       <p class="lede">點擊畫面回到遊戲。</p>
     </div>
+
+    <div class="overlay" id="overKeys" hidden>
+      <div class="eyebrow">Controls</div>
+      <h1>按鍵設定</h1>
+      <div class="bindlist" id="bindList"></div>
+      <p class="tracknote">點一個欄位，再按下想要的鍵、滑鼠按鍵或滾動滾輪。Esc 取消，Backspace 清除這一欄。同一個輸入只能對應一個動作，綁到新動作時會從舊的拿掉。</p>
+      <div class="bindbtns">
+        <button type="button" class="ghost" id="btnBindReset">恢復預設</button>
+        <button type="button" id="btnBindDone">完成</button>
+      </div>
+    </div>
   </div>
 </div>
-<p class="footnote"><b>Q</b> 聲納 · <b>E</b> 回溯 · <b>1 / 2</b> 換槍　—　需要鍵盤滑鼠</p>
+<p class="footnote"><b data-act="sonar">Q</b> 聲納 · <b data-act="echo">E</b> 回溯 · <b data-act="gun1 gun2 gun3">1 2 3</b> 換槍　—　需要鍵盤滑鼠</p>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.147.0/three.min.js"></script>
 <script>
@@ -4383,8 +4410,62 @@ let yaw = 0, pitch = 0, locked = false;
 let rcPitch = 0, rcYaw = 0, rcHold = 0;
 function aimPitch(){ return pitch + rcPitch; }
 function aimYaw(){ return yaw + rcYaw; }
-const keys = new Set();
-const mouse = {down:false};
+// ── 按鍵綁定 ──
+// 綁定存的是 KeyboardEvent.code（實體按鍵的位置，不受輸入法、大小寫、鍵盤配置影響），
+// 滑鼠按鍵是 Mouse0～Mouse4，滾輪是 WheelUp / WheelDown。每個動作有兩個欄位。
+// 預設把滾輪綁成前進與跳躍：Apex 玩家常用的設定，滾輪跳比空白鍵好抓滑鏟跳與 superglide 的時機
+const ACTIONS = [
+  {id:"forward",    label:"前進",             def:["KeyW", "WheelUp"]},
+  {id:"back",       label:"後退",             def:["KeyS", ""]},
+  {id:"left",       label:"左移",             def:["KeyA", ""]},
+  {id:"right",      label:"右移",             def:["KeyD", ""]},
+  {id:"jump",       label:"跳躍",             def:["Space", "WheelDown"]},
+  {id:"crouch",     label:"蹲下 / 滑鏟",      def:["ControlLeft", "KeyC"]},
+  {id:"sprint",     label:"衝刺",             def:["ShiftLeft", ""]},
+  {id:"fire",       label:"射擊",             def:["Mouse0", ""]},
+  {id:"ads",        label:"瞄準（切換）",     def:["Mouse2", ""]},
+  {id:"reload",     label:"換彈",             def:["KeyR", ""]},
+  {id:"inspect",    label:"檢視武器",         def:["KeyF", ""]},
+  {id:"sonar",      label:"聲納",             def:["KeyQ", ""]},
+  {id:"echo",       label:"ECHO 回溯",        def:["KeyE", ""]},
+  {id:"gun1",       label:"武器 1 · VECTOR",  def:["Digit1", ""]},
+  {id:"gun2",       label:"武器 2 · LANCE",   def:["Digit2", ""]},
+  {id:"gun3",       label:"武器 3 · BREACH",  def:["Digit3", ""]},
+  {id:"nextGun",    label:"下一把武器",       def:["", ""]},
+  {id:"prevGun",    label:"上一把武器",       def:["", ""]},
+  {id:"deploy",     label:"訓練場：佈置假人", def:["KeyT", ""]},
+  {id:"resetStats", label:"訓練場：統計歸零", def:["KeyX", ""]},
+];
+const BINDS = {};
+function resetBinds(){ for (const a of ACTIONS) BINDS[a.id] = a.def.slice(); }
+resetBinds();
+try {
+  const saved = JSON.parse(localStorage.getItem("echo3d.binds") || "null");
+  if (saved) for (const a of ACTIONS){
+    if (Array.isArray(saved[a.id])) BINDS[a.id] = [saved[a.id][0] || "", saved[a.id][1] || ""];
+  }
+} catch(e){}
+function saveBinds(){ try { localStorage.setItem("echo3d.binds", JSON.stringify(BINDS)); } catch(e){} }
+// keys：目前按著的輸入。wheelTap：這一幀的滾輪——滾輪沒有「按住」，一格就算按下一幀，update 用完清掉
+const keys = new Set(), wheelTap = new Set();
+function held(id){
+  for (const c of BINDS[id]) if (c && (keys.has(c) || wheelTap.has(c))) return true;
+  return false;
+}
+function actionsOf(code){ return ACTIONS.filter(a => BINDS[a.id].includes(code)).map(a => a.id); }
+const KEY_NAMES = {
+  Space:"SPACE", ShiftLeft:"L-SHIFT", ShiftRight:"R-SHIFT", ControlLeft:"L-CTRL", ControlRight:"R-CTRL",
+  AltLeft:"L-ALT", AltRight:"R-ALT", Tab:"TAB", CapsLock:"CAPS", Enter:"ENTER", Backquote:"`",
+  Minus:"-", Equal:"=", BracketLeft:"[", BracketRight:"]", Backslash:"\\", Semicolon:";", Quote:"'",
+  Comma:",", Period:".", Slash:"/", ArrowUp:"UP", ArrowDown:"DOWN", ArrowLeft:"LEFT", ArrowRight:"RIGHT",
+  Mouse0:"LMB", Mouse1:"MMB", Mouse2:"RMB", Mouse3:"M4", Mouse4:"M5", WheelUp:"滾輪上", WheelDown:"滾輪下",
+};
+function keyLabel(code){
+  if (!code) return "";
+  return KEY_NAMES[code] || code.replace(/^Key/, "").replace(/^Digit/, "").replace(/^Numpad/, "NUM ").toUpperCase();
+}
+// 提示文字用：動作的主要綁定（第一欄沒綁就用第二欄）
+function bindLabel(id){ const b = BINDS[id]; return keyLabel(b[0] || b[1]) || "未綁定"; }
 let scale = 1;
 try { best = parseInt(localStorage.getItem("echo3d.best")||"0",10)||0; } catch(e){}
 
@@ -4596,9 +4677,10 @@ function deployDummies(auto){
   }
   for (const s of best.spots) G.bots.push(makeDummy(s.x, s.y, best.ax, best.ay));
   const placed = best.spots.length;
-  if (!placed) banner("NO CLEAR LANE", "前方太近就有牆，轉向開闊的方向再按 T");
-  else if (placed < LANE.length) banner("RANGE · " + placed + " TARGETS", "有些距離被擋住了，換個更開闊的方向按 T 可以放滿四隻");
-  else banner("RANGE · " + placed + " TARGETS", "T 在面前重新佈置 · X 統計歸零 · ESC 調整假人");
+  const kT = bindLabel("deploy"), kX = bindLabel("resetStats");
+  if (!placed) banner("NO CLEAR LANE", "前方太近就有牆，轉向開闊的方向再按 " + kT);
+  else if (placed < LANE.length) banner("RANGE · " + placed + " TARGETS", "有些距離被擋住了，換個更開闊的方向按 " + kT + " 可以放滿四隻");
+  else banner("RANGE · " + placed + " TARGETS", kT + " 在面前重新佈置 · " + kX + " 統計歸零 · ESC 調整假人");
   sfx("sine", 520, 0.12, 0.04, 780);
 }
 function resetRangeStats(){
@@ -4925,8 +5007,8 @@ function update(dt){
     const ay = aimYaw();
     const fwdX = -Math.sin(ay), fwdY = -Math.cos(ay);
     const rgtX =  Math.cos(ay), rgtY = -Math.sin(ay);
-    let mf = (keys.has("w")?1:0) - (keys.has("s")?1:0);
-    let mr = (keys.has("d")?1:0) - (keys.has("a")?1:0);
+    let mf = (held("forward")?1:0) - (held("back")?1:0);
+    let mr = (held("right")?1:0) - (held("left")?1:0);
     G.strafe = mr;
     // 瞄準是切換式的。換彈、衝刺、失去鎖定時強制退出，
     // 而且把切換狀態一起關掉，不然條件解除後會自己彈回瞄準
@@ -4977,7 +5059,7 @@ function update(dt){
         else sfxNoise(0.05, 0.016, 420);
         // 壓著蹲落地、速度又夠快，就直接接滑鏟（Apex 的空中滑鏟）。
         // 加速冷卻通常還沒好，所以是保留速度滑出去，不會再加速
-        if (keys.has("control") && Math.hypot(p.vx, p.vy) > SLIDE.enter) startSlide(p);
+        if (held("crouch") && Math.hypot(p.vx, p.vy) > SLIDE.enter) startSlide(p);
       }
       // 在空中槍口會散開，跳起來亂射不划算
       p.bloom = Math.min(0.16, p.bloom + dt*0.55);
@@ -4985,7 +5067,7 @@ function update(dt){
     G.stunT = Math.max(0, G.stunT - dt);
 
     // 滑鏟：衝刺中（速度超過門檻）按下蹲就滑出去；放開蹲或離地就結束
-    const crouchKey = keys.has("control");
+    const crouchKey = held("crouch");
     if (crouchKey && !G.crouchPrev && p.grounded && !G.sliding && G.mode !== "dead" &&
         Math.hypot(p.vx, p.vy) > SLIDE.enter) startSlide(p);
     G.crouchPrev = crouchKey;
@@ -5000,7 +5082,7 @@ function update(dt){
     const bx = p.x, by = p.y;
 
     // 衝刺：Apex 只能往前方左右各 45 度內衝刺（W 加 A/D 斜走剛好 45 度），地面、非瞄準、沒有摔落硬直
-    const sprint = keys.has("shift") && mf > 0 && p.reloading <= 0 &&
+    const sprint = held("sprint") && mf > 0 && p.reloading <= 0 &&
                    !G.crouching && p.grounded && G.adsT < 0.2 && G.stunT <= 0;
     G.sprinting = sprint;
     if (sprint) p.bloom = Math.min(0.14, p.bloom + dt*0.5);
@@ -5111,7 +5193,7 @@ function update(dt){
       p.reloading -= dt;
       if (p.reloading <= 0){ p.mags[p.gun] = gun().mag; sfx("sine",320,0.08,0.045,460); }
     }
-    if (mouse.down && locked && G.mode === "fight" && (gun().auto || !p.firedThisPress)){
+    if (held("fire") && locked && G.mode === "fight" && (gun().auto || !p.firedThisPress)){
       if (playerShoot()) p.firedThisPress = true;
     }
 
@@ -5502,6 +5584,7 @@ function update(dt){
     G.feed[i].life -= dt;
     if (G.feed[i].life <= 0) G.feed.splice(i,1);
   }
+  wheelTap.clear();     // 滾輪的「按下一幀」到此用完
 }
 
 // ─────────────────────────────────────────────
@@ -5835,7 +5918,7 @@ function drawUI(){
   } else if (p.mags[g.key] === 0){
     uctx.fillStyle = "#FF4D5E";
     uctx.font = '700 11px "Chakra Petch", system-ui';
-    uctx.fillText("PRESS  R", w-28, h-30);
+    uctx.fillText("PRESS  " + bindLabel("reload"), w-28, h-30);
   }
 
   // 回合與分數；訓練場改成統計面板
@@ -5988,7 +6071,7 @@ function drawRangeHud(w, h, cx){
     uctx.font = '600 10px "Chakra Petch", system-ui';
   }
   uctx.textAlign = "left"; uctx.fillStyle = "rgba(145,132,180,.7)";
-  uctx.fillText("T 佈置  ·  X 歸零  ·  ESC 設定", x0 + 10, y0 + rows.length*19 + 20);
+  uctx.fillText(bindLabel("deploy") + " 佈置  ·  " + bindLabel("resetStats") + " 歸零  ·  ESC 設定", x0 + 10, y0 + rows.length*19 + 20);
 
   for (const b of G.bots){
     if (!b.dummy) continue;
@@ -6154,25 +6237,37 @@ function layout(){
 addEventListener("resize", layout);
 
 // ── 輸入 ──
-const HANDLED = new Set(["w","a","s","d","q","e","r","f","t","x","1","2","3"," ","shift","control"]);
-addEventListener("keydown", ev => {
-  const k = ev.key.toLowerCase();
-  if (HANDLED.has(k)) ev.preventDefault();
-  if (ev.repeat) return;
-  keys.add(k);
+// 按下類的動作：鍵盤、滑鼠按鍵、滾輪都走這一條，所以任何動作都能綁在任何輸入上
+function inputDown(code){
   if (!G || G.mode === "dead" || !locked) return;
-  if (k === " ") G.jumpPress = true;
-  if (k === "r") startReload();
-  if (k === "f" && canInspect()) vm.inspect = 1;
-  if (k === "q") useSonar();
-  if (k === "e") useEcho();
-  if (k === "1") swapGun("vector");
-  if (k === "2") swapGun("lance");
-  if (k === "3") swapGun("breach");
-  if (k === "t" && G.practice) deployDummies();
-  if (k === "x" && G.practice) resetRangeStats();
+  for (const id of actionsOf(code)){
+    if (id === "jump") G.jumpPress = true;
+    else if (id === "fire") G.player.firedThisPress = false;
+    else if (id === "ads") G.adsOn = !G.adsOn;
+    else if (id === "reload") startReload();
+    else if (id === "inspect"){ if (canInspect()) vm.inspect = 1; }
+    else if (id === "sonar") useSonar();
+    else if (id === "echo") useEcho();
+    else if (id === "gun1") swapGun("vector");
+    else if (id === "gun2") swapGun("lance");
+    else if (id === "gun3") swapGun("breach");
+    else if (id === "nextGun" || id === "prevGun"){
+      const i = GUN_ORDER.indexOf(G.player.gun), step = id === "nextGun" ? 1 : -1;
+      swapGun(GUN_ORDER[(i + step + GUN_ORDER.length) % GUN_ORDER.length]);
+    }
+    else if (id === "deploy"){ if (G.practice) deployDummies(); }
+    else if (id === "resetStats"){ if (G.practice) resetRangeStats(); }
+  }
+}
+addEventListener("keydown", ev => {
+  if (bindWait){ captureKey(ev); return; }
+  if (!overKeys.hidden && ev.code === "Escape"){ closeKeys(); return; }
+  if (actionsOf(ev.code).length) ev.preventDefault();
+  if (ev.repeat) return;
+  keys.add(ev.code);
+  inputDown(ev.code);
 });
-addEventListener("keyup", ev => keys.delete(ev.key.toLowerCase()));
+addEventListener("keyup", ev => keys.delete(ev.code));
 // 視窗失去焦點或分頁被切走時，主動解除指標鎖定。
 // Chrome 在 Windows 上是用 ClipCursor 把游標關在網頁範圍裡，失焦時偶爾會漏掉解除，
 // 結果切到別的程式後游標還被關在舊的矩形裡（Leo 實際遇過）。不要依賴瀏覽器自己解
@@ -6211,37 +6306,32 @@ addEventListener("focus", () => lockLog("focus"));
 // 鎖定中視窗尺寸改變（切全螢幕、拖到另一個縮放比例不同的螢幕）就先解鎖：
 // Chrome 用 ClipCursor 實作鎖定，範圍在尺寸變動時可能沒跟著更新，會把游標關在舊的矩形裡
 addEventListener("resize", () => { lockLog("resize"); dropPointerLock(); });
-addEventListener("blur", () => { lockLog("blur"); keys.clear(); mouse.down = false; dropPointerLock(); });
+addEventListener("blur", () => { lockLog("blur"); keys.clear(); wheelTap.clear(); dropPointerLock(); });
 document.addEventListener("visibilitychange", () => { lockLog("visibility hidden=" + document.hidden); if (document.hidden) dropPointerLock(); });
 
 glCanvas.addEventListener("mousedown", ev => {
   ev.preventDefault();
   audioOn();
   if (!locked){ requestLock(); return; }  // 第一下只負責鎖定，不會誤射
-  if (ev.button === 2){ if (G) G.adsOn = !G.adsOn; return; }   // 右鍵切換瞄準
-  if (ev.button !== 0) return;
-  mouse.down = true;
-  if (G) G.player.firedThisPress = false;
+  keys.add("Mouse" + ev.button);
+  inputDown("Mouse" + ev.button);
 });
-addEventListener("mouseup", ev => {
-  if (ev.button !== 2) mouse.down = false;
-});
+addEventListener("mouseup", ev => keys.delete("Mouse" + ev.button));
 glCanvas.addEventListener("contextmenu", ev => ev.preventDefault());
 
-let wheelAcc = 0, wheelNext = 0;
+// 滾輪：每一格算一次按下（見 wheelTap）。觸控板會連續送很小的位移，累積滿 50 才算一格；
+// 一般滑鼠滾輪一格是 100，一次事件就是一格。不設冷卻，快速滾動就是連續按，滾輪跳才抓得到時機
+let wheelAcc = 0;
 addEventListener("wheel", ev => {
+  if (bindWait){ ev.preventDefault(); captureCode(ev.deltaY < 0 ? "WheelUp" : "WheelDown"); return; }
   if (!locked || !G || G.mode === "dead") return;
   ev.preventDefault();
-  // 冷卻用真實時鐘，不用遊戲的 dt——輸入的節流不該受遊戲迴圈快慢影響
-  const now = performance.now();
-  if (now < wheelNext) return;
   wheelAcc += ev.deltaY;
-  const step = wheelAcc >= 50 ? 1 : wheelAcc <= -50 ? -1 : 0;
-  if (!step) return;
+  if (Math.abs(wheelAcc) < 50) return;
+  const code = wheelAcc < 0 ? "WheelUp" : "WheelDown";
   wheelAcc = 0;
-  wheelNext = now + 140;
-  const i = GUN_ORDER.indexOf(G.player.gun);
-  swapGun(GUN_ORDER[(i + step + GUN_ORDER.length) % GUN_ORDER.length]);
+  wheelTap.add(code);
+  inputDown(code);
 }, {passive:false});
 
 document.addEventListener("pointerlockchange", () => {
@@ -6251,7 +6341,7 @@ document.addEventListener("pointerlockchange", () => {
   if (document.pointerLockElement && (document.hidden || !document.hasFocus())){ dropPointerLock(); return; }
   locked = document.pointerLockElement === glCanvas;
   if (!locked){
-    mouse.down = false; keys.clear();
+    keys.clear(); wheelTap.clear();
     if (G && G.mode !== "dead" && overStart.hidden && overDead.hidden) overPause.hidden = false;
   } else {
     overPause.hidden = true;
@@ -6278,6 +6368,7 @@ addEventListener("mousemove", ev => {
 });
 frame.addEventListener("click", (ev) => {
   if (ev.target.closest(".settings") || ev.target.closest(".fsbtn")) return;   // 在調設定，不要把滑鼠鎖回去
+  if (!overKeys.hidden) return;                                                 // 按鍵設定畫面開著
   if (!locked && G && G.mode !== "dead" && overStart.hidden && overDead.hidden){
     requestLock();
   }
@@ -6319,6 +6410,79 @@ elTrack.addEventListener("change", () => {
   audioOn();
 });
 document.getElementById("btnClearTrack").addEventListener("click", clearTrack);
+
+// ── 按鍵設定畫面 ──
+// 點一個欄位就進入等待（bindWait），下一個按鍵、滑鼠按鍵或滾輪就是新的綁定
+const overKeys = document.getElementById("overKeys");
+const bindList = document.getElementById("bindList");
+let bindWait = null, swallowClick = false;
+function renderBinds(){
+  bindList.textContent = "";
+  for (const a of ACTIONS){
+    const row = document.createElement("div");
+    row.className = "bindrow";
+    const name = document.createElement("span");
+    name.textContent = a.label;
+    row.appendChild(name);
+    for (let slot=0; slot<2; slot++){
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "bindkey";
+      const waiting = bindWait && bindWait.id === a.id && bindWait.slot === slot;
+      b.textContent = waiting ? "按下按鍵…" : (keyLabel(BINDS[a.id][slot]) || "—");
+      if (waiting) b.classList.add("wait");
+      b.addEventListener("click", () => { bindWait = {id:a.id, slot}; renderBinds(); });
+      row.appendChild(b);
+    }
+    bindList.appendChild(row);
+  }
+}
+// 選單、HUD 上的按鍵提示跟著綁定變
+function refreshKeyHints(){
+  for (const el of document.querySelectorAll("[data-act]")){
+    el.textContent = el.dataset.act.split(" ").map(bindLabel).join(" ");
+  }
+}
+// code 是新的輸入；"" 代表清除這一欄
+function captureCode(code){
+  const {id, slot} = bindWait;
+  bindWait = null;
+  if (code){
+    // 同一個輸入只能對應一個動作，從其他地方拿掉
+    for (const a of ACTIONS) for (let i=0;i<2;i++) if (BINDS[a.id][i] === code) BINDS[a.id][i] = "";
+  }
+  BINDS[id][slot] = code;
+  saveBinds();
+  renderBinds(); refreshKeyHints();
+}
+function captureKey(ev){
+  ev.preventDefault();
+  if (ev.code === "Escape"){ bindWait = null; renderBinds(); return; }
+  if (ev.code === "Backspace" || ev.code === "Delete"){ captureCode(""); return; }
+  captureCode(ev.code);
+}
+// 滑鼠按鍵要在捕獲階段攔下，否則那一下點擊還會落到底下的按鈕上
+addEventListener("mousedown", ev => {
+  if (!bindWait) return;
+  ev.preventDefault(); ev.stopPropagation();
+  // 只有左鍵會接著觸發 click；右鍵、側鍵不會，設了旗標會吞掉下一次正常的點擊
+  swallowClick = ev.button === 0;
+  captureCode("Mouse" + ev.button);
+}, true);
+addEventListener("click", ev => {
+  if (swallowClick){ swallowClick = false; ev.preventDefault(); ev.stopPropagation(); }
+}, true);
+overKeys.addEventListener("contextmenu", ev => ev.preventDefault());
+function openKeys(){ bindWait = null; renderBinds(); overKeys.hidden = false; }
+function closeKeys(){ bindWait = null; overKeys.hidden = true; }
+for (const b of document.querySelectorAll(".keysbtn")){
+  b.addEventListener("click", ev => { ev.stopPropagation(); openKeys(); });
+}
+document.getElementById("btnBindDone").addEventListener("click", ev => { ev.stopPropagation(); closeKeys(); });
+document.getElementById("btnBindReset").addEventListener("click", ev => {
+  ev.stopPropagation();
+  resetBinds(); saveBinds(); renderBinds(); refreshKeyHints();
+});
+refreshKeyHints();
 
 // 訓練場設定：和其他設定一樣存在瀏覽器本機
 const rangeSet = document.getElementById("rangeSet");

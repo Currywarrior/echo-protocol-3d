@@ -4638,6 +4638,8 @@ const ACTIONS = [
   {id:"prevGun",    label:"上一把武器",       def:["", ""]},
   {id:"deploy",     label:"訓練場：佈置假人", def:["KeyT", ""]},
   {id:"resetStats", label:"訓練場：統計歸零", def:["KeyX", ""]},
+  {id:"lessonNext", label:"教學：開始 / 下一課", def:["KeyH", ""]},
+  {id:"lessonPrev", label:"教學：上一課",       def:["KeyJ", ""]},
 ];
 const BINDS = {};
 function resetBinds(){ for (const a of ACTIONS) BINDS[a.id] = a.def.slice(); }
@@ -4705,7 +4707,10 @@ function newGame(){
     mantle:null, climb:null, climbSpace:WT.climbSpace, lastFace:null,
     frameNo:0, sgFrame:-9, sgSprint:false, jumpT:-9, dirPrev:0,
     // 後座力圖形與壓槍分析：sprayN 是這一串第幾發，aimVX 是準心橫移速度，smoothT 是平滑射擊提示的剩餘時間
-    sprayN:0, lastShotT:-9, spray:{gun:"vector", ads:false, yaw0:0, pitch0:0, pts:[]}, aimVX:0, smoothT:0,
+    sprayN:0, lastShotT:-9, spray:{gun:"vector", ads:false, yaw0:0, pitch0:0, pts:[], smoothN:0, adad:0, lastStrafe:0, judged:true},
+    aimVX:0, smoothT:0,
+    // 教學：lessonOn 是否開著、lessonI 第幾課、lessonN 這一課成功幾次；trackHold 是這一次按住射擊的跟槍計時
+    lessonOn:false, lessonI:0, lessonN:0, takeoffSp:0, takeoffKind:"jump", trackHold:{t:0, on:0},
     // 訓練場
     practice:modeSelect.value === "range", rs:freshRangeStats(), respawns:[],
     breakMark:0, breakColor:"#FFFFFF",
@@ -4893,6 +4898,87 @@ function deployDummies(auto){
   else banner("RANGE · " + placed + " TARGETS", kT + " 在面前重新佈置 · " + kX + " 統計歸零 · ESC 調整假人");
   sfx("sine", 520, 0.12, 0.04, 780);
 }
+// ── 身法與槍法教學（訓練場）──
+// 每一課：說明幾行、要偵測的事件（lessonEvent 的名字）與要成功幾次。
+// 說明是函式，按鍵名稱跟著目前的按鍵設定走
+const K = id => bindLabel(id);
+const LESSONS = [
+  {title:"滑鏟", ev:"slide", n:3, lines:() => [
+    "衝刺（按住 " + K("forward") + " + " + K("sprint") + "）到全速，再按一下蹲（" + K("crouch") + "）",
+    "畫面壓低、準心下方出現 SLIDE 就是在滑，會先往前衝一段",
+    "加速有 2 秒冷卻：滑完先跑一下再滑，才會再衝出去"]},
+  {title:"滑鏟跳", ev:"slideJump", n:3, lines:() => [
+    "衝刺中按蹲滑出去，約 0.25 秒後按跳（" + K("jump") + "）",
+    "太早按不會跳：Apex 要滑超過 0.24 秒或速度降下來才准起跳",
+    "Apex 玩家常把跳綁在滾輪下，滑鏟時手指不用離開移動鍵"]},
+  {title:"空中轉向（air strafe）", ev:"airStrafe", n:2, lines:() => [
+    "衝刺跳起來後放開 " + K("forward") + "，按住 " + K("right") + "（或 " + K("left") + "）",
+    "同時把滑鼠往同一邊平順地轉，像在空中畫一道弧",
+    "落地速度比起跳快 5% 以上算成功；按著前進轉是加不了速的"]},
+  {title:"翻越（mantle）", ev:"mantle", n:3, lines:() => [
+    "對著 1.2m 矮牆或 2.2m 石墩，按著前進跳上去",
+    "手搆到邊緣會自動翻上去（0.45～0.9 秒），衝刺進去翻完就是衝刺速度",
+    "翻越時不能開槍：交戰中翻牆等於把自己晾著"]},
+  {title:"攀牆上屋頂", ev:"climbMantle", n:2, lines:() => [
+    "衝到建築旁起跳撞牆，視線對著牆（45 度內）",
+    "會自動往上爬，手搆到屋頂邊緣就翻上去；按住 " + K("back") + " 會掛在牆上",
+    "3.5～6m 的屋頂都上得去，一次騰空只能爬一段（最多約 3.7m）"]},
+  {title:"蹬牆跳（wallbounce）", ev:"wallbounce", n:3, lines:() => [
+    "到中央鐘樓（8.5m，爬不上去）：衝刺起跳，撞牆前放開 " + K("forward"),
+    "一貼上牆、往上爬約 0.1 秒時馬上再按跳（green zone），越低跳出去越高",
+    "按著前進跳會黏在牆上；按 " + K("left") + " / " + K("right") + " 控制沿牆彈出的方向"]},
+  {title:"Superglide", ev:"superglide", n:2, lines:() => [
+    "衝刺去翻 1.2m 矮牆，在翻越最後 0.15 秒按跳",
+    "按跳之後的「下一幀」再按蹲：同時按或先按蹲都不算",
+    "成功會貼地往前衝出去（約 470hu/s）；幀率越高越難抓"]},
+  {title:"Tap strafe（lurch）", ev:"lurch", n:3, lines:() => [
+    "起跳後 0.2 秒內按下新的方向鍵，或滾一格綁了前進的滾輪",
+    "速度方向會瞬間往按鍵方向掰，轉超過 15 度算成功（會掉一點速）",
+    "0.2 秒後效果開始變弱、0.4 秒後完全沒有"]},
+  {title:"壓槍", ev:"spray", n:2, lines:() => [
+    "換 VECTOR（" + K("gun1") + "），對 20m 外的牆或假人連射 20 發以上",
+    "看左下的分析圖：灰線是不壓槍的軌跡，把準心往灰線的反方向拉",
+    "前 8 發幾乎直直往上要往下拉，後段左右擺要跟著修；平均偏移 40cm 以內算成功"]},
+  {title:"平滑射擊（recoil smoothing）", ev:"smooth", n:2, lines:() => [
+    "連射時準心穩定往同一個方向橫移，例如跟著左右平移的假人",
+    "觸發時準心下方會亮 SMOOTH，這時往上的後座力只剩一半左右",
+    "左右來回甩不會觸發；一串裡有 10 發觸發算成功"]},
+  {title:"跟槍（tracking）", ev:"track", n:2, lines:() => [
+    "ESC 把假人設成左右平移，速度選快或隨機（進階再開跳躍）",
+    "按住射擊 3 秒以上，準心一直黏在同一隻身上，換向時跟著反應",
+    "這一次按住的跟槍命中率 60% 以上算成功；統計欄 TRACKING 是累計值"]},
+  {title:"走位射擊（ADAD）", ev:"adad", n:2, lines:() => [
+    "邊連射邊左右換向走位（" + K("left") + "、" + K("right") + " 交替），一串 15 發以上",
+    "走位中橫向後座力會變小，同時讓對手更難打中你",
+    "一串裡換向 3 次以上算成功；Apex 近距離交戰幾乎都是這樣打"]},
+];
+let LESSON_DONE = [];
+try { LESSON_DONE = JSON.parse(localStorage.getItem("echo3d.lessons") || "[]"); } catch(e){}
+function lessonStep(d){
+  if (!G.practice) return;
+  if (!G.lessonOn){ G.lessonOn = true; G.lessonI = d > 0 ? 0 : LESSONS.length - 1; }
+  else {
+    G.lessonI += d;
+    if (G.lessonI < 0 || G.lessonI >= LESSONS.length){ G.lessonOn = false; banner("教學關閉"); return; }
+  }
+  G.lessonN = 0;
+  sfx("sine", 660, 0.1, 0.04, 880);
+}
+function lessonEvent(ev){
+  if (!G || !G.practice || !G.lessonOn) return;
+  const L = LESSONS[G.lessonI];
+  if (L.ev !== ev || G.lessonN >= L.n) return;
+  G.lessonN++;
+  sfx("triangle", 880, 0.12, 0.05, 1320);
+  if (G.lessonN >= L.n){
+    if (!LESSON_DONE.includes(L.ev)){
+      LESSON_DONE.push(L.ev);
+      try { localStorage.setItem("echo3d.lessons", JSON.stringify(LESSON_DONE)); } catch(e){}
+    }
+    banner("完成：" + L.title, "按 " + K("lessonNext") + " 進入下一課");
+    sfx("sine", 1320, 0.25, 0.05, 1760);
+  } else banner(L.title + "  " + G.lessonN + " / " + L.n);
+}
 function resetRangeStats(){
   G.rs = freshRangeStats();
   G.shots = 0; G.hits = 0;
@@ -5026,7 +5112,8 @@ function playerShoot(){
   // 一串射擊：停火超過射速 + 0.15 秒就算新的一串，後座力圖形從第一發重新開始
   if (G.t - G.lastShotT > g.fireGap + 0.15){
     G.sprayN = 0;
-    G.spray = {gun:g.key, ads:G.adsT > 0.5, yaw0:aimYaw(), pitch0:aimPitch(), pts:[]};
+    G.spray = {gun:g.key, ads:G.adsT > 0.5, yaw0:aimYaw(), pitch0:aimPitch(), pts:[],
+               smoothN:0, adad:0, lastStrafe:0, judged:false};
   }
   G.lastShotT = G.t;
   // 壓槍分析：記下每一發開火當下準心相對第一發的位置（後座力加上你的反向修正），x 往右、y 往上
@@ -5062,7 +5149,8 @@ function playerShoot(){
   rcPitch += g.rcV * rcK * ky * jit * (smooth ? RC.smoothV : 1);
   rcYaw   -= g.rcH * rcK * kx * jit * (strafing ? RC.strafeH : 1);
   rcHold   = 0.12;
-  if (smooth) G.smoothT = 0.35;
+  if (smooth){ G.smoothT = 0.35; G.spray.smoothN++; }
+  if (strafing && G.strafe !== G.spray.lastStrafe){ if (G.spray.lastStrafe) G.spray.adad++; G.spray.lastStrafe = G.strafe; }
   muzzleLight.intensity = g.auto ? 3.2 : 7;
   if (g.auto){ sfx("square",320,0.06,0.05,90); sfxNoise(0.05,0.035,2400); }
   else if (g.pellets){ sfx("square",120,0.22,0.08,40); sfxNoise(0.2,0.085,900); }
@@ -5190,7 +5278,7 @@ function startSlide(p){
   const sp = Math.hypot(p.vx, p.vy);
   if (G.t - G.slideBoostAt >= SLIDE.boostCd && sp > 0){
     const ns = Math.min(sp + SLIDE.boost, SLIDE.cap);
-    if (ns > sp){ p.vx *= ns/sp; p.vy *= ns/sp; }
+    if (ns > sp){ p.vx *= ns/sp; p.vy *= ns/sp; lessonEvent("slide"); }
   }
   G.slideBoostAt = G.t;
   sfxNoise(0.55, 0.05, 650);
@@ -5207,7 +5295,10 @@ function jumpVz(){
   return P.jumpV * Math.sqrt(h / WT.fatigueFull);
 }
 // 起跳的共同收尾：記下 lurch 視窗的起點
-function tookOff(p, vz){ p.vz = vz; p.grounded = false; G.coyoteT = 0; G.airTop = p.z; G.jumpT = G.t; }
+function tookOff(p, vz, kind){
+  p.vz = vz; p.grounded = false; G.coyoteT = 0; G.airTop = p.z; G.jumpT = G.t;
+  G.takeoffSp = Math.hypot(p.vx, p.vy); G.takeoffKind = kind || "jump";   // 教學判斷空中轉向有沒有加到速
+}
 
 // ── 牆面接觸 ──
 // 玩家貼著的牆面（圓離牆 3px 內）：回傳那面牆、外法線與頂面高度。只看比腳高出一個台階以上、擋得住人的牆
@@ -5300,6 +5391,7 @@ function wallBounce(p, rise, rgtX, rgtY){
   else if (rise <= WT.greenHi){
     const f = (rise - WT.greenLo) / (WT.greenHi - WT.greenLo);
     H = Math.max(WT.bounceMin, Math.min(WT.bounceMax, c.inSpeed));
+    lessonEvent("wallbounce");
     vz = P.jumpV * (WT.bounceVzLo + (WT.bounceVzHi - WT.bounceVzLo)*f);
     pen = WT.penaltyJump;
   } else { H = 128/1.15*HU; vz = P.jumpV*0.75; pen = WT.penaltyJump; }   // neutral：只是從牆上跳下來（自訂）
@@ -5312,7 +5404,7 @@ function wallBounce(p, rise, rgtX, rgtY){
   const hs = Math.hypot(p.vx, p.vy);
   if (hs > H){ p.vx *= H/hs; p.vy *= H/hs; }
   detachClimb(p, pen);
-  tookOff(p, vz);
+  tookOff(p, vz, "wall");
   sfxNoise(0.07, 0.04, 700); sfx("sine", 140, 0.10, 0.03, 90);
 }
 
@@ -5324,7 +5416,7 @@ function startMantle(p, c, fromClimb){
     z0:p.z, top:c.top, x0:p.x, y0:p.y,
     // 拉上去之後站的位置：往牆裡推一個身體寬，腳底的支撐點才會在頂面上
     x1:p.x - c.nx*(p.rad + 6), y1:p.y - c.ny*(p.rad + 6),
-    sprint:held("sprint") && held("forward"),
+    sprint:held("sprint") && held("forward"), fromClimb,
   };
   p.vx = 0; p.vy = 0; p.vz = 0;
   endSlide(); G.adsOn = false;
@@ -5354,8 +5446,9 @@ function endMantle(p, wx, wy, wl, hop){
   // 衝刺進翻越的，一翻完就是衝刺速度（wiki）
   const spd = wl ? (m.sprint && held("sprint") ? SPRINT_SPD : P.speed) : 0;
   p.vx = wx*spd; p.vy = wy*spd;
+  if (!hop) lessonEvent(m.fromClimb ? "climbMantle" : "mantle");
   if (hop){
-    tookOff(p, P.jumpV);                 // 翻越跳不吃跳躍疲勞（wiki）
+    tookOff(p, P.jumpV, "mantle");       // 翻越跳不吃跳躍疲勞（wiki）
     G.sgFrame = G.frameNo; G.sgSprint = m.sprint;
   } else { p.vz = 0; p.grounded = true; }
 }
@@ -5365,6 +5458,7 @@ function superglide(p, wx, wy, wl){
   if (!wl){ dx = Math.cos(p.angle); dy = Math.sin(p.angle); }
   const spd = G.sgSprint ? WT.sgSpeed : WT.sgWalkSpeed;
   p.vx = dx*spd; p.vy = dy*spd;
+  lessonEvent("superglide");
   G.sgFrame = -9;
   sfxNoise(0.35, 0.05, 700); sfx("sine", 95, 0.2, 0.03, 60);
 }
@@ -5379,6 +5473,7 @@ function lurch(p, wx, wy){
   const nx = p.vx + wx*sp*WT.lurchK*k, ny = p.vy + wy*sp*WT.lurchK*k;
   const turn = Math.acos(Math.max(-1, Math.min(1, (nx*p.vx + ny*p.vy) / (Math.hypot(nx, ny)*sp))));
   const ns = sp * (1 - WT.lurchLoss * Math.min(1, turn / (Math.PI/2)));
+  if (turn >= 15*Math.PI/180) lessonEvent("lurch");
   const nl = Math.hypot(nx, ny) || 1;
   p.vx = nx/nl*ns; p.vy = ny/nl*ns;
 }
@@ -5467,7 +5562,7 @@ function update(dt){
     G.coyoteT = Math.max(0, G.coyoteT - dt);
     if (G.jumpPress && !onWall && (p.grounded || G.coyoteT > 0) && (!G.crouching || slideJumpOk) && G.mode !== "dead"){
       tookOff(p, jumpVz());               // 落地後太快再跳會吃跳躍疲勞（見 WT.fatigue*）
-      if (G.sliding) endSlide();          // 滑鏟跳保留滑行的水平速度，這正是它的用途
+      if (G.sliding){ endSlide(); lessonEvent("slideJump"); }   // 滑鏟跳保留滑行的水平速度，這正是它的用途
       // 連跳懲罰：落地 1 秒內又起跳，超過衝刺速度的部分最多扣 100hu/s
       if (G.t - G.landT < SLIDE.hopWindow){
         const jsp = Math.hypot(p.vx, p.vy);
@@ -5489,6 +5584,7 @@ function update(dt){
         G.stepLift += gz - p.z;
         p.z = gz; p.vz = 0; p.grounded = true; G.landT = G.t;
         G.climbSpace = WT.climbSpace; G.lastFace = null;     // 落地才恢復攀爬空間
+        if (G.takeoffKind === "jump" && G.takeoffSp > P.speed*0.8 && Math.hypot(p.vx, p.vy) >= G.takeoffSp*1.05) lessonEvent("airStrafe");
         // Apex 落地不扣水平速度，只有落差 7.6m 以上會摔出硬直（見 P.stunFrom）
         const fall = G.airTop - gz;
         if (fall > P.stunFrom) G.stunT = Math.min(1, (fall - P.stunFrom) / (P.stunTo - P.stunFrom));
@@ -5654,8 +5750,22 @@ function update(dt){
       if (p.reloading <= 0){ p.mags[p.gun] = gun().mag; sfx("sine",320,0.08,0.045,460); }
     }
     if (G.practice && held("fire") && G.mode === "fight"){
-      G.rs.trackT += dt;
-      if (aimOnDummy(p)) G.rs.onT += dt;
+      const on = aimOnDummy(p);
+      G.rs.trackT += dt; G.trackHold.t += dt;
+      if (on){ G.rs.onT += dt; G.trackHold.on += dt; }
+    } else if (G.trackHold.t > 0){
+      // 放開射擊：這一次按住超過 3 秒、準心 60% 以上的時間在假人身上，就算一次成功的跟槍
+      if (G.trackHold.t >= 3 && G.trackHold.on / G.trackHold.t >= 0.6) lessonEvent("track");
+      G.trackHold.t = 0; G.trackHold.on = 0;
+    }
+    // 一串射擊結束（停火 0.3 秒）時評分：壓槍、平滑射擊、走位射擊
+    if (!G.spray.judged && G.t - G.lastShotT > 0.3){
+      const sp = G.spray, n = sp.pts.length;
+      sp.judged = true;
+      const avg = n ? sp.pts.reduce((a, q) => a + Math.hypot(q[0], q[1]), 0) / n * 2000 : 1e9;
+      if (sp.gun === "vector" && n >= 20 && avg <= 40) lessonEvent("spray");
+      if (sp.smoothN >= 10) lessonEvent("smooth");
+      if (n >= 15 && sp.adad >= 3) lessonEvent("adad");
     }
     if (held("fire") && locked && G.mode === "fight" && !onWall && (gun().auto || !p.firedThisPress)){
       if (playerShoot()) p.firedThisPress = true;
@@ -6538,7 +6648,8 @@ function drawRangeHud(w, h, cx){
     uctx.font = '600 10px "Chakra Petch", system-ui';
   }
   uctx.textAlign = "left"; uctx.fillStyle = "rgba(145,132,180,.7)";
-  uctx.fillText(bindLabel("deploy") + " 佈置  ·  " + bindLabel("resetStats") + " 歸零  ·  ESC 設定", x0 + 10, y0 + rows.length*19 + 20);
+  uctx.fillText(bindLabel("deploy") + " 佈置 · " + bindLabel("resetStats") + " 歸零 · " + bindLabel("lessonNext") + " 教學", x0 + 10, y0 + rows.length*19 + 20);
+  if (G.lessonOn) drawLesson(w);
   drawSprayChart(x0, y0 + rows.length*19 + 46, 150);
   // 平滑射擊觸發中：準心下方一行提示，練的時候才知道自己有沒有做到
   if (G.smoothT > 0){
@@ -6572,6 +6683,23 @@ function drawRangeHud(w, h, cx){
     uctx.fillStyle = "rgba(0,0,0,.5)"; uctx.fillRect(bx, sp.y + 2, bw, 3);
     uctx.fillStyle = "#F2ECFF";        uctx.fillRect(bx, sp.y + 2, bw*Math.max(0, b.hp)/b.maxHp, 3);
   }
+}
+
+// 教學面板：畫面上方中央，標題、進度與說明
+function drawLesson(w){
+  const L = LESSONS[G.lessonI], lines = L.lines(), pw = 520, px = w/2 - pw/2, py = 44;
+  const ph = 50 + lines.length*18;
+  uctx.fillStyle = "rgba(8,6,20,.72)"; uctx.fillRect(px, py, pw, ph);
+  uctx.strokeStyle = "rgba(255,138,43,.45)"; uctx.lineWidth = 1; uctx.strokeRect(px + .5, py + .5, pw - 1, ph - 1);
+  uctx.textAlign = "left"; uctx.fillStyle = "#FF8A2B"; uctx.font = '700 13px "Chakra Petch", system-ui';
+  uctx.fillText("第 " + (G.lessonI + 1) + " / " + LESSONS.length + " 課 · " + L.title + (LESSON_DONE.includes(L.ev) ? "（已完成過）" : ""), px + 14, py + 18);
+  uctx.textAlign = "right"; uctx.fillStyle = G.lessonN >= L.n ? "#3FE0C8" : "#F2ECFF";
+  uctx.font = '700 14px "IBM Plex Mono", ui-monospace, monospace';
+  uctx.fillText(G.lessonN + " / " + L.n, px + pw - 14, py + 18);
+  uctx.textAlign = "left"; uctx.fillStyle = "#D8D0EE"; uctx.font = '500 12px "Chakra Petch", system-ui';
+  for (let i=0;i<lines.length;i++) uctx.fillText(lines[i], px + 14, py + 42 + i*18);
+  uctx.fillStyle = "rgba(145,132,180,.8)"; uctx.font = '600 10px "Chakra Petch", system-ui';
+  uctx.fillText(K("lessonNext") + " 下一課 · " + K("lessonPrev") + " 上一課（第一課再往前就關閉）", px + 14, py + ph - 8);
 }
 
 // 壓槍分析圖：最近一串射擊，每一發開火當下準心相對第一發的位置（換算成 20 公尺外的公分）。
@@ -6785,6 +6913,8 @@ function inputDown(code){
     }
     else if (id === "deploy"){ if (G.practice) deployDummies(); }
     else if (id === "resetStats"){ if (G.practice) resetRangeStats(); }
+    else if (id === "lessonNext") lessonStep(1);
+    else if (id === "lessonPrev") lessonStep(-1);
   }
 }
 addEventListener("keydown", ev => {

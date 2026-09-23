@@ -529,23 +529,40 @@ function aabbHit(e,w){
 }
 // 回傳這一步撞到了哪個軸，呼叫端才能把該方向的速度歸零，
 // 否則貼著牆時速度會一直累積，離開牆的瞬間會彈射出去
-function moveWithCollision(e,dx,dy){
+// h 是移動者的腳離地高度（只有玩家會傳）：已經高過矮牆頂就從上面走過去。
+// 敵人不傳，維持純平面的碰撞
+function moveWithCollision(e,dx,dy,h){
+  const blocks = w => !(h !== undefined && w.ht && h >= w.ht - 0.02);
   let hx = false, hy = false;
   if (dx){
     const x0 = e.x;
     e.x += dx;
-    for (const w of WALLS) if (aabbHit(e,w)){ e.x = dx>0 ? w.x-e.rad : w.x+w.w+e.rad; hx = true; }
+    for (const w of WALLS) if (blocks(w) && aabbHit(e,w)){ e.x = dx>0 ? w.x-e.rad : w.x+w.w+e.rad; hx = true; }
     // 保險：連續吸附多面牆有可能把座標推到別的地方去（看起來就是瞬移）。
     // 解算後還是卡在牆裡就整個退回原位，寧可不動也不要跳走
-    if (hx){ for (const w of WALLS) if (aabbHit(e,w)){ e.x = x0; break; } }
+    if (hx){ for (const w of WALLS) if (blocks(w) && aabbHit(e,w)){ e.x = x0; break; } }
   }
   if (dy){
     const y0 = e.y;
     e.y += dy;
-    for (const w of WALLS) if (aabbHit(e,w)){ e.y = dy>0 ? w.y-e.rad : w.y+w.h+e.rad; hy = true; }
-    if (hy){ for (const w of WALLS) if (aabbHit(e,w)){ e.y = y0; break; } }
+    for (const w of WALLS) if (blocks(w) && aabbHit(e,w)){ e.y = dy>0 ? w.y-e.rad : w.y+w.h+e.rad; hy = true; }
+    if (hy){ for (const w of WALLS) if (blocks(w) && aabbHit(e,w)){ e.y = y0; break; } }
   }
   return {x:hx, y:hy};
+}
+// 腳下的地面高度：站在矮牆上就是牆頂
+function groundAt(e){
+  let g = 0;
+  for (const w of WALLS) if (w.ht && aabbHit(e,w)) g = Math.max(g, w.ht);
+  return g;
+}
+// 貼著的矮牆有多高（判定圈外擴幾像素，剛好貼住牆面也算），沒貼著回傳 0
+function lowWallTouching(e){
+  const r = e.rad; e.rad = r + 4;
+  let top = 0;
+  for (const w of WALLS) if (w.ht && aabbHit(e,w)) top = Math.max(top, w.ht);
+  e.rad = r;
+  return top;
 }
 // 2D 朝向角 → Three.js 的 Y 軸旋轉（物件預設面向 -Z）
 function yawOf(a){ return Math.atan2(-Math.cos(a), -Math.sin(a)); }
@@ -1530,7 +1547,8 @@ for (const w of WALLS){
   const trimOut = 0.055;
   const corniceGeo = new THREE.BoxGeometry(gw + trimOut*2, 0.16, gd + trimOut*2);
   const cornice = new THREE.Mesh(corniceGeo, trimMat);
-  cornice.position.set((w.x+w.w/2)*S, wh - 0.08, (w.y+w.h/2)*S);
+  // 簷口頂面要比牆頂高一點：原本兩者完全重合，矮牆一低頭看得到頂面就會閃
+  cornice.position.set((w.x+w.w/2)*S, wh - 0.07, (w.y+w.h/2)*S);
   mapLayer.add(cornice);
   const baseGeo = new THREE.BoxGeometry(gw + trimOut*2, 0.22, gd + trimOut*2);
   const baseb = new THREE.Mesh(baseGeo, trimMat);
@@ -3957,12 +3975,19 @@ function update(dt){
     }
     if (!p.grounded){
       p.vz -= P.gravity*dt;
+      // 攀爬：跳起來貼著矮牆、按著空白鍵，牆頂在手搆得到的範圍（0.8m）內就撐上去。
+      // 單靠跳只到 0.77m，搆不到 1.05m 的矮牆頂；牆也不能為此降低，否則蹲著就擋不住子彈
+      if (keys.has(" ") && G.mode !== "dead"){
+        const top = lowWallTouching(p);
+        if (top > p.z && top - p.z < 0.8) p.vz = Math.max(p.vz, 2.6);
+      }
       p.z  += p.vz*dt;
-      // 別撞到天花板
-      if (p.z > WALL_H - EYE - 0.25){ p.z = WALL_H - EYE - 0.25; p.vz = Math.min(0, p.vz); }
-      if (p.z <= 0){
+      // 別撞到天花板（露天地圖沒有天花板）
+      if (!activeMap.outdoor && p.z > WALL_H - EYE - 0.25){ p.z = WALL_H - EYE - 0.25; p.vz = Math.min(0, p.vz); }
+      const gz = groundAt(p);
+      if (p.z <= gz){
         const impact = -p.vz;
-        p.z = 0; p.vz = 0; p.grounded = true;
+        p.z = gz; p.vz = 0; p.grounded = true;
         // 落地會吃掉動能：越重的落地下沉越深、水平速度損失越多
         G.landDip = Math.min(0.20, impact*0.040);
         const keep = Math.max(0.55, 1 - impact*0.07);
@@ -4016,7 +4041,12 @@ function update(dt){
         p.vy += wy*Math.min(acc, add);
       }
     }
-    const hitAx = moveWithCollision(p, p.vx*dt, p.vy*dt);
+    const hitAx = moveWithCollision(p, p.vx*dt, p.vy*dt, p.z);
+    // 從矮牆頂走出邊緣就往下掉；反過來，回溯只記平面座標，
+    // 拉回到當時站在矮牆上的位置時要把人抬上去，否則會卡在牆裡動不了
+    const gHere = groundAt(p);
+    if (p.grounded && p.z > gHere + 0.001){ p.grounded = false; p.vz = 0; }
+    else if (p.grounded && p.z < gHere) p.z = gHere;
     if (hitAx.x) p.vx = 0;     // 撞牆就把該方向的速度吃掉，否則會沿牆累積
     if (hitAx.y) p.vy = 0;
 

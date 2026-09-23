@@ -767,58 +767,127 @@ function texFrom(canvas, rx, ry){
   return t;
 }
 
-// 牆面：橫向分割的金屬板、接縫、鉚釘、污漬
+// 牆面：橫向分割的金屬板、倒角、接縫、鉚釘、檢修蓋板、污漬
+// 所有細節都壓在低對比：它們只負責讓近看不空，不能搶走熱源的注意力
 function buildWallSurface(){
-  const N = 512;
+  const N = 1024;
   const c = mkCanvas(N), x = c.getContext("2d");
   const h = mkCanvas(N), hx = h.getContext("2d");
   x.fillStyle = "#191234"; x.fillRect(0,0,N,N);
   hx.fillStyle = "#8A8A8A"; hx.fillRect(0,0,N,N);
+  const R = Math.random;
+  // 在顏色與高度兩張圖上畫同一條凹槽
+  const groove = (x0,y0,x1,y1, w) => {
+    x.strokeStyle = "rgba(8,5,22,.85)"; x.lineWidth = w;
+    hx.strokeStyle = "#262626"; hx.lineWidth = w + 2;
+    for (const g of [x,hx]){ g.beginPath(); g.moveTo(x0,y0); g.lineTo(x1,y1); g.stroke(); }
+  };
+  const screw = (px,py,r) => {
+    x.fillStyle = "#2C2254"; x.beginPath(); x.arc(px,py,r,0,Math.PI*2); x.fill();
+    // 左上的反光點讓它讀起來是凸起的金屬頭
+    x.fillStyle = "rgba(190,170,255,.18)"; x.beginPath(); x.arc(px-r*0.3,py-r*0.3,r*0.45,0,Math.PI*2); x.fill();
+    hx.fillStyle = "#CFCFCF"; hx.beginPath(); hx.arc(px,py,r*1.1,0,Math.PI*2); hx.fill();
+  };
 
   // 板材：每塊色調略有差異，打破均勻感
-  const rows = 4, cols = 2;
+  const rows = 4, cols = 2, pw = N/cols, ph = N/rows;
   for (let r=0;r<rows;r++){
     for (let cI=0;cI<cols;cI++){
-      const px = cI*(N/cols), py = r*(N/rows);
-      const v = 0.86 + Math.random()*0.28;
+      const px = cI*pw, py = r*ph;
+      const v = 0.86 + R()*0.28;
       x.fillStyle = `rgb(${Math.round(25*v)},${Math.round(18*v)},${Math.round(52*v)})`;
-      x.fillRect(px,py,N/cols,N/rows);
-      hx.fillStyle = `rgb(${Math.round(138*(0.94+Math.random()*0.12))},0,0)`;
-      hx.fillStyle = `hsl(0,0%,${Math.round(54+Math.random()*6)}%)`;
-      hx.fillRect(px,py,N/cols,N/rows);
+      x.fillRect(px,py,pw,ph);
+      // 倒角：板面中央墊高、邊緣模糊成斜坡，法線貼圖會算出一圈會反光的斜邊
+      hx.fillStyle = "hsl(0,0%,48%)"; hx.fillRect(px,py,pw,ph);
+      hx.save(); hx.filter = "blur(5px)";
+      hx.fillStyle = `hsl(0,0%,${Math.round(58+R()*6)}%)`;
+      hx.fillRect(px+14,py+14,pw-28,ph-28);
+      hx.restore();
+      // 板面由上往下微微變暗，像是灰塵往下沉積
+      const gr = x.createLinearGradient(0,py,0,py+ph);
+      gr.addColorStop(0, "rgba(160,130,255,.035)");
+      gr.addColorStop(1, "rgba(0,0,0,.14)");
+      x.fillStyle = gr; x.fillRect(px,py,pw,ph);
+
+      const roll = R();
+      if (roll < 0.28){
+        // 檢修蓋板：一圈凹槽加四角螺絲
+        const hw = 130+R()*90, hh = 90+R()*50;
+        const hx0 = px + 40 + R()*(pw-hw-80), hy0 = py + 40 + R()*(ph-hh-80);
+        groove(hx0,hy0, hx0+hw,hy0, 3); groove(hx0+hw,hy0, hx0+hw,hy0+hh, 3);
+        groove(hx0+hw,hy0+hh, hx0,hy0+hh, 3); groove(hx0,hy0+hh, hx0,hy0, 3);
+        for (const [sx,sy] of [[10,10],[hw-10,10],[10,hh-10],[hw-10,hh-10]]) screw(hx0+sx, hy0+sy, 4.5);
+      } else if (roll < 0.46){
+        // 散熱槽：一排短凹槽
+        const n = 6 + Math.floor(R()*5), gx = px + 60 + R()*(pw-300), gy = py + 50 + R()*(ph-150);
+        for (let k=0;k<n;k++) groove(gx, gy + k*11, gx + 200, gy + k*11, 4);
+      } else if (roll < 0.62){
+        // 板子中段再切一刀，變成上下兩片
+        const sy = py + ph*(0.35 + R()*0.3);
+        groove(px+14, sy, px+pw-14, sy, 3);
+      } else if (roll < 0.78){
+        // 噴漆編號：刻意壓到快看不見，只在燈下或開鏡時讀得出來
+        x.save();
+        x.font = "bold 46px monospace";
+        x.fillStyle = "rgba(200,180,255,.11)";
+        const code = "ABCDEFGHKMPRSTX"[Math.floor(R()*15)] + "-" + String(Math.floor(R()*90)+10);
+        x.fillText(code, px + 40 + R()*(pw-220), py + 70 + R()*(ph-110));
+        x.restore();
+      } else if (roll < 0.86){
+        // 警示斜紋：一條窄帶，顏色會被牆的紫色調吃掉大半
+        const by = py + ph - 60;
+        x.save();
+        x.beginPath(); x.rect(px+30, by, pw-60, 26); x.clip();
+        for (let sx = px; sx < px+pw+40; sx += 36){
+          x.fillStyle = "rgba(210,170,70,.16)";
+          x.beginPath(); x.moveTo(sx,by); x.lineTo(sx+18,by); x.lineTo(sx-8,by+26); x.lineTo(sx-26,by+26); x.fill();
+        }
+        x.restore();
+      }
     }
   }
   // 接縫：顏色壓深、高度凹下去
-  x.strokeStyle = "#0A0618"; x.lineWidth = 5;
-  hx.strokeStyle = "#1E1E1E"; hx.lineWidth = 7;
+  x.strokeStyle = "#0A0618"; x.lineWidth = 9;
+  hx.strokeStyle = "#1A1A1A"; hx.lineWidth = 12;
   for (const ctx2 of [x,hx]){
     ctx2.beginPath();
-    for (let r=1;r<rows;r++){ ctx2.moveTo(0,r*(N/rows)); ctx2.lineTo(N,r*(N/rows)); }
-    for (let cI=1;cI<cols;cI++){ ctx2.moveTo(cI*(N/cols),0); ctx2.lineTo(cI*(N/cols),N); }
+    for (let r=0;r<=rows;r++){ ctx2.moveTo(0,r*ph); ctx2.lineTo(N,r*ph); }
+    for (let cI=0;cI<=cols;cI++){ ctx2.moveTo(cI*pw,0); ctx2.lineTo(cI*pw,N); }
     ctx2.stroke();
   }
-  // 鉚釘：沿著接縫排列，高度凸起
+  // 鉚釘：沿著接縫排列；部分鉚釘底下拖出一道往下流的鏽水痕
   for (let r=0;r<=rows;r++){
-    for (let i=0;i<14;i++){
-      const px = (i+0.5)*(N/14), py = r*(N/rows);
-      x.fillStyle = "#2A2050";
-      x.beginPath(); x.arc(px,py,3.2,0,Math.PI*2); x.fill();
-      hx.fillStyle = "#C8C8C8";
-      hx.beginPath(); hx.arc(px,py,3.6,0,Math.PI*2); hx.fill();
+    for (let i=0;i<20;i++){
+      const px = (i+0.5)*(N/20), py = r*ph + (r===0 ? 12 : r===rows ? -12 : 12);
+      screw(px, py, 5.5);
+      if (R() < 0.22 && r < rows){
+        const len = 40 + R()*170, w2 = 2 + R()*4;
+        const st = x.createLinearGradient(0,py,0,py+len);
+        st.addColorStop(0, `rgba(10,5,20,${(0.25+R()*0.25).toFixed(2)})`);
+        st.addColorStop(1, "rgba(10,5,20,0)");
+        x.fillStyle = st; x.fillRect(px-w2/2, py+4, w2, len);
+      }
     }
   }
-  // 污漬與刮痕
-  for (let i=0;i<70;i++){
-    const px = Math.random()*N, py = Math.random()*N, w2 = 8+Math.random()*60;
-    x.fillStyle = `rgba(6,4,18,${(0.04+Math.random()*0.12).toFixed(3)})`;
-    x.fillRect(px,py,w2,2+Math.random()*10);
+  // 污漬
+  for (let i=0;i<140;i++){
+    const px = R()*N, py = R()*N, w2 = 16+R()*120;
+    x.fillStyle = `rgba(6,4,18,${(0.04+R()*0.12).toFixed(3)})`;
+    x.fillRect(px,py,w2,4+R()*20);
   }
-  for (let i=0;i<2600;i++){
-    const px = Math.random()*N, py = Math.random()*N;
-    x.fillStyle = `rgba(150,120,220,${(Math.random()*0.05).toFixed(3)})`;
-    x.fillRect(px,py,1.4,1.4);
+  // 細刮痕：短、斜、亮一點點，只有光掃過時才會閃一下
+  x.lineWidth = 1.2;
+  for (let i=0;i<90;i++){
+    const px = R()*N, py = R()*N, a = (R()-0.5)*0.9, l = 10+R()*50;
+    x.strokeStyle = `rgba(180,160,245,${(0.04+R()*0.07).toFixed(3)})`;
+    x.beginPath(); x.moveTo(px,py); x.lineTo(px+Math.cos(a)*l, py+Math.sin(a)*l); x.stroke();
   }
-  return {color:c, normal:heightToNormal(h, 2.4)};
+  for (let i=0;i<10000;i++){
+    x.fillStyle = `rgba(150,120,220,${(R()*0.05).toFixed(3)})`;
+    x.fillRect(R()*N, R()*N, 1.6, 1.6);
+  }
+  // 解析度加倍後每個像素的高度差減半，強度要跟著加倍才維持同樣的凹凸感
+  return {color:c, normal:heightToNormal(h, 4.6)};
 }
 
 // 地板：方形地磚、磨損、中央的區域標記
@@ -1051,14 +1120,33 @@ const WALL_VARIANTS = [
   {color:0x7E6FC4, roughness:0.94, metalness:0.12},
   {color:0x9A82C8, roughness:0.74, metalness:0.34},
 ];
+// 三個變體共用同一份貼圖：每次 texFrom 都會把整張 canvas 再上傳一次 GPU
+const wallMap = texFrom(WALL_SURF.color), wallNormal = texFrom(WALL_SURF.normal);
+// 牆腳髒污：貼圖每 2.4m 重複一次，底邊對不到牆腳，所以改在 shader 裡依世界高度壓暗。
+// 髒污線的高度隨水平位置起伏，才不會是一條尺畫的水平線
+function addGrime(m){
+  m.onBeforeCompile = (sh) => {
+    sh.vertexShader = sh.vertexShader
+      .replace("#include <common>", "#include <common>\nvarying vec3 vGrimeP;")
+      .replace("#include <project_vertex>", "#include <project_vertex>\nvGrimeP = (modelMatrix * vec4(transformed, 1.0)).xyz;");
+    sh.fragmentShader = sh.fragmentShader
+      .replace("#include <common>", "#include <common>\nvarying vec3 vGrimeP;")
+      .replace("#include <map_fragment>", `#include <map_fragment>
+        float gw = vGrimeP.x * 1.7 + vGrimeP.z * 1.3;
+        float gh = 0.55 + 0.22 * sin(gw) * sin(gw * 0.37 + 1.3) + 0.08 * sin(gw * 4.1);
+        diffuseColor.rgb *= mix(0.42, 1.0, smoothstep(0.0, gh, vGrimeP.y));
+        // 牆頂靠近天花板也積一點灰
+        diffuseColor.rgb *= mix(1.0, 0.7, smoothstep(${(WALL_H-0.7).toFixed(2)}, ${WALL_H.toFixed(2)}, vGrimeP.y));`);
+  };
+  return m;
+}
 const wallMats = WALL_VARIANTS.map(v => {
   const m = new THREE.MeshStandardMaterial({
-    map:       texFrom(WALL_SURF.color),
-    normalMap: texFrom(WALL_SURF.normal),
+    map:wallMap, normalMap:wallNormal,
     color:v.color, roughness:v.roughness, metalness:v.metalness,
   });
   m.normalScale.set(1.1,1.1);
-  return m;
+  return addGrime(m);
 });
 const wallMat = wallMats[0];
 // 邊緣線保留：熱像儀對溫差邊界特別敏感，這是這個畫面的識別特徵
@@ -1066,10 +1154,10 @@ const edgeMat = new THREE.LineBasicMaterial({color:0xE0703A, transparent:true, o
 // 牆基的導引燈條：貼著地面的一條細窄發光帶。
 // 它同時給出色彩對比、強化牆的輪廓，也讓地板的法線貼圖有東西可以反光
 // 線腳用比牆身亮一階的金屬，嵌板則暗一階，靠明度差把層次拉開
-const trimMat = new THREE.MeshStandardMaterial({
+const trimMat = addGrime(new THREE.MeshStandardMaterial({
   map: texFrom(WALL_SURF.color, 3, 1),
   color:0xA994E8, roughness:0.55, metalness:0.55,
-});
+}));
 const panelMat = new THREE.MeshStandardMaterial({
   map:       texFrom(WALL_SURF.color, 2, 1),
   normalMap: texFrom(WALL_SURF.normal, 2, 1),
@@ -1143,6 +1231,9 @@ function addStrip(len, cx, cz, rotY){
 for (const w of WALLS){
   const gw = w.w*S, gd = w.h*S;
   const geo = rescaleBoxUV(new THREE.BoxGeometry(gw, WALL_H, gd), gw, WALL_H, gd, 0.42);
+  // 每面牆的貼圖錯開一段，板縫與鉚釘才不會每面都排在同樣位置
+  const uvA = geo.attributes.uv, uOff = ((w.x*0.37 + w.y*0.61) % 1);
+  for (let i=0;i<uvA.count;i++) uvA.setX(i, uvA.getX(i) + uOff);
   // 用座標當種子挑變體，同一面牆每次載入都長一樣
   const m = new THREE.Mesh(geo, wallMats[(w.x*7 + w.y*13) % wallMats.length]);
   m.position.set((w.x+w.w/2)*S, WALL_H/2, (w.y+w.h/2)*S);

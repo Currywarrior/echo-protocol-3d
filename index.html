@@ -722,6 +722,10 @@ function zonesOf(type){
 }
 // 玩家當下的視線高度（蹲下會變矮）
 function eyeH(){ return EYE - (G && G.crouchT ? G.crouchT : 0) * 0.55 + (G ? G.player.z : 0); }
+// 敵人移動速度的整體倍率：TYPES 的 speed 是照舊的玩家跑速（215px/s）調的，
+// 玩家改成 Apex 的 173.5hu/s（約 147px/s）之後，敵人一起等比例放慢，敵我速度的相對關係不變
+// （否則 STALKER 196px/s 幾乎等於玩家衝刺，跑不掉）
+const ENEMY_SPEED_K = 173.5*HU / 215;
 const TYPES = {
   grunt:{
     name:"GRUNT", score:100, hp:70, speed:120, rad:13, color:0xFF8A2B,
@@ -5824,11 +5828,12 @@ function update(dt){
         if (b.stuck > 0.95){ b.stuck = 0; b.strafe *= -1; }
       }
       b.px = b.x; b.py = b.y;
-      const bhit = moveWithCollision(b, ax*T.speed*dt, ay*T.speed*dt);
+      const spd = T.speed * ENEMY_SPEED_K;
+      const bhit = moveWithCollision(b, ax*spd*dt, ay*spd*dt);
       b.hitX = bhit.x; b.hitY = bhit.y;
       const bmoved = Math.hypot(b.x-b.px, b.y-b.py);
       b.moved = bmoved;
-      b.stuck = bmoved < T.speed*dt*0.4 ? b.stuck + dt : 0;
+      b.stuck = bmoved < spd*dt*0.4 ? b.stuck + dt : 0;
       // 腳步聲：跑得快的踩得密，隔著牆會悶掉但還聽得見
       b.step = (b.step || 0) + bmoved;
       if (b.step > 58){

@@ -1224,9 +1224,10 @@ const trimMat = addGrime(new THREE.MeshStandardMaterial({
   map: texFrom(WALL_SURF.color, 3, 1),
   color:0xA994E8, roughness:0.55, metalness:0.55,
 }));
+// 嵌板與橫樑的 UV 已按實際尺寸縮放，貼圖不必再重複，比例才會和牆面一致
 const panelMat = new THREE.MeshStandardMaterial({
-  map:       texFrom(WALL_SURF.color, 2, 1),
-  normalMap: texFrom(WALL_SURF.normal, 2, 1),
+  map:       texFrom(WALL_SURF.color),
+  normalMap: texFrom(WALL_SURF.normal),
   color:0x6E5FA8, roughness:0.92, metalness:0.15,
 });
 const terrainMat = new THREE.MeshStandardMaterial({
@@ -1330,8 +1331,8 @@ for (const w of WALLS){
     const along = w.w >= w.h;
     const panW = (along ? gw : gd) - 0.55;
     const inset = new THREE.Mesh(
-      along ? new THREE.BoxGeometry(panW, 1.25, gd + 0.02)
-            : new THREE.BoxGeometry(gw + 0.02, 1.25, panW),
+      along ? rescaleBoxUV(new THREE.BoxGeometry(panW, 1.25, gd + 0.02), panW, 1.25, gd + 0.02, 0.42)
+            : rescaleBoxUV(new THREE.BoxGeometry(gw + 0.02, 1.25, panW), gw + 0.02, 1.25, panW, 0.42),
       panelMat);
     inset.position.set((w.x+w.w/2)*S, WALL_H*0.52, (w.y+w.h/2)*S);
     mapLayer.add(inset);
@@ -1534,6 +1535,7 @@ addDoorFrames();
   if (brMats.length){
     const br = new THREE.InstancedMesh(bracketGeo, dark, brMats.length);
     brMats.forEach((m,i) => br.setMatrixAt(i, m));
+    br.frustumCulled = false;
     mapLayer.add(br);
   }
 })();
@@ -1604,6 +1606,7 @@ addDoorFrames();
     if (!ms.length) return;
     const im = new THREE.InstancedMesh(geo, fixCold, ms.length);
     ms.forEach((m,i) => im.setMatrixAt(i, m));
+    im.frustumCulled = false;
     mapLayer.add(im);
   };
   addInst(new THREE.BoxGeometry(0.22, 0.035, 0.03), slatMs);
@@ -1624,12 +1627,15 @@ addDoorFrames();
   // 全部樑共用一個 InstancedMesh，只多一次 draw call
   const BEAM_GAP = 3.2, beamN = Math.floor(W*S / BEAM_GAP);
   const beams = new THREE.InstancedMesh(
-    new THREE.BoxGeometry(0.22, 0.26, H*S), panelMat, beamN);
+    rescaleBoxUV(new THREE.BoxGeometry(0.22, 0.26, H*S), 0.22, 0.26, H*S, 0.42), panelMat, beamN);
   const bm = new THREE.Matrix4();
   for (let i=0;i<beamN;i++){
     bm.makeTranslation((i+0.5)*BEAM_GAP + (W*S - beamN*BEAM_GAP)/2, WALL_H-0.13, H*S/2);
     beams.setMatrixAt(i, bm);
   }
+  // r147 的 InstancedMesh 裁切只看原點那一份幾何，不看實例實際位置，
+  // 轉頭時會整批誤判成畫面外而消失。數量很少，直接關掉裁切
+  beams.frustumCulled = false;
   mapLayer.add(beams);
   // 樑與樑之間垂著的電纜，懸鏈線的下垂讓它讀起來有重量
   const cableMat = new THREE.MeshStandardMaterial({color:0x0E0A1E, roughness:0.6, metalness:0.2});
@@ -2258,8 +2264,12 @@ function makeTargets(w,h){
   if (rtScene) { rtScene.dispose(); rtA.dispose(); rtB.dispose(); }
   // 場景緩衝要開多重取樣。渲染器的 antialias 只作用在預設畫布上，
   // 一旦改成離屏渲染就完全失效，所有邊緣線都會變鋸齒
+  // 深度也要指定成 24 位元：r147 的多重取樣緩衝預設只配 16 位元深度，
+  // 十公尺外精度就只剩一公分多，比嵌板凸出牆面的距離還粗，兩個面會輪流贏而閃爍
+  const depthTex = new THREE.DepthTexture(w, h);
+  depthTex.type = THREE.UnsignedIntType;
   rtScene = new THREE.WebGLRenderTarget(w, h,
-    Object.assign({}, opt, {samples: renderer.capabilities.isWebGL2 ? 4 : 0}));
+    Object.assign({}, opt, {samples: renderer.capabilities.isWebGL2 ? 4 : 0, depthTexture: depthTex}));
   const bw = Math.max(2, Math.floor(w/3)), bh = Math.max(2, Math.floor(h/3));
   rtA = new THREE.WebGLRenderTarget(bw, bh, opt);
   rtB = new THREE.WebGLRenderTarget(bw, bh, opt);

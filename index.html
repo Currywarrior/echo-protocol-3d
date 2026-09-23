@@ -494,44 +494,45 @@ function rebuildSegments(){
 }
 rebuildSegments();
 
+// ── 移動：一比一照 Apex Legends ──
+// 數值取自 apexmovement.tech 的實測（單位 hu，1hu = 2.54cm），換成這個遊戲的像素：HU 是每 hu 幾像素。
+// wiki 沒公開的參數（地面加速度、摩擦、重力、滑鏟減速）是用它給的實測結果回推的，推法寫在旁邊
+const HU = 0.0254 / S;
 const P = {
-  speed:215, sprintMul:1.5, crouchMul:0.52, adsMul:0.55,
-  jumpV:4.2, gravity:11.5, airMul:0.82,
-  // 速度式移動：地面有摩擦、加速需要時間
-  accel:12, friction:8.5, stopSpeed:60, rad:13, maxHp:100, swapTime:0.34,
-  // 空中照 Unreal（Valorant 的引擎）角色移動的 falling 公式：
-  // 按方向鍵時先用「轉向摩擦」把速度方向轉向按鍵方向（速率不變），再沿按鍵方向加速，
-  // 總速率上限是 max(跑速, 當下速率)，所以能在空中變向、煞車，但不會越飛越快。
-  // airTurn 是每秒轉向的比例（約 0.25 秒轉過去），airAccel 是跑速的倍數（約 0.3 秒從靜止加到跑速）
-  airTurn:4, airAccel:3.5,
-  // 放開按鍵時照 Unreal（Valorant）角色移動的煞車：每秒扣 摩擦×速度 + 固定減速度，
-  // 用的是引擎預設 GroundFriction 8、BrakingDecelerationWalking 2048cm/s²（= 683px/s²）
-  brakeFriction:8, brakeDecel:683,
-  // 起跳時水平速度的上限（跑步速度的倍數）。等於衝刺倍率：衝刺跳照 Apex 保留速度，
-  // 只擋掉連跳疊加超過衝刺速度（Source 也是在起跳時把速度壓回上限，防止連跳加速）
-  jumpSpeedCap:1.5,
+  // 持槍走路 173.5hu/s、衝刺 260、蹲走 80（Apex 收槍會再快 15%，這個遊戲沒有收槍）
+  speed:173.5*HU, sprintMul:260/173.5, crouchMul:80/173.5,
+  adsMul:0.55,        // Apex 開鏡移速依槍而異，wiki 沒有統一數字，沿用原本的值
+  // 地面：Source 式的摩擦與加速（Apex 的移動碼源自 Source）。friction 4 是 Source 預設；
+  // stopspeed 不能用 Source 預設的 100hu/s：它高於 Apex 蹲走的 80hu/s，低速時摩擦永遠大於加速，會蹲著走不動，
+  // 所以取 60。accel 由「持槍從靜止衝刺到 200hu/s 要 0.35 秒」回推。放開按鍵從衝刺約 0.6 秒停下
+  accel:4.11, friction:4, stopSpeed:60*HU,
+  // 跳躍：起跳 285hu/s、平地滯空 0.74 秒，回推重力 770hu/s²（19.6m/s²），跳高約 1.34m
+  jumpV:285*0.0254, gravity:2*285/0.74*0.0254,
+  // 空中：Titanfall/Apex 的 airAcceleration 500、airSpeed 60。沿按鍵方向的速度分量最多補到 60hu/s，
+  // 所以直直按前進不會加速；邊轉視角邊按側向鍵（air strafe）會一直把速度往旁邊掰，越轉越快。沒有空氣阻力
+  airAccel:500*HU, airCap:60*HU,
+  coyote:0.2,         // 走出邊緣後 0.2 秒內還能起跳（Apex 的 coyote time）
+  // 摔落硬直：落差 300hu（7.6m）起算，到 800hu（20.3m）是 1 秒。wiki 說是非線性但沒給曲線，這裡用線性；
+  // 硬直期間的移速倍率 wiki 也沒給，自訂 0.3
+  stunFrom:7.6, stunTo:20.3, stunMul:0.3,
+  rad:13, maxHp:100, swapTime:0.34,
   sonarCd:9, echoCd:16, echoBack:3.0,
 };
-// 滑鏟：照 Apex Legends（Source 引擎的後代）的規則，數值取自 apexmovement.tech 的實測。
-// Apex 用 hu/s，這裡全部換成「衝刺速度的倍數」，因為這個遊戲的跑速本來就和 Apex 不同：
-// Apex 持槍衝刺 260hu/s，速度 >200hu/s 才滑得起來（0.77 倍），進入時加速 +150hu/s（0.58 倍），
-// 加速後上限 400hu/s（1.54 倍）。加速有 2 秒冷卻，從上一次進入滑鏟起算（不論那次有沒有加速），
-// 所以連續滑鏟只有第一下會衝出去。
-// 滑鏟跳：速度掉到 350hu/s（1.35 倍）以下、或已經滑了 0.24 秒，兩者先到的那個才准起跳
+// 滑鏟：速度 >200hu/s 才滑得起來，進入時加速 +150hu/s，加速後上限 400hu/s。
+// 加速有 2 秒冷卻，從上一次進入滑鏟起算（不論那次有沒有加速），所以連續滑鏟只有第一下會衝出去。
+// 滑鏟跳：速度掉到 350hu/s 以下、或已經滑了 0.24 秒，兩者先到的那個才准起跳；太早按不會跳
 const SLIDE = {
-  enter:0.77, boost:0.58, cap:1.54, boostCd:2.0,
-  jumpSpeed:1.35, jumpDelay:0.24,
-  // Apex 滑鏟一樣吃地面摩擦，平地一定會停。這裡用指數衰減：
-  // 從加速後的全速約 1.2 秒降到蹲走速度，和 Apex 平地滑鏟約一秒的長度相當
-  friction:1.3,
-  exit:0.31,       // 掉到蹲走速度（Apex 80/260hu/s）以下就變回一般蹲姿
-  // 連跳懲罰：落地後 1 秒內又滑鏟跳，速度扣掉最多 100hu/s（0.385 倍），但不會低於衝刺速度。
-  // 少了它，壓著蹲和跳就能一路滑跳、永遠保持 1.3 倍以上的速度
-  hopWindow:1.0, hopPenalty:0.385,
-  // 下坡時摩擦依坡度打折：坡度 0.4 以上、正對下坡就完全不磨，Apex 的下坡滑鏟不會減速
-  slopeFree:0.4,
-  steer:1.6,       // 每秒最多修正幾弧度：滑行中只能小幅改方向，不能像走路一樣直角轉彎
-  maxK:2.2,        // 長下坡的速度上限（衝刺速度的倍數），避免一路累積到失控
+  enter:200*HU, boost:150*HU, cap:400*HU, boostCd:2.0,
+  jumpSpeed:350*HU, jumpDelay:0.24,
+  // 滑行的地面減速是固定值：wiki「衝刺滑鏟至少 0.21 秒才掉到 350hu/s 以下」，400→350 回推 238hu/s²，
+  // 平地從 400 滑到蹲走速度約 1.3 秒
+  decel:50/0.21*HU,
+  exit:80*HU,      // 掉到蹲走速度以下就變回一般蹲姿
+  // 連跳懲罰（bunnyhop penalty）：落地後 1 秒內又起跳，速度扣掉最多 100hu/s，但不會低於衝刺速度
+  hopWindow:1.0, hopPenalty:100*HU,
+  slopeFree:0.4,   // 下坡時減速依坡度打折：坡度 0.4 以上、正對下坡就完全不減速（wiki：下坡滑鏟不會減速）
+  steer:1.6,       // 每秒最多修正幾弧度（wiki 沒數字，自訂）：滑行中只能小幅改方向
+  maxK:2.2,        // 長下坡的速度上限（衝刺速度的倍數，自訂），避免一路累積到失控
 };
 const SPRINT_SPD = P.speed * P.sprintMul;
 const GUNS = {
@@ -664,8 +665,8 @@ function topAt(w, x, y, r){
 // Unreal（Valorant）角色移動預設 MaxStepHeight 45cm，Source（CS）sv_stepsize 18 單位約 0.46m。
 // 0.55m 的石階仍然要跳
 const STEP_UP = 0.45;
-// 跳起來時腳離頂面還差這麼多也算踩上去：跳躍頂點 0.77m，
-// 靠這段寬容搆得到 1.05m 以內的矮牆（沙包牆 0.95m），不需要另外的攀爬操作
+// 跳起來時腳離頂面還差這麼多也算踩上去：跳躍頂點約 1.34m（Apex），
+// 靠這段寬容搆得到 1.66m 以內的平台
 const LEDGE_REACH = 0.32;
 function aabbHit(e,w){
   return e.x+e.rad > w.x && e.x-e.rad < w.x+w.w &&
@@ -4414,6 +4415,8 @@ function newGame(){
     seenTypes:new Set(),
     // 滑鏟狀態：slideBoostAt 是上一次進入滑鏟的時間，加速冷卻從這裡算
     sliding:false, slideT:0, slideBoostAt:-9, slideVis:0, crouchPrev:false, landT:-9,
+    // 跳躍是按下觸發：keydown 設 jumpPress，update 用完就清掉
+    jumpPress:false, coyoteT:0, airTop:0, stunT:0,
     // 訓練場
     practice:modeSelect.value === "range", rs:freshRangeStats(), respawns:[],
     breakMark:0, breakColor:"#FFFFFF",
@@ -4858,7 +4861,7 @@ function startSlide(p){
   G.sliding = true; G.slideT = 0;
   const sp = Math.hypot(p.vx, p.vy);
   if (G.t - G.slideBoostAt >= SLIDE.boostCd && sp > 0){
-    const ns = Math.min(sp + SPRINT_SPD*SLIDE.boost, SPRINT_SPD*SLIDE.cap);
+    const ns = Math.min(sp + SLIDE.boost, SLIDE.cap);
     if (ns > sp){ p.vx *= ns/sp; p.vy *= ns/sp; }
   }
   G.slideBoostAt = G.t;
@@ -4937,29 +4940,27 @@ function update(dt){
     G.adsT += ((wantAds ? 1 : 0) - G.adsT) * Math.min(1, dt*11);
     if (G.adsT < 0.002) G.adsT = 0;
 
-    // 跳躍與重力。滑鏟中也能跳（滑鏟跳），但要過了 Apex 的門檻（見 SLIDE）；
-    // 跳鍵一直按著的話，一過門檻就會自動起跳，等於 Apex 的輸入緩衝
+    // 跳躍與重力。起跳要「按下」那一下（按著不放不會自動連跳）；
+    // 走出邊緣後 coyote 時間內也算在地上。滑鏟中要過了 Apex 的門檻才跳得起來（見 SLIDE），太早按就沒跳
     const slideJumpOk = G.sliding &&
-      (G.slideT >= SLIDE.jumpDelay || Math.hypot(p.vx, p.vy) <= SPRINT_SPD*SLIDE.jumpSpeed);
-    if (keys.has(" ") && p.grounded && (!G.crouching || slideJumpOk) && G.mode !== "dead"){
-      p.vz = P.jumpV; p.grounded = false;
-      if (G.sliding){
-        // 滑鏟跳保留滑行的水平速度，不套一般起跳的速度上限——這正是它的用途
-        endSlide();
-        if (G.t - G.landT < SLIDE.hopWindow){
-          const jsp = Math.hypot(p.vx, p.vy);
-          const ns = Math.max(Math.min(jsp, SPRINT_SPD), jsp - SPRINT_SPD*SLIDE.hopPenalty);
-          if (jsp > 0){ p.vx *= ns/jsp; p.vy *= ns/jsp; }
-        }
-      } else {
-        const jsp = Math.hypot(p.vx, p.vy), jcap = P.speed * P.jumpSpeedCap;
-        if (jsp > jcap){ p.vx *= jcap/jsp; p.vy *= jcap/jsp; }
+      (G.slideT >= SLIDE.jumpDelay || Math.hypot(p.vx, p.vy) <= SLIDE.jumpSpeed);
+    G.coyoteT = Math.max(0, G.coyoteT - dt);
+    if (G.jumpPress && (p.grounded || G.coyoteT > 0) && (!G.crouching || slideJumpOk) && G.mode !== "dead"){
+      p.vz = P.jumpV; p.grounded = false; G.coyoteT = 0; G.airTop = p.z;
+      if (G.sliding) endSlide();          // 滑鏟跳保留滑行的水平速度，這正是它的用途
+      // 連跳懲罰：落地 1 秒內又起跳，超過衝刺速度的部分最多扣 100hu/s
+      if (G.t - G.landT < SLIDE.hopWindow){
+        const jsp = Math.hypot(p.vx, p.vy);
+        const ns = Math.max(Math.min(jsp, SPRINT_SPD), jsp - SLIDE.hopPenalty);
+        if (jsp > 0){ p.vx *= ns/jsp; p.vy *= ns/jsp; }
       }
       sfxNoise(0.05, 0.02, 380);
     }
+    G.jumpPress = false;
     if (!p.grounded){
       p.vz -= P.gravity*dt;
       p.z  += p.vz*dt;
+      G.airTop = Math.max(G.airTop, p.z);
       // 別撞到天花板（露天地圖沒有天花板）
       if (!activeMap.outdoor && p.z > WALL_H - EYE - 0.25){ p.z = WALL_H - EYE - 0.25; p.vz = Math.min(0, p.vz); }
       const gz = groundAt(p);
@@ -4968,26 +4969,25 @@ function update(dt){
         const impact = Math.max(0, -p.vz);
         G.stepLift += gz - p.z;
         p.z = gz; p.vz = 0; p.grounded = true; G.landT = G.t;
-        // 落地會吃掉動能：越重的落地下沉越深、水平速度損失越多。
-        // 一般跳躍落地約 4.2m/s、跳上跳下箱子也在 6m/s 內，這些不減速（Valorant 的跳躍落地不會頓），
-        // 只有從高台摔下來這種重落地才扣速度，否則每次落地都會先頓一下再重新加速
-        G.landDip = Math.min(0.20, impact*0.040);
-        const keep = Math.max(0.6, 1 - Math.max(0, impact - 6)*0.12);
-        p.vx *= keep; p.vy *= keep;
-        if (impact > 1.5){ sfxNoise(0.09, 0.035 + impact*0.006, 300); sfx("sine", 55, 0.10, 0.03, 38); }
+        // Apex 落地不扣水平速度，只有落差 7.6m 以上會摔出硬直（見 P.stunFrom）
+        const fall = G.airTop - gz;
+        if (fall > P.stunFrom) G.stunT = Math.min(1, (fall - P.stunFrom) / (P.stunTo - P.stunFrom));
+        G.landDip = Math.min(0.20, impact*0.025);
+        if (impact > 3){ sfxNoise(0.09, 0.035 + impact*0.004, 300); sfx("sine", 55, 0.10, 0.03, 38); }
         else sfxNoise(0.05, 0.016, 420);
         // 壓著蹲落地、速度又夠快，就直接接滑鏟（Apex 的空中滑鏟）。
         // 加速冷卻通常還沒好，所以是保留速度滑出去，不會再加速
-        if (keys.has("control") && Math.hypot(p.vx, p.vy) > SPRINT_SPD*SLIDE.enter) startSlide(p);
+        if (keys.has("control") && Math.hypot(p.vx, p.vy) > SLIDE.enter) startSlide(p);
       }
       // 在空中槍口會散開，跳起來亂射不划算
       p.bloom = Math.min(0.16, p.bloom + dt*0.55);
     }
+    G.stunT = Math.max(0, G.stunT - dt);
 
     // 滑鏟：衝刺中（速度超過門檻）按下蹲就滑出去；放開蹲或離地就結束
     const crouchKey = keys.has("control");
     if (crouchKey && !G.crouchPrev && p.grounded && !G.sliding && G.mode !== "dead" &&
-        Math.hypot(p.vx, p.vy) > SPRINT_SPD*SLIDE.enter) startSlide(p);
+        Math.hypot(p.vx, p.vy) > SLIDE.enter) startSlide(p);
     G.crouchPrev = crouchKey;
     if (G.sliding && (!crouchKey || !p.grounded)) endSlide();
 
@@ -4999,15 +4999,15 @@ function update(dt){
     G.slideVis += ((G.sliding ? 1 : 0) - G.slideVis) * Math.min(1, dt*(G.sliding ? 10 : 5));
     const bx = p.x, by = p.y;
 
-    // 衝刺只在往前、地面、非瞄準時生效，而且會讓槍口散開
+    // 衝刺：Apex 只能往前方左右各 45 度內衝刺（W 加 A/D 斜走剛好 45 度），地面、非瞄準、沒有摔落硬直
     const sprint = keys.has("shift") && mf > 0 && p.reloading <= 0 &&
-                   !G.crouching && p.grounded && G.adsT < 0.2;
+                   !G.crouching && p.grounded && G.adsT < 0.2 && G.stunT <= 0;
     G.sprinting = sprint;
     if (sprint) p.bloom = Math.min(0.14, p.bloom + dt*0.5);
 
     let maxSpd = P.speed * (sprint ? P.sprintMul : 1);
     if (G.crouching) maxSpd *= P.crouchMul;
-    if (!p.grounded) maxSpd *= P.airMul;
+    if (G.stunT > 0) maxSpd *= P.stunMul;
     maxSpd *= 1 - (1 - P.adsMul) * G.adsT;      // 瞄準時移動變慢
 
     // 想走的方向（單位向量）
@@ -5015,9 +5015,7 @@ function update(dt){
     const wl = Math.hypot(wx,wy);
     if (wl){ wx /= wl; wy /= wl; }
 
-    // 地面摩擦：放開按鍵後靠它把速度磨掉，所以停下來是滑一小段而不是瞬停。
-    // 有按方向鍵時用原本的摩擦（轉向、急停反向的手感不變），
-    // 沒按時用 Unreal 的煞車，從全速約 0.16 秒、0.4m 停住，站上窄箱頂才不會滑下去
+    // 地面摩擦（Source 式，見 P.friction）：有沒有按鍵都一樣，放開後從衝刺約 0.49 秒停下
     if (G.sliding){
       // 滑鏟：不吃一般的摩擦與加速，改成慢慢衰減的滑行
       G.slideT += dt;
@@ -5041,14 +5039,13 @@ function update(dt){
         const down = -(rg.gx*p.vx + rg.gy*p.vy) / (sp*Math.sqrt(s2));
         fk = 1 - Math.max(0, down) * Math.min(1, Math.sqrt(s2)/SLIDE.slopeFree);
       }
-      const ns = Math.min(sp * Math.exp(-SLIDE.friction*fk*dt), SPRINT_SPD*SLIDE.maxK);
+      const ns = Math.min(Math.max(0, sp - SLIDE.decel*fk*dt), SPRINT_SPD*SLIDE.maxK);
       if (sp > 0){ p.vx *= ns/sp; p.vy *= ns/sp; }
-      if (ns < SPRINT_SPD*SLIDE.exit) endSlide();
+      if (ns < SLIDE.exit) endSlide();
     } else if (p.grounded){
       const sp = Math.hypot(p.vx, p.vy);
       if (sp > 0){
-        const drop = wl ? Math.max(sp, P.stopSpeed) * P.friction * dt
-                        : (P.brakeFriction * sp + P.brakeDecel) * dt;
+        const drop = Math.max(sp, P.stopSpeed) * P.friction * dt;
         const k = Math.max(0, sp - drop) / sp;
         p.vx *= k; p.vy *= k;
       }
@@ -5065,15 +5062,13 @@ function update(dt){
         p.vy += wy*Math.min(acc, add);
       }
     } else if (wl){
-      // 空中（見 P.airTurn）：衝刺跳的速度保留，但加速只能加到跑速
-      const sp = Math.hypot(p.vx, p.vy), cap = Math.max(maxSpd, sp);
-      const f = Math.min(1, P.airTurn*dt);
-      p.vx -= (p.vx - wx*sp)*f;
-      p.vy -= (p.vy - wy*sp)*f;
-      p.vx += wx*P.airAccel*maxSpd*dt;
-      p.vy += wy*P.airAccel*maxSpd*dt;
-      const ns = Math.hypot(p.vx, p.vy);
-      if (ns > cap){ p.vx *= cap/ns; p.vy *= cap/ns; }
+      // 空中（見 P.airAccel、P.airCap）：只補按鍵方向上的分量，補到 airCap 為止
+      const cur = p.vx*wx + p.vy*wy;
+      const add = P.airCap - cur;
+      if (add > 0){
+        const acc = Math.min(P.airAccel*dt, add);
+        p.vx += wx*acc; p.vy += wy*acc;
+      }
     }
     const onRampBefore = p.grounded && groundAt(p) > 0 && groundOnRamp;
     if (!p.grounded) slideOffLedges(p, dt);
@@ -5087,7 +5082,7 @@ function update(dt){
         // 斜坡上是連續變化，再平滑只會讓鏡頭一路落後腳底
         if (!groundOnRamp && !onRampBefore) G.stepLift += gHere - p.z;
         p.z = gHere;
-      } else { p.grounded = false; p.vz = 0; }
+      } else { p.grounded = false; p.vz = 0; G.coyoteT = P.coyote; G.airTop = p.z; }
     }
     // 撞牆就把該方向的速度吃掉，否則會沿牆累積。
     // 例外是在空中撞到還差一點才踩得上的矮地形：保留往前的速度，
@@ -6166,6 +6161,7 @@ addEventListener("keydown", ev => {
   if (ev.repeat) return;
   keys.add(k);
   if (!G || G.mode === "dead" || !locked) return;
+  if (k === " ") G.jumpPress = true;
   if (k === "r") startReload();
   if (k === "f" && canInspect()) vm.inspect = 1;
   if (k === "q") useSonar();

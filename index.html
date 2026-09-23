@@ -562,6 +562,41 @@ const SLIDE = {
   maxK:2.2,        // 長下坡的速度上限（衝刺速度的倍數，自訂），避免一路累積到失控
 };
 const SPRINT_SPD = P.speed * P.sprintMul;
+// ── 牆上技術與空中技術（Apex 規則）──
+// 單位：高度與垂直速度用公尺（HM = 每 hu 幾公尺），水平速度用像素（HU）。
+// 標「wiki」的是 apexmovement.tech 的實測；標「自訂」的是 wiki 沒給數字、照描述的行為調的
+const HM = 0.0254;
+const WT = {
+  // 攀牆（wiki）：只能在空中開始；視線要在牆面 45.57 度內；往上爬 225hu/s，不需要按前進
+  // （蹬牆跳就是撞牆前放開前進、靠自動往上爬進 green zone）；從貼上的那一點起最多往上爬 147hu（climb space）。
+  // 按著後退時不往上爬，貼上 1 秒後掉下來（wiki：不是往上爬的攀牆有 1 秒計時）
+  lookMax:45.57*Math.PI/180, climbUp:225*HM, climbSpace:147*HM, stallT:1.0,
+  // 爬到空間用完會再往上甩 28hu（end boost）再掉下來（wiki）
+  endBoost:28*HM,
+  // 離開牆之後同一次騰空的 climb space 會變少（wiki）：一般離開 -128hu；
+  // 在 green / neutral zone 跳離 -256hu（等於這次騰空不能再爬）。落地才恢復
+  penalty:128*HM, penaltyJump:256*HM,
+  // Green zone：貼上後往上爬了 19～47hu 的那一段（wiki）。在這段跳離才是蹬牆跳，越低跳出去越高
+  greenLo:19*HM, greenHi:47*HM,
+  // 蹬牆跳的水平速度 350～484hu/s（wiki 的數字是收槍時量的，持槍要除以 1.15）
+  bounceMin:350/1.15*HU, bounceMax:484/1.15*HU,
+  // 蹬牆跳的垂直速度倍率：green zone 最低處 1.3 倍跳躍、最高處 1.0 倍（自訂，wiki 只說越低越高）
+  bounceVzLo:1.3, bounceVzHi:1.0,
+  // 翻越（wiki）：按鍵方向指向牆面左右 50 度內；翻越分「抓」與「拉」各 0.45 秒，
+  // 頂緣比腳高 42hu 以內只做「拉」
+  mantleAngle:50*Math.PI/180, grabT:0.45, pullT:0.45, grabMin:42*HM,
+  // 手搆得到的高度（從腳算起）：自訂 60hu，讓原地跳能翻上 wiki 說的「至少 97hu」高的東西
+  mantleReach:60*HM,
+  // Superglide（wiki）：翻越最後 0.15 秒按跳，下一幀再按蹲。要衝刺進翻越；走路進來視窗只剩 0.01 秒、也沒有全速。
+  // 速度 540hu/s 是收槍時量的，持槍除以 1.15；走路進來的速度自訂為走路 + 滑鏟加速
+  sgWindow:0.15, sgWalkWindow:0.01, sgSpeed:540/1.15*HU, sgWalkSpeed:(173.5+150)*HU,
+  // Lurch（wiki）：起跳後 0.4 秒內按下新的方向鍵會把速度往那個方向掰，前 0.2 秒全強度、之後線性降到 0。
+  // 掰多少、掉多少速 wiki 沒有數字：自訂全強度時把按鍵方向以當下速率的 0.7 倍疊上去（垂直方向約轉 35 度），
+  // 轉越多掉越多，轉 90 度掉 15%
+  lurchWindow:0.4, lurchFull:0.2, lurchK:0.7, lurchLoss:0.15,
+  // 跳躍疲勞（wiki）：落地 0.15 秒內只能跳 17hu 高，之後線性恢復，0.8 秒時 55hu（完整跳躍）
+  fatigueLow:17, fatigueFull:55, fatigueT0:0.15, fatigueT1:0.8,
+};
 const GUNS = {
   vector:{ key:"vector", name:"VECTOR",
            dmg:22, fireGap:0.075, mag:28, spread:0.030,
@@ -677,8 +712,10 @@ function inWallAt(x,y,h){
 // 斜坡沿 ramp 指的方向從 0 線性升到 ht。
 // r 是站立者的半徑：腳底圓盤踩到的最高點才是站的高度，所以取樣點往上坡挪 r。
 // 少了這步，走到坡頂時圓盤先碰到旁邊的平台，高度會一次跳好幾十公分
+// 露天地圖的高牆也站得上去（攀牆翻上去之後），頂面就是 WALL_H；室內圖的高牆頂到天花板，沒有站的空間
+function standable(w){ return !!w.ht || !!activeMap.outdoor; }
 function topAt(w, x, y, r){
-  if (!w.ramp) return w.ht;
+  if (!w.ramp) return w.ht || WALL_H;
   if (r){
     if (w.ramp === "+x") x += r; else if (w.ramp === "-x") x -= r;
     else if (w.ramp === "+y") y += r; else y -= r;
@@ -705,7 +742,7 @@ function aabbHit(e,w){
 // 碰到的頂面在 h + reach 以內就從上面走過去，交給 groundAt 把人抬上去。
 // 敵人不傳，維持純平面的碰撞（斜坡與箱子對它們就是障礙物）
 function moveWithCollision(e,dx,dy,h,reach){
-  const blocks = w => !(h !== undefined && w.ht && topAt(w, e.x, e.y, e.rad) <= h + (reach || 0) + 0.02);
+  const blocks = w => !(h !== undefined && standable(w) && topAt(w, e.x, e.y, e.rad) <= h + (reach || 0) + 0.02);
   let hx = false, hy = false, hard = false;
   if (dx){
     const x0 = e.x;
@@ -733,7 +770,7 @@ const FOOT = 4;
 let groundOnRamp = false;
 function groundAt(e){
   let g = 0; groundOnRamp = false;
-  for (const w of WALLS) if (w.ht &&
+  for (const w of WALLS) if (standable(w) &&
       e.x+FOOT > w.x && e.x-FOOT < w.x+w.w && e.y+FOOT > w.y && e.y-FOOT < w.y+w.h){
     const t = topAt(w, e.x, e.y, FOOT);
     if (t > g){ g = t; groundOnRamp = !!w.ramp; }
@@ -744,7 +781,7 @@ function groundAt(e){
 // 滑鏟用它算重力沿坡面的分量，下坡越滑越快、上坡很快停
 function rampGrad(e){
   let g = 0, gx = 0, gy = 0;
-  for (const w of WALLS) if (w.ht &&
+  for (const w of WALLS) if (standable(w) &&
       e.x+FOOT > w.x && e.x-FOOT < w.x+w.w && e.y+FOOT > w.y && e.y-FOOT < w.y+w.h){
     const t = topAt(w, e.x, e.y, FOOT);
     if (t > g){
@@ -763,7 +800,7 @@ function rampGrad(e){
 // 所以在空中壓著矮地形時就往外推：正常慢慢滑出去，已經會被擋住就一次推出
 function slideOffLedges(p, dt){
   for (const w of WALLS){
-    if (!w.ht || !aabbHit(p,w)) continue;
+    if (!standable(w) || !aabbHit(p,w)) continue;
     // 腳還在頂面上方就只是從它上面飛過去，落地判定會處理，不能推（否則飛越斜坡時會被橫推）
     if (p.z >= topAt(w, p.x, p.y, FOOT)) continue;
     // 最淺的那一側就是往外的方向
@@ -4498,6 +4535,9 @@ function newGame(){
     sliding:false, slideT:0, slideBoostAt:-9, slideVis:0, crouchPrev:false, landT:-9,
     // 跳躍是按下觸發：keydown 設 jumpPress，update 用完就清掉
     jumpPress:false, coyoteT:0, airTop:0, stunT:0,
+    // 牆上技術：mantle / climb 是進行中的狀態，sgFrame 是翻越跳發生的那一幀（superglide 要下一幀按蹲）
+    mantle:null, climb:null, climbSpace:WT.climbSpace, lastFace:null,
+    frameNo:0, sgFrame:-9, sgSprint:false, jumpT:-9, dirPrev:0,
     // 訓練場
     practice:modeSelect.value === "range", rs:freshRangeStats(), respawns:[],
     breakMark:0, breakColor:"#FFFFFF",
@@ -4928,6 +4968,7 @@ function useEcho(){
   p.vz = target.vz !== undefined ? target.vz : 0;
   p.grounded = target.grounded !== undefined ? target.grounded : p.z <= groundAt(p) + 0.001;
   p.hp = Math.max(p.hp, target.hp);
+  G.mantle = null; G.climb = null;        // 倒帶到三秒前，牆上的動作一併取消
   p.iframe = 0.45; p.echoCd = P.echoCd; p.trail.length = 0;
   echoShock(p.x, p.y);
   spawnSpark(p.x, p.y, 0xA277FF, 18);
@@ -4951,6 +4992,191 @@ function startSlide(p){
   sfx("sine", 85, 0.18, 0.025, 55);
 }
 function endSlide(){ G.sliding = false; }
+
+// ── 跳躍疲勞（見 WT.fatigue*）：回傳這一跳的起跳速度 ──
+function jumpVz(){
+  const t = G.t - G.landT;
+  let h = WT.fatigueFull;
+  if (t < WT.fatigueT0) h = WT.fatigueLow;
+  else if (t < WT.fatigueT1) h = WT.fatigueLow + (WT.fatigueFull - WT.fatigueLow)*(t - WT.fatigueT0)/(WT.fatigueT1 - WT.fatigueT0);
+  return P.jumpV * Math.sqrt(h / WT.fatigueFull);
+}
+// 起跳的共同收尾：記下 lurch 視窗的起點
+function tookOff(p, vz){ p.vz = vz; p.grounded = false; G.coyoteT = 0; G.airTop = p.z; G.jumpT = G.t; }
+
+// ── 牆面接觸 ──
+// 玩家貼著的牆面（圓離牆 3px 內）：回傳那面牆、外法線與頂面高度。只看比腳高出一個台階以上、擋得住人的牆
+function wallContact(p){
+  let best = null, bestD = 3;
+  for (const w of WALLS){
+    const top = topAt(w, p.x, p.y);
+    if (top <= p.z + STEP_UP) continue;
+    const cx = Math.max(w.x, Math.min(w.x+w.w, p.x)), cy = Math.max(w.y, Math.min(w.y+w.h, p.y));
+    const d = Math.hypot(p.x-cx, p.y-cy) - p.rad;
+    if (d > bestD) continue;
+    // 法線看圓心在牆的哪一側；角落兩軸都在外面時取離得遠的那一軸
+    const ox = p.x < w.x ? p.x - w.x : p.x > w.x+w.w ? p.x - (w.x+w.w) : 0;
+    const oy = p.y < w.y ? p.y - w.y : p.y > w.y+w.h ? p.y - (w.y+w.h) : 0;
+    let nx = 0, ny = 0;
+    if (Math.abs(ox) >= Math.abs(oy)) nx = Math.sign(ox); else ny = Math.sign(oy);
+    if (!nx && !ny) continue;
+    best = {w, nx, ny, top}; bestD = d;
+  }
+  return best;
+}
+// 頂面上站得下人嗎：室內圖要留出身高到天花板的空間
+function ledgeOK(top){ return !!activeMap.outdoor || top + 1.9 <= WALL_H; }
+
+// 在空中碰到牆時，決定要翻越、攀牆，還是什麼都不做
+function tryWallStart(p, wx, wy, wl, vx, vy){
+  const c = wallContact(p);
+  if (!c) return;
+  // 往牆裡的方向：有按鍵就看按鍵，沒按就看撞上去的速度
+  let dx = wx, dy = wy;
+  if (!wl){ const sp = Math.hypot(vx, vy); if (sp < 1) return; dx = vx/sp; dy = vy/sp; }
+  const into = -(dx*c.nx + dy*c.ny);
+  if (into >= Math.cos(WT.mantleAngle) && c.top - p.z <= WT.mantleReach && ledgeOK(c.top)){
+    startMantle(p, c, false);
+    return;
+  }
+  // 攀牆：視線要對著牆、要往牆裡走或按著前進、這次騰空還有攀爬空間
+  const look = -(Math.cos(p.angle)*c.nx + Math.sin(p.angle)*c.ny);
+  if (look < Math.cos(WT.lookMax) || into <= 0 || G.climbSpace <= 0.01) return;
+  // 同一面牆不能在比上次貼上點更高的地方再貼一次（wiki：換一面角度差 25.8 度以上的牆才行）
+  const lf = G.lastFace;
+  if (lf && lf.w === c.w && lf.nx === c.nx && lf.ny === c.ny && p.z > lf.z) return;
+  startClimb(p, c, vx, vy);
+}
+
+// ── 攀牆 ──
+function startClimb(p, c, vx, vy){
+  G.climb = {w:c.w, nx:c.nx, ny:c.ny, top:c.top, z0:p.z, t:0,
+             // 撞牆前的水平速率與沿牆方向的分量，蹬牆跳要用
+             inSpeed:Math.hypot(vx, vy), tan:-vx*c.ny + vy*c.nx};
+  p.vx = 0; p.vy = 0; p.vz = 0;
+  endSlide(); G.adsOn = false;
+  sfxNoise(0.08, 0.03, 900);
+}
+function detachClimb(p, pen){
+  const c = G.climb;
+  G.climb = null;
+  G.climbSpace -= pen;
+  G.lastFace = {w:c.w, nx:c.nx, ny:c.ny, z:c.z0};
+}
+function updateClimb(p, dt, rgtX, rgtY){
+  const c = G.climb;
+  c.t += dt;
+  // 自動往上爬；按著後退就只掛著，貼上 1 秒後掉下來
+  if (!held("back")) p.vz = WT.climbUp;
+  else { p.vz = 0; if (c.t > WT.stallT){ detachClimb(p, WT.penalty); return; } }
+  p.z += p.vz*dt;
+  const rise = p.z - c.z0;
+  if (c.top - p.z <= WT.mantleReach && ledgeOK(c.top)){
+    G.climb = null;
+    startMantle(p, c, true);
+    return;
+  }
+  if (G.jumpPress){ wallBounce(p, rise, rgtX, rgtY); return; }
+  if (held("crouch")){ detachClimb(p, WT.penalty); return; }
+  // 攀爬空間用完或頂到天花板：往上甩一小段再掉下來
+  const ceiling = !activeMap.outdoor && p.z > WALL_H - EYE - 0.25;
+  if (rise >= G.climbSpace || ceiling){
+    p.vz = ceiling ? 0 : Math.sqrt(2*P.gravity*WT.endBoost);
+    detachClimb(p, WT.penalty);
+  }
+}
+// 蹬牆跳：依跳離時在哪一段（mini / green / neutral）決定彈出的速度。
+// 離牆方向只看撞牆的角度（沿牆速度保留）與左右鍵，視線方向不影響（wiki）；
+// 跳的當下還按著前進，就幾乎不會離牆（wiki：蹬牆跳前要先放開前進）
+function wallBounce(p, rise, rgtX, rgtY){
+  const c = G.climb;
+  let H, vz, pen;
+  if (rise < WT.greenLo){ H = WT.bounceMin*0.5; vz = P.jumpV*0.8; pen = WT.penalty; }
+  else if (rise <= WT.greenHi){
+    const f = (rise - WT.greenLo) / (WT.greenHi - WT.greenLo);
+    H = Math.max(WT.bounceMin, Math.min(WT.bounceMax, c.inSpeed));
+    vz = P.jumpV * (WT.bounceVzLo + (WT.bounceVzHi - WT.bounceVzLo)*f);
+    pen = WT.penaltyJump;
+  } else { H = 128/1.15*HU; vz = P.jumpV*0.75; pen = WT.penaltyJump; }   // neutral：只是從牆上跳下來（自訂）
+  const tx = -c.ny, ty = c.nx;                       // 沿牆的切線
+  const side = (held("right")?1:0) - (held("left")?1:0);
+  const sideT = side * (rgtX*tx + rgtY*ty);          // 左右鍵投影到切線上
+  const T = Math.max(-H*0.8, Math.min(H*0.8, c.tan + sideT*H*0.5));
+  const outN = held("forward") ? H*0.15 : Math.sqrt(H*H - T*T);     // 沿牆分完剩下的都往外推，總速率就是 H
+  p.vx = c.nx*outN + tx*T; p.vy = c.ny*outN + ty*T;
+  const hs = Math.hypot(p.vx, p.vy);
+  if (hs > H){ p.vx *= H/hs; p.vy *= H/hs; }
+  detachClimb(p, pen);
+  tookOff(p, vz);
+  sfxNoise(0.07, 0.04, 700); sfx("sine", 140, 0.10, 0.03, 90);
+}
+
+// ── 翻越 ──
+function startMantle(p, c, fromClimb){
+  const rel = c.top - p.z;
+  G.mantle = {
+    t:0, grab:(fromClimb || rel > WT.grabMin) ? WT.grabT : 0, pull:WT.pullT,
+    z0:p.z, top:c.top, x0:p.x, y0:p.y,
+    // 拉上去之後站的位置：往牆裡推一個身體寬，腳底的支撐點才會在頂面上
+    x1:p.x - c.nx*(p.rad + 6), y1:p.y - c.ny*(p.rad + 6),
+    sprint:held("sprint") && held("forward"),
+  };
+  p.vx = 0; p.vy = 0; p.vz = 0;
+  endSlide(); G.adsOn = false;
+  sfxNoise(0.12, 0.035, 600);
+}
+function updateMantle(p, dt, wx, wy, wl){
+  const m = G.mantle, total = m.grab + m.pull;
+  m.t += dt;
+  if (m.t < m.grab){
+    p.z = m.z0 + (m.top - m.z0) * ease(m.t / m.grab);
+  } else {
+    const f = ease(Math.min(1, (m.t - m.grab) / m.pull));
+    p.z = m.top;
+    p.x = m.x0 + (m.x1 - m.x0)*f; p.y = m.y0 + (m.y1 - m.y0)*f;
+  }
+  // Superglide 的第一步：翻越最後的視窗內按跳，先變成翻越跳（mantle hop），下一幀按蹲才是 superglide
+  const win = m.sprint ? WT.sgWindow : WT.sgWalkWindow;
+  if (G.jumpPress && m.t >= m.grab && total - m.t <= win){ endMantle(p, wx, wy, wl, true); return; }
+  if (m.t >= total) endMantle(p, wx, wy, wl, false);
+}
+function endMantle(p, wx, wy, wl, hop){
+  const m = G.mantle;
+  G.mantle = null;
+  p.z = m.top;
+  // 翻越會重置跳躍疲勞、恢復攀爬空間（wiki）
+  G.landT = -9; G.climbSpace = WT.climbSpace; G.lastFace = null;
+  // 衝刺進翻越的，一翻完就是衝刺速度（wiki）
+  const spd = wl ? (m.sprint && held("sprint") ? SPRINT_SPD : P.speed) : 0;
+  p.vx = wx*spd; p.vy = wy*spd;
+  if (hop){
+    tookOff(p, P.jumpV);                 // 翻越跳不吃跳躍疲勞（wiki）
+    G.sgFrame = G.frameNo; G.sgSprint = m.sprint;
+  } else { p.vz = 0; p.grounded = true; }
+}
+// 翻越跳的下一幀按蹲：同時拿到滑鏟加速與跳躍（wiki），貼地往前衝出去
+function superglide(p, wx, wy, wl){
+  let dx = wx, dy = wy;
+  if (!wl){ dx = Math.cos(p.angle); dy = Math.sin(p.angle); }
+  const spd = G.sgSprint ? WT.sgSpeed : WT.sgWalkSpeed;
+  p.vx = dx*spd; p.vy = dy*spd;
+  G.sgFrame = -9;
+  sfxNoise(0.35, 0.05, 700); sfx("sine", 95, 0.2, 0.03, 60);
+}
+
+// ── Lurch：起跳後按下新的方向鍵，速度往按鍵方向掰（見 WT.lurch*）──
+function lurch(p, wx, wy){
+  const t = G.t - G.jumpT;
+  if (t >= WT.lurchWindow) return;
+  const k = t < WT.lurchFull ? 1 : 1 - (t - WT.lurchFull) / (WT.lurchWindow - WT.lurchFull);
+  const sp = Math.hypot(p.vx, p.vy);
+  if (sp < 1) return;
+  const nx = p.vx + wx*sp*WT.lurchK*k, ny = p.vy + wy*sp*WT.lurchK*k;
+  const turn = Math.acos(Math.max(-1, Math.min(1, (nx*p.vx + ny*p.vy) / (Math.hypot(nx, ny)*sp))));
+  const ns = sp * (1 - WT.lurchLoss * Math.min(1, turn / (Math.PI/2)));
+  const nl = Math.hypot(nx, ny) || 1;
+  p.vx = nx/nl*ns; p.vy = ny/nl*ns;
+}
 
 // ─────────────────────────────────────────────
 // 每幀更新（純 2D 邏輯，跟 3D 版本完全共用）
@@ -5010,15 +5236,18 @@ function update(dt){
     let mf = (held("forward")?1:0) - (held("back")?1:0);
     let mr = (held("right")?1:0) - (held("left")?1:0);
     G.strafe = mr;
+    G.frameNo++;
+    // 攀牆、翻越中：槍放下（沿用衝刺的持槍姿勢）、不能開鏡與開槍
+    const onWall = !!(G.mantle || G.climb);
     // 瞄準是切換式的。換彈、衝刺、失去鎖定時強制退出，
     // 而且把切換狀態一起關掉，不然條件解除後會自己彈回瞄準
-    if (G.adsOn && (!locked || G.mode !== "fight" || p.reloading > 0 || G.sprinting)){
+    if (G.adsOn && (!locked || G.mode !== "fight" || p.reloading > 0 || G.sprinting || onWall)){
       G.adsOn = false;
     }
     const wantAds = G.adsOn;
     G.ads = wantAds;
     // 衝刺的權重平滑變化，視野與持槍姿勢都吃它
-    G.sprintT += ((G.sprinting ? 1 : 0) - G.sprintT) * Math.min(1, dt*6);
+    G.sprintT += ((G.sprinting || onWall ? 1 : 0) - G.sprintT) * Math.min(1, dt*6);
     G.adsT += ((wantAds ? 1 : 0) - G.adsT) * Math.min(1, dt*11);
     if (G.adsT < 0.002) G.adsT = 0;
 
@@ -5027,8 +5256,8 @@ function update(dt){
     const slideJumpOk = G.sliding &&
       (G.slideT >= SLIDE.jumpDelay || Math.hypot(p.vx, p.vy) <= SLIDE.jumpSpeed);
     G.coyoteT = Math.max(0, G.coyoteT - dt);
-    if (G.jumpPress && (p.grounded || G.coyoteT > 0) && (!G.crouching || slideJumpOk) && G.mode !== "dead"){
-      p.vz = P.jumpV; p.grounded = false; G.coyoteT = 0; G.airTop = p.z;
+    if (G.jumpPress && !onWall && (p.grounded || G.coyoteT > 0) && (!G.crouching || slideJumpOk) && G.mode !== "dead"){
+      tookOff(p, jumpVz());               // 落地後太快再跳會吃跳躍疲勞（見 WT.fatigue*）
       if (G.sliding) endSlide();          // 滑鏟跳保留滑行的水平速度，這正是它的用途
       // 連跳懲罰：落地 1 秒內又起跳，超過衝刺速度的部分最多扣 100hu/s
       if (G.t - G.landT < SLIDE.hopWindow){
@@ -5038,8 +5267,7 @@ function update(dt){
       }
       sfxNoise(0.05, 0.02, 380);
     }
-    G.jumpPress = false;
-    if (!p.grounded){
+    if (!p.grounded && !onWall){
       p.vz -= P.gravity*dt;
       p.z  += p.vz*dt;
       G.airTop = Math.max(G.airTop, p.z);
@@ -5051,6 +5279,7 @@ function update(dt){
         const impact = Math.max(0, -p.vz);
         G.stepLift += gz - p.z;
         p.z = gz; p.vz = 0; p.grounded = true; G.landT = G.t;
+        G.climbSpace = WT.climbSpace; G.lastFace = null;     // 落地才恢復攀爬空間
         // Apex 落地不扣水平速度，只有落差 7.6m 以上會摔出硬直（見 P.stunFrom）
         const fall = G.airTop - gz;
         if (fall > P.stunFrom) G.stunT = Math.min(1, (fall - P.stunFrom) / (P.stunTo - P.stunFrom));
@@ -5068,6 +5297,7 @@ function update(dt){
 
     // 滑鏟：衝刺中（速度超過門檻）按下蹲就滑出去；放開蹲或離地就結束
     const crouchKey = held("crouch");
+    const crouchEdge = crouchKey && !G.crouchPrev;
     if (crouchKey && !G.crouchPrev && p.grounded && !G.sliding && G.mode !== "dead" &&
         Math.hypot(p.vx, p.vy) > SLIDE.enter) startSlide(p);
     G.crouchPrev = crouchKey;
@@ -5097,8 +5327,20 @@ function update(dt){
     const wl = Math.hypot(wx,wy);
     if (wl){ wx /= wl; wy /= wl; }
 
+    // 牆上：攀牆與翻越自己處理位置與速度，下面一般的摩擦、加速、碰撞都跳過
+    if (G.mantle) updateMantle(p, dt, wx, wy, wl);
+    else if (G.climb) updateClimb(p, dt, rgtX, rgtY);
+    // Superglide：翻越跳的「下一幀」剛好按下蹲（同一幀或先按蹲都不算）
+    if (crouchEdge && G.sgFrame === G.frameNo - 1 && !p.grounded) superglide(p, wx, wy, wl);
+    // Lurch：空中按下新的方向鍵（滾輪綁的前進也算，一格就是一次按下）
+    const dirNow = (held("forward")?1:0) | (held("back")?2:0) | (held("left")?4:0) | (held("right")?8:0);
+    if (!p.grounded && !G.mantle && !G.climb && wl && (dirNow & ~G.dirPrev)) lurch(p, wx, wy);
+    G.dirPrev = dirNow;
+
     // 地面摩擦（Source 式，見 P.friction）：有沒有按鍵都一樣，放開後從衝刺約 0.49 秒停下
-    if (G.sliding){
+    if (G.mantle || G.climb){
+      // 牆上，上面已經處理過
+    } else if (G.sliding){
       // 滑鏟：不吃一般的摩擦與加速，改成慢慢衰減的滑行
       G.slideT += dt;
       // 坡面上的重力分量：加速度 = g·sinθ，方向朝下坡（坡度的反方向）
@@ -5133,8 +5375,8 @@ function update(dt){
       }
     }
     // 加速：只補到目標速度為止，起步因此有一段加速過程
-    if (G.sliding){
-      // 滑行中的方向與速度上面已經處理過
+    if (G.sliding || G.mantle || G.climb){
+      // 滑行中、牆上的方向與速度上面已經處理過
     } else if (wl && p.grounded){
       const cur = p.vx*wx + p.vy*wy;
       const add = maxSpd - cur;
@@ -5152,26 +5394,35 @@ function update(dt){
         p.vx += wx*acc; p.vy += wy*acc;
       }
     }
-    const onRampBefore = p.grounded && groundAt(p) > 0 && groundOnRamp;
-    if (!p.grounded) slideOffLedges(p, dt);
-    const hitAx = moveWithCollision(p, p.vx*dt, p.vy*dt, p.z, p.grounded ? STEP_UP : LEDGE_REACH);
-    const gHere = groundAt(p);
-    if (p.grounded && Math.abs(p.z - gHere) > 0.001){
-      // 往上（台階）直接抬上去；往下差距小（下台階、下斜坡）就貼著地面走，
-      // 不然每幀都會短暫離地又落地。差距大才是真的走出邊緣，開始往下掉
-      if (p.z < gHere || p.z - gHere <= STEP_UP){
-        // 台階是一次跳好幾十公分，鏡頭用 stepLift 在 0.1 秒內跟上；
-        // 斜坡上是連續變化，再平滑只會讓鏡頭一路落後腳底
-        if (!groundOnRamp && !onRampBefore) G.stepLift += gHere - p.z;
-        p.z = gHere;
-      } else { p.grounded = false; p.vz = 0; G.coyoteT = P.coyote; G.airTop = p.z; }
+    if (!G.mantle && !G.climb){
+      const onRampBefore = p.grounded && groundAt(p) > 0 && groundOnRamp;
+      if (!p.grounded) slideOffLedges(p, dt);
+      const preVx = p.vx, preVy = p.vy;       // 撞牆前的速度：撞牆會歸零，攀牆與蹬牆跳要用撞上去的那個速度
+      const hitAx = moveWithCollision(p, p.vx*dt, p.vy*dt, p.z, p.grounded ? STEP_UP : LEDGE_REACH);
+      const gHere = groundAt(p);
+      if (p.grounded && Math.abs(p.z - gHere) > 0.001){
+        // 往上（台階）直接抬上去；往下差距小（下台階、下斜坡）就貼著地面走，
+        // 不然每幀都會短暫離地又落地。差距大才是真的走出邊緣，開始往下掉
+        if (p.z < gHere || p.z - gHere <= STEP_UP){
+          // 台階是一次跳好幾十公分，鏡頭用 stepLift 在 0.1 秒內跟上；
+          // 斜坡上是連續變化，再平滑只會讓鏡頭一路落後腳底
+          if (!groundOnRamp && !onRampBefore) G.stepLift += gHere - p.z;
+          p.z = gHere;
+        } else { p.grounded = false; p.vz = 0; G.coyoteT = P.coyote; G.airTop = p.z; }
+      }
+      // 撞牆就把該方向的速度吃掉，否則會沿牆累積。
+      // 例外是在空中撞到還差一點才踩得上的矮地形：保留往前的速度，
+      // 升到夠高的那一幀才會順勢跨上去，而不是停在牆邊垂直掉回原地
+      const keepMomentum = !p.grounded && !hitAx.hard;
+      if (hitAx.x && !keepMomentum) p.vx = 0;
+      if (hitAx.y && !keepMomentum) p.vy = 0;
+      // 露天地圖站得上外牆頂，不能從那裡走出地圖
+      p.x = Math.max(p.rad, Math.min(W - p.rad, p.x));
+      p.y = Math.max(p.rad, Math.min(H - p.rad, p.y));
+      // 空中碰到牆：翻越或攀牆
+      if (!p.grounded && G.mode !== "dead") tryWallStart(p, wx, wy, wl, preVx, preVy);
     }
-    // 撞牆就把該方向的速度吃掉，否則會沿牆累積。
-    // 例外是在空中撞到還差一點才踩得上的矮地形：保留往前的速度，
-    // 升到夠高的那一幀才會順勢跨上去，而不是停在牆邊垂直掉回原地
-    const keepMomentum = !p.grounded && !hitAx.hard;
-    if (hitAx.x && !keepMomentum) p.vx = 0;
-    if (hitAx.y && !keepMomentum) p.vy = 0;
+    G.jumpPress = false;
 
     // 實際位移（撞牆時會小於預期），拿來驅動頭部晃動與腳步聲
     G.moved = Math.hypot(p.x-bx, p.y-by);
@@ -5193,7 +5444,7 @@ function update(dt){
       p.reloading -= dt;
       if (p.reloading <= 0){ p.mags[p.gun] = gun().mag; sfx("sine",320,0.08,0.045,460); }
     }
-    if (held("fire") && locked && G.mode === "fight" && (gun().auto || !p.firedThisPress)){
+    if (held("fire") && locked && G.mode === "fight" && !onWall && (gun().auto || !p.firedThisPress)){
       if (playerShoot()) p.firedThisPress = true;
     }
 
@@ -5989,9 +6240,10 @@ function drawUI(){
   }
 
   // 衝刺時準心散開，順便提示狀態
-  if (G.sprinting || G.crouching || !p.grounded){
+  if (G.sprinting || G.crouching || !p.grounded || G.mantle){
     uctx.textAlign = "center";
-    const label = !p.grounded ? "AIRBORNE" : G.sliding ? "SLIDE" : G.crouching ? "CROUCH" : "SPRINT";
+    const label = G.mantle ? "MANTLE" : G.climb ? "CLIMB" : !p.grounded ? "AIRBORNE"
+                : G.sliding ? "SLIDE" : G.crouching ? "CROUCH" : "SPRINT";
     uctx.fillStyle = !p.grounded ? "rgba(255,200,120,.6)"
                    : G.sliding ? "rgba(255,210,77,.75)"
                    : G.crouching ? "rgba(124,224,255,.65)" : "rgba(255,138,43,.6)";

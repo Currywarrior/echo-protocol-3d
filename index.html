@@ -326,6 +326,98 @@ const WALL_H = 3.2;           // 牆高（公尺）
 const EYE = 1.62;             // 視線高度
 const VIEW_R = 440;           // 感測器有效距離，換算後約 13 公尺
 
+// ── 可以走進去的房子（Apex 式）──
+// 把一棟房子拆成碰撞構件：外牆段、門窗洞口上下的窗台與窗楣（懸空）、每層樓板（懸空、留樓梯井）、
+// 室內樓梯（斜坡）與屋頂。尺寸單位：平面是像素（1m ≈ 33px），高度是公尺。
+// 門寬 1.6m：最胖的敵人（半徑 17px）加尋路外擴也過得去；窗洞 1.3m 高，比蹲姿高度 1.2m 大，翻得進去。
+// 一層 3.0m（室內淨高 2.8m）：兩層樓 6.0m，剛好在攀爬能搆到的範圍（約 6.35m）內，屋頂爬得上去。
+// opts：floors 樓層數、doors / wins 是 [邊, 位置 0～1, 樓層]（邊：n s w e）、stair 樓梯靠哪一邊（n s w e 或 none）、
+// story 樓高（倉庫用）、doorW / doorH 門的寬（像素）與高（公尺）。
+// 門窗外框是純裝飾（deco:true），useMap 會把它們移出碰撞清單
+const STORY = 3.0, SLAB = 0.2, WALL_T = 14;
+function house(x, y, w, h, opts){
+  const o = Object.assign({floors:2, doors:[], wins:[], stair:"n", tone:0, story:STORY, doorW:53, doorH:2.3}, opts);
+  const SH = o.story, top = o.floors*SH, T = WALL_T, out = [];
+  const add = (a) => out.push(Object.assign({part:"wall", tone:o.tone}, a));
+  // 一面牆：沿著牆把洞口位置排好，洞口之間是整面牆，洞口處上下補窗台與窗楣
+  const side = (s) => {
+    const horiz = s === "n" || s === "s";
+    const L = horiz ? w : h - 2*T;                        // 東西兩面夾在南北牆之間，角落不重疊
+    const x0 = horiz ? x : (s === "w" ? x : x + w - T), y0 = horiz ? (s === "n" ? y : y + h - T) : y + T;
+    const holes = [];
+    for (const d of o.doors) if (d[0] === s) holes.push({c:d[1], wd:o.doorW, lo:(d[2]||0)*SH, hi:(d[2]||0)*SH + o.doorH, door:true});
+    for (const d of o.wins)  if (d[0] === s) holes.push({c:d[1], wd:46, lo:(d[2]||0)*SH + 0.95, hi:(d[2]||0)*SH + 2.25});
+    // 同一個位置可能上下兩層都開洞：依位置分組，組內依高度排
+    const cols = [];
+    for (const hl of holes){
+      const u = Math.round(hl.c*L - hl.wd/2);
+      let col = cols.find(c => Math.abs(c.u - u) < 4);
+      if (!col){ col = {u, wd:hl.wd, spans:[]}; cols.push(col); }
+      col.wd = Math.max(col.wd, hl.wd);
+      col.spans.push([hl.lo, hl.hi, hl.door]);
+    }
+    cols.sort((a, b) => a.u - b.u);
+    const piece = (u, len, lo, hi) => {
+      if (len <= 0 || hi - lo <= 0.01) return;
+      const r = horiz ? {x:x0 + u, y:y0, w:len, h:T} : {x:x0, y:y0 + u, w:T, h:len};
+      add(Object.assign(r, lo > 0 ? {base:lo, ht:hi} : {ht:hi}));
+    };
+    // 外框：兩側門窗框、上框，窗再加一條凸出的窗沿。跨過牆厚、兩面各凸出 3px，不和牆面共平面
+    const frame = (u, len, lo, hi) => {
+      const r = horiz ? {x:x0 + u, y:y0 - 3, w:len, h:T + 6} : {x:x0 - 3, y:y0 + u, w:T + 6, h:len};
+      out.push(Object.assign(r, {part:"frame", deco:true, ht:hi}, lo > 0 ? {base:lo} : {}));
+    };
+    let u = 0;
+    for (const c of cols){
+      piece(u, c.u - u, 0, top);
+      // 洞口這一段：由下往上，洞與洞之間補實心
+      let z = 0;
+      for (const [lo, hi, door] of c.spans.sort((a, b) => a[0] - b[0])){
+        piece(c.u, c.wd, z, lo); z = hi;
+        frame(c.u - 3, 3, lo, hi + 0.1); frame(c.u + c.wd, 3, lo, hi + 0.1);
+        frame(c.u - 3, c.wd + 6, hi, hi + 0.1);
+        if (!door) frame(c.u - 5, c.wd + 10, lo - 0.08, lo);
+      }
+      piece(c.u, c.wd, z, top);
+      u = c.u + c.wd;
+    }
+    piece(u, L - u, 0, top);
+  };
+  for (const s of ["n", "s", "w", "e"]) side(s);
+  // 室內樓梯：沿 stair 那一面牆，寬 1.4m、長 4.8m（約 32 度），從地面升到二樓樓板面
+  const ix = x + T, iy = y + T, iw = w - 2*T, ih = h - 2*T, SW = 47, SL = 160;
+  let hole = null;
+  if (o.floors >= 2 && o.stair !== "none"){
+    const st = o.stair;
+    const r = st === "n" ? {x:ix + iw - SL - 6, y:iy, w:SL, h:SW, ramp:"+x"}
+            : st === "s" ? {x:ix + 6, y:iy + ih - SW, w:SL, h:SW, ramp:"-x"}
+            : st === "w" ? {x:ix, y:iy + 6, w:SW, h:SL, ramp:"-y"}
+            :              {x:ix + iw - SW, y:iy + ih - SL - 6, w:SW, h:SL, ramp:"+y"};
+    out.push(Object.assign({ht:SH}, r));
+    hole = r;
+  }
+  // 樓板與屋頂：屋頂一整片；中間樓層扣掉樓梯井（在樓梯上方的那塊不鋪）
+  const slab = (base, cut) => {
+    const rects = [{x:ix, y:iy, w:iw, h:ih}];
+    const res = [];
+    for (const r of rects){
+      if (!cut){ res.push(r); continue; }
+      // 長方形減長方形：切成上下左右最多四塊
+      const cx0 = Math.max(r.x, cut.x), cx1 = Math.min(r.x + r.w, cut.x + cut.w);
+      const cy0 = Math.max(r.y, cut.y), cy1 = Math.min(r.y + r.h, cut.y + cut.h);
+      if (cx0 >= cx1 || cy0 >= cy1){ res.push(r); continue; }
+      if (cy0 > r.y) res.push({x:r.x, y:r.y, w:r.w, h:cy0 - r.y});
+      if (cy1 < r.y + r.h) res.push({x:r.x, y:cy1, w:r.w, h:r.y + r.h - cy1});
+      if (cx0 > r.x) res.push({x:r.x, y:cy0, w:cx0 - r.x, h:cy1 - cy0});
+      if (cx1 < r.x + r.w) res.push({x:cx1, y:cy0, w:r.x + r.w - cx1, h:cy1 - cy0});
+    }
+    for (const r of res) out.push(Object.assign({part:base >= top ? "roof" : "floor", base:base - SLAB, ht:base}, r));
+  };
+  for (let f=1; f<o.floors; f++) slab(f*SH, hole && f === 1 ? {x:hole.x - 2, y:hole.y - 2, w:hole.w + 4, h:hole.h + 4} : null);
+  slab(top, null);
+  return out;
+}
+
 const MAPS = {
   atrium: {
     name:"COLUMN FOREST",
@@ -495,15 +587,15 @@ const MAPS = {
       {x:608,y:94,w:64,h:166,kind:"paving"},{x:608,y:460,w:64,h:166,kind:"paving"},
     ],
   },
-  // 小鎮：照 Apex 的地形尺度做的建築群，練身法用（2026-09-24）。
-  // 世界 60m x 42m。建築是實心量體（碰撞就是長方體），3.5～6m 高，屋頂都爬得上去
-  // （原地跳 1.34m + 攀爬 147hu（3.73m）+ 手搆 60hu（1.52m）≈ 6.6m）；外牆 10m 爬不出去。
-  // 中間是 15m 寬的開闊帶：鐘樓 8.5m 爬不上去，拿來練蹬牆跳；1.2m 矮牆與 2.2m 石墩練翻越與 superglide；
-  // 下坡斜坡練滑鏟。敵人沒有尋路，所以建築彼此至少隔 3m、不做凹槽，後巷也留 2.4m 以上
+  // RIDGE TOWN：照 Apex 據點的尺度做的山城（2026-09-24 第二版）。世界 99m x 69m，四周 10m 懸崖。
+  // 房子都走得進去（house() 產生：兩層樓 6m、門 1.6m、窗 1.3m 高可以翻進去、室內樓梯），
+  // 屋頂爬得上去；倉庫 6.8m 爬不上去，從貨櫃頂的滑索上屋頂。
+  // 十字街口的鐘樓 8.5m 練蹬牆跳；北邊高台上的水塔 11.5m 用垂直滑索上去，是全圖最高點。
+  // 敵人有 A* 尋路，可以進出房子（門寬夠），但上不了屋頂、高台與貨櫃
   town: {
     name:"RIDGE TOWN",
-    size:{w:2000, h:1400},
-    outdoor:true,
+    size:{w:3300, h:2300},
+    outdoor:true, vista:true,
     theme:{
       neutral:true,
       // 淺灰米、灰藍、灰綠的灰泥牆：環境不用飽和暖色（那是敵人的顏色）
@@ -516,52 +608,88 @@ const MAPS = {
       topGrime:false,
     },
     atmo:{
-      bg:0xE8E0D2, fog:0.004, hemiSky:0xB8D0EC, hemiGround:0xB09A7A, hemi:0.85,
+      bg:0xE8E0D2, fog:0.0035, hemiSky:0xB8D0EC, hemiGround:0xB09A7A, hemi:0.85,
       sensor:0.6, bloom:0.08, threshold:0.95, vignette:0.2, grade:0.35,
       sunColor:0xFFE2B8, sunI:1.9, sunDir:[0.45,0.7,0.35],
       skyTop:0x4E8AD6, skyHorizon:0xE8DCC8,
-      aberr:0, scan:0, noise:0, sharp:0.5, ao:1, env:true,
+      aberr:0, scan:0, noise:0, sharp:0.5, ao:1, env:true, clouds:0.85,
     },
     walls:[
-      // 外牆 10m：比攀爬上限高，爬不出地圖
-      {x:0,y:0,w:2000,h:30,ht:10},{x:0,y:1370,w:2000,h:30,ht:10},
-      {x:0,y:0,w:30,h:1400,ht:10},{x:1970,y:0,w:30,h:1400,ht:10},
-      // 北排建築
-      {x:120,y:140,w:280,h:260,ht:4.5,style:"building"},
-      {x:520,y:110,w:220,h:300,ht:6.0,style:"building"},
-      {x:860,y:170,w:200,h:220,ht:3.5,style:"building"},
-      // 往 N3 屋頂的樓梯：和建築同深、相接成一個長方形，敵人不會卡在凹角
-      {x:1060,y:170,w:180,h:220,ht:3.5,ramp:"-x"},
-      {x:1340,y:120,w:300,h:260,ht:5.0,style:"building"},
-      {x:1740,y:150,w:180,h:300,ht:4.0,style:"building"},
-      // 南排建築
-      {x:140,y:1000,w:260,h:260,ht:5.0,style:"building"},
-      {x:520,y:1040,w:300,h:220,ht:3.5,style:"building"},
-      {x:820,y:1040,w:160,h:220,ht:3.5,ramp:"-x"},
-      {x:1080,y:1000,w:240,h:280,ht:6.0,style:"building"},
-      {x:1420,y:1020,w:280,h:240,ht:4.5,style:"building"},
-      {x:1800,y:1000,w:120,h:280,ht:3.5,style:"building"},
-      // 中央：鐘樓（蹬牆跳）
-      {x:960,y:660,w:80,h:80,ht:8.5,style:"building"},
-      // 翻越練習：1.2m 矮牆（跳上去或直接翻）、2.2m 石墩（要跳起來翻）
-      {x:420,y:560,w:120,h:24,ht:1.2},{x:1460,y:820,w:120,h:24,ht:1.2},
-      {x:640,y:800,w:70,h:70,ht:2.2},{x:1290,y:540,w:70,h:70,ht:2.2},
-      // 掩體
-      {x:300,y:760,w:42,h:42,ht:0.8,crate:true},{x:1660,y:600,w:42,h:42,ht:0.8,crate:true},
-      {x:1110,y:520,w:42,h:42,ht:0.8,crate:true},{x:850,y:860,w:42,h:42,ht:0.8,crate:true},
-      {x:740,y:560,w:100,h:34,ht:0.95,style:"sandbags"},{x:1160,y:840,w:100,h:34,ht:0.95,style:"sandbags"},
-      // 下坡滑鏟道：從東端高處往西滑
-      {x:1500,y:520,w:260,h:70,ht:1.6,ramp:"+x"},
+      // 懸崖：比攀爬上限高，爬不出地圖
+      {x:0,y:0,w:3300,h:60,ht:10,style:"cliff"},{x:0,y:2240,w:3300,h:60,ht:10,style:"cliff"},
+      {x:0,y:60,w:60,h:2180,ht:10,style:"cliff"},{x:3240,y:60,w:60,h:2180,ht:10,style:"cliff"},
+      // ── 西北：高台、水塔、兩棟樓與小店 ──
+      {x:300,y:150,w:1150,h:250,ht:2.0},
+      {x:130,y:150,w:170,h:250,ht:2.0,ramp:"+x"},{x:1450,y:150,w:170,h:250,ht:2.0,ramp:"-x"},
+      {x:815,y:215,w:10,h:10,ht:9.0,style:"leg"},{x:915,y:215,w:10,h:10,ht:9.0,style:"leg"},
+      {x:815,y:315,w:10,h:10,ht:9.0,style:"leg"},{x:915,y:315,w:10,h:10,ht:9.0,style:"leg"},
+      {x:810,y:210,w:120,h:120,base:9.0,ht:11.5,style:"tank"},
+      ...house(260, 560, 420, 330, {floors:2, doors:[["s",.5],["n",.3]],
+        wins:[["w",.5,0],["e",.5,0],["s",.18,1],["s",.82,1],["n",.7,1],["e",.5,1]], stair:"n", tone:0}),
+      ...house(820, 520, 360, 400, {floors:2, doors:[["s",.5],["e",.35]],
+        wins:[["w",.4,0],["n",.5,1],["s",.2,1],["w",.6,1],["e",.75,1]], stair:"w", tone:1}),
+      ...house(1260, 700, 260, 220, {floors:1, doors:[["s",.5],["w",.5]], wins:[["e",.5,0],["n",.5,0]], tone:2}),
+      // ── 東北：兩棟樓、平房、貨櫃與岩石 ──
+      ...house(1880, 560, 380, 380, {floors:2, doors:[["s",.6],["w",.5]],
+        wins:[["e",.5,0],["n",.3,1],["s",.25,1],["e",.6,1],["n",.75,0]], stair:"e", tone:0}),
+      ...house(2400, 520, 440, 360, {floors:2, doors:[["s",.35],["n",.6]],
+        wins:[["w",.5,0],["e",.5,0],["s",.75,1],["n",.25,1],["w",.5,1]], stair:"n", tone:2}),
+      ...house(2950, 600, 220, 260, {floors:1, doors:[["w",.5],["s",.5]], wins:[["n",.5,0],["e",.5,0]], tone:1}),
+      {x:2000,y:180,w:202,h:81,ht:2.6,style:"container",tone:0},{x:2000,y:180,w:202,h:81,base:2.6,ht:5.2,style:"container",tone:3},
+      {x:2300,y:240,w:81,h:202,ht:2.6,style:"container",tone:1},
+      {x:2600,y:200,w:120,h:90,ht:2.2,style:"rock"},{x:2850,y:320,w:90,h:80,ht:1.6,style:"rock"},
+      {x:3000,y:170,w:140,h:110,ht:3.0,style:"rock"},
+      // ── 西南：倉庫與貨櫃場 ──
+      ...house(300, 1420, 760, 520, {floors:1, story:6.8, doors:[["n",.25],["n",.75],["e",.5],["s",.5]],
+        wins:[["w",.35,0],["w",.7,0]], stair:"none", tone:1, doorW:133, doorH:4.0}),
+      // 倉庫夾層：沿北牆的平台與上去的斜坡
+      {x:314,y:1434,w:300,h:170,base:3.0,ht:3.2,part:"floor"},
+      {x:614,y:1434,w:200,h:60,ht:3.2,ramp:"-x"},
+      {x:1180,y:1420,w:202,h:81,ht:2.6,style:"container",tone:0},{x:1180,y:1420,w:202,h:81,base:2.6,ht:5.2,style:"container",tone:2},
+      {x:1180,y:1600,w:202,h:81,ht:2.6,style:"container",tone:1},
+      {x:1420,y:1500,w:81,h:202,ht:2.6,style:"container",tone:3},
+      {x:1200,y:1850,w:202,h:81,ht:2.6,style:"container",tone:4},
+      {x:1250,y:2000,w:202,h:81,ht:2.6,style:"container",tone:0},{x:1250,y:2000,w:202,h:81,base:2.6,ht:5.2,style:"container",tone:1},
+      // ── 東南：兩棟房子、廢墟矮牆、岩石、下坡滑鏟道 ──
+      ...house(1900, 1400, 420, 360, {floors:2, doors:[["n",.4],["s",.6]],
+        wins:[["w",.5,0],["e",.5,0],["n",.8,1],["s",.2,1],["e",.4,1]], stair:"s", tone:1}),
+      ...house(2460, 1440, 360, 320, {floors:1, doors:[["n",.5],["w",.5]], wins:[["e",.5,0],["s",.5,0]], tone:0}),
+      {x:2000,y:1900,w:260,h:30,ht:1.2},{x:2400,y:1950,w:30,h:200,ht:1.8},
+      {x:2700,y:1880,w:150,h:120,ht:2.6,style:"rock"},{x:2950,y:1500,w:120,h:100,ht:1.8,style:"rock"},
+      {x:3000,y:1990,w:150,h:130,ht:3.2,style:"rock"},
+      {x:2560,y:2090,w:400,h:90,ht:2.0,ramp:"+x"},
+      // ── 西邊空地的岩石 ──
+      {x:120,y:930,w:90,h:70,ht:1.4,style:"rock"},{x:140,y:1330,w:110,h:90,ht:2.0,style:"rock"},
+      // ── 十字街口：鐘樓（蹬牆跳） ──
+      {x:1620,y:1120,w:80,h:80,ht:8.5,style:"building"},
+      // ── 主街上的掩體與翻越練習 ──
+      {x:900,y:1090,w:42,h:42,ht:0.8,crate:true},{x:1300,y:1200,w:42,h:42,ht:0.8,crate:true},
+      {x:2100,y:1080,w:42,h:42,ht:0.8,crate:true},{x:2620,y:1200,w:42,h:42,ht:0.8,crate:true},
+      {x:1100,y:1180,w:100,h:34,ht:0.95,style:"sandbags"},{x:2350,y:1100,w:100,h:34,ht:0.95,style:"sandbags"},
+      {x:600,y:1100,w:24,h:120,ht:1.2},{x:2800,y:1100,w:70,h:70,ht:2.2},
+      // ── 路燈 ──
+      {x:500,y:1030,w:10,h:10,ht:5.5,style:"lamp"},{x:1100,y:1030,w:10,h:10,ht:5.5,style:"lamp"},
+      {x:2100,y:1030,w:10,h:10,ht:5.5,style:"lamp"},{x:2700,y:1030,w:10,h:10,ht:5.5,style:"lamp"},
+      {x:800,y:1285,w:10,h:10,ht:5.5,style:"lamp"},{x:1400,y:1285,w:10,h:10,ht:5.5,style:"lamp"},
+      {x:2400,y:1285,w:10,h:10,ht:5.5,style:"lamp"},{x:2950,y:1285,w:10,h:10,ht:5.5,style:"lamp"},
+    ],
+    // 滑索：[x, y, 纜繩高度, 柱子立在多高]。掛著時腳在纜繩下 2.2m，所以纜繩比落腳處高 2.4m 左右
+    zips:[
+      {a:[870, 342, 2.4, 2.0], b:[870, 342, 13.9, 2.0]},          // 高台 → 水塔頂（垂直）
+      {a:[1000, 700, 8.4, 6.0], b:[2070, 750, 8.4, 6.0]},         // 西北樓頂 ↔ 東北樓頂，橫跨南北街
+      {a:[580, 1010, 2.4], b:[580, 760, 8.4, 6.0]},               // 主街 → 西北第一棟屋頂（柱子在門的東側，不擋門）
+      {a:[1300, 2040, 7.6, 5.2], b:[900, 1700, 9.2, 6.8]},        // 貨櫃堆頂 → 倉庫屋頂
     ],
     spawns:[
-      {x:1900,y:700},{x:1000,y:480},{x:1000,y:930},{x:700,y:480},{x:1300,y:930},
-      {x:460,y:940},{x:1560,y:480},{x:1700,y:930},{x:1000,y:70},{x:1000,y:1330},
+      {x:3150,y:1160},{x:1660,y:500},{x:1660,y:1900},{x:2300,y:1160},{x:1000,y:1160},{x:2900,y:1000},
+      {x:3170,y:2180},{x:700,y:2150},{x:1540,y:2150},{x:2700,y:400},{x:1660,y:150},{x:400,y:1300},
     ],
-    player:{x:90,y:700,angle:0},
+    player:{x:150,y:1160,angle:0},
     lights:[],
     terrain:[
-      // 中央開闊帶鋪石板
-      {x:30,y:470,w:1940,h:460,kind:"paving"},
+      {x:60,y:1060,w:3180,h:200,kind:"paving"},
+      {x:1580,y:60,w:160,h:1000,kind:"paving"},{x:1580,y:1260,w:160,h:980,kind:"paving"},
+      {x:70,y:1440,w:180,h:760,kind:"grass"},
     ],
   },
 };
@@ -579,6 +707,8 @@ const ATMO_DEFAULT = {
   ao:0.8,
   // 露天地圖用天空生成環境貼圖（IBL）
   env:false,
+  // 天空的雲量（0～1，只有露天地圖看得到）
+  clouds:0,
 };
 function atmo(){ return Object.assign({}, ATMO_DEFAULT, activeMap.atmo || {}); }
 let WALLS = activeMap.walls;
@@ -604,10 +734,12 @@ const P = {
   // 持槍走路 173.5hu/s、衝刺 260、蹲走 80（Apex 收槍會再快 15%，這個遊戲沒有收槍）
   speed:173.5*HU, sprintMul:260/173.5, crouchMul:80/173.5,
   adsMul:0.55,        // Apex 開鏡移速依槍而異，wiki 沒有統一數字，沿用原本的值
-  // 地面：Source 式的摩擦與加速（Apex 的移動碼源自 Source）。friction 4 是 Source 預設；
-  // stopspeed 不能用 Source 預設的 100hu/s：它高於 Apex 蹲走的 80hu/s，低速時摩擦永遠大於加速，會蹲著走不動，
-  // 所以取 60。accel 由「持槍從靜止衝刺到 200hu/s 要 0.35 秒」回推。放開按鍵從衝刺約 0.6 秒停下
-  accel:4.11, friction:4, stopSpeed:60*HU,
+  // 地面：Source 式的摩擦與加速（Apex 的移動碼源自 Source），accel 10、friction 4、stopspeed 100hu/s 都是 Source 預設：
+  // 走路約 0.13 秒、蹲走約 0.2 秒到全速，放開按鍵從衝刺約 0.49 秒停下。
+  // 衝刺另外有「目標速度爬升」：從走路速度以 sprintRamp 往 260 爬，由「持槍從靜止衝刺到 200hu/s 要 0.35 秒」回推，
+  // 約 1.1 秒才到全速衝刺（Apex 的衝刺確實要跑一下才起來）。
+  // （第一版用單一 accel 4.11 去湊 0.35 秒，結果蹲走要 1.2 秒才到速，站在窗台上幾乎走不動）
+  accel:10, friction:4, stopSpeed:100*HU, sprintRamp:75.7*HU,
   // 跳躍：起跳 285hu/s、平地滯空 0.74 秒，回推重力 770hu/s²（19.6m/s²），跳高約 1.34m
   jumpV:285*0.0254, gravity:2*285/0.74*0.0254,
   // 空中：Titanfall/Apex 的 airAcceleration 500、airSpeed 60。沿按鍵方向的速度分量最多補到 60hu/s，
@@ -671,6 +803,11 @@ const WT = {
   lurchWindow:0.4, lurchFull:0.2, lurchK:0.7, lurchLoss:0.15,
   // 跳躍疲勞（wiki）：落地 0.15 秒內只能跳 17hu 高，之後線性恢復，0.8 秒時 55hu（完整跳躍）
   fatigueLow:17, fatigueFull:55, fatigueT0:0.15, fatigueT1:0.8,
+  // 滑索（wiki）：一般滑索最高 600hu/s、垂直滑索 480；加速度 400（剛掛上去 1000）；
+  // 自己跳離最多保留 445hu/s，騎到底被甩出去最多 600；沿滑索方向的既有速度會保留。
+  // 手搆得到的距離、掛著時腳離纜繩多遠、跳離的往上速度 wiki 沒有數字，自訂
+  zipMax:600*HU, zipVMax:480*HU, zipAccel:400*HU, zipJumpOnAccel:1000*HU,
+  zipJumpOff:445*HU, zipEnd:600*HU, zipReach:55, zipHang:2.2, zipJumpVz:0.85,
 };
 const GUNS = {
   vector:{ key:"vector", name:"VECTOR",
@@ -788,7 +925,10 @@ function hasLOS(ax,ay,bx,by,ah,bh){
         const h0 = ah + (bh-ah)*t0, h1 = ah + (bh-ah)*t1;
         // 斜坡頂面是平面、視線是直線，兩者的高度差沿線段線性變化，只要比進出兩點
         const top0 = topAt(w, ax+dx*t0, ay+dy*t0), top1 = topAt(w, ax+dx*t1, ay+dy*t1);
-        if (h0 < top0 - 0.02 || h1 < top1 - 0.02) return false;
+        if (w.base){
+          // 懸空結構：視線在這段範圍內的高度區間和 base～頂面重疊才算擋住（從樓板底下看過去不擋）
+          if (Math.max(h0, h1) > w.base + 0.02 && Math.min(h0, h1) < Math.min(top0, top1) - 0.02) return false;
+        } else if (h0 < top0 - 0.02 || h1 < top1 - 0.02) return false;
       }
     }
   }
@@ -801,7 +941,7 @@ function inWall(x,y){
 // 子彈用：高度 h 比矮牆頂還高就從上面飛過去
 function inWallAt(x,y,h){
   for (const w of WALLS)
-    if (x>w.x && x<w.x+w.w && y>w.y && y<w.y+w.h && h < (w.ht ? topAt(w,x,y) : WALL_H)) return true;
+    if (x>w.x && x<w.x+w.w && y>w.y && y<w.y+w.h && h >= (w.base || 0) && h < (w.ht ? topAt(w,x,y) : WALL_H)) return true;
   return false;
 }
 // 可站立地形（有 ht 的矮牆、箱子、斜坡）在 (x,y) 的頂面高度。
@@ -810,7 +950,22 @@ function inWallAt(x,y,h){
 // r 是站立者的半徑：腳底圓盤踩到的最高點才是站的高度，所以取樣點往上坡挪 r。
 // 少了這步，走到坡頂時圓盤先碰到旁邊的平台，高度會一次跳好幾十公分
 // 露天地圖的高牆也站得上去（攀牆翻上去之後），頂面就是 WALL_H；室內圖的高牆頂到天花板，沒有站的空間
-function standable(w){ return !!w.ht || !!activeMap.outdoor; }
+function standable(w){ return !w.pole && (!!w.ht || !!activeMap.outdoor); }
+// 懸空結構（樓板、屋頂、窗台以上的牆、天橋）：牆可以帶 base（離地高度，公尺），實體只佔 base～頂面這一段，
+// 底下可以走過去。沒有 base 的牆照舊從地面長上去。
+// 身體高度對齊 Apex：站姿 72hu（1.83m）、蹲姿約 1.2m；敵人一律當 2m 高
+const BODY_H = 1.83, CROUCH_H = 1.2, BOT_H = 2.0;
+function bodyH(){ return G && G.crouching ? CROUCH_H : BODY_H; }
+// 頭頂上方最近的樓板底（公尺）；x、y 是位置，z 是腳，r 是半徑。沒有就回傳很大的數
+function ceilingAt(x, y, z, r){
+  let c = 1e9;
+  for (const w of WALLS){
+    const b = w.base || 0;
+    if (b <= z + 0.3 || b >= c) continue;
+    if (x + r > w.x && x - r < w.x + w.w && y + r > w.y && y - r < w.y + w.h) c = b;
+  }
+  return c;
+}
 function topAt(w, x, y, r){
   if (!w.ramp) return w.ht || WALL_H;
   if (r){
@@ -820,7 +975,8 @@ function topAt(w, x, y, r){
   const cx = Math.max(w.x, Math.min(w.x+w.w, x)), cy = Math.max(w.y, Math.min(w.y+w.h, y));
   const t = w.ramp === "+x" ? (cx-w.x)/w.w : w.ramp === "-x" ? (w.x+w.w-cx)/w.w
           : w.ramp === "+y" ? (cy-w.y)/w.h : (w.y+w.h-cy)/w.h;
-  return w.ht * t;
+  const b = w.base || 0;
+  return b + (w.ht - b) * t;
 }
 // 不用跳就能走上去的高度（台階、斜坡）。對齊主流 FPS：
 // Unreal（Valorant）角色移動預設 MaxStepHeight 45cm，Source（CS）sv_stepsize 18 單位約 0.46m。
@@ -839,7 +995,12 @@ function aabbHit(e,w){
 // 碰到的頂面在 h + reach 以內就從上面走過去，交給 groundAt 把人抬上去。
 // 敵人不傳，維持純平面的碰撞（斜坡與箱子對它們就是障礙物）
 function moveWithCollision(e,dx,dy,h,reach){
-  const blocks = w => !(h !== undefined && standable(w) && topAt(w, e.x, e.y, e.rad) <= h + (reach || 0) + 0.02);
+  const blocks = w => {
+    const b = w.base || 0;
+    if (h === undefined) return b < BOT_H;                 // 敵人與假人：只被夠低的東西擋，樓板底下走得過去
+    if (b > 0 && h + bodyH() <= b + 0.02) return false;    // 頭頂還碰不到懸空結構的底
+    return !(standable(w) && topAt(w, e.x, e.y, e.rad) <= h + (reach || 0) + 0.02);
+  };
   let hx = false, hy = false, hard = false;
   if (dx){
     const x0 = e.x;
@@ -867,7 +1028,7 @@ const FOOT = 4;
 let groundOnRamp = false;
 function groundAt(e){
   let g = 0; groundOnRamp = false;
-  for (const w of WALLS) if (standable(w) &&
+  for (const w of WALLS) if (standable(w) && !(w.base && topAt(w, e.x, e.y, FOOT) > (e.z || 0) + STEP_UP + 0.02) &&
       e.x+FOOT > w.x && e.x-FOOT < w.x+w.w && e.y+FOOT > w.y && e.y-FOOT < w.y+w.h){
     const t = topAt(w, e.x, e.y, FOOT);
     if (t > g){ g = t; groundOnRamp = !!w.ramp; }
@@ -878,7 +1039,7 @@ function groundAt(e){
 // 滑鏟用它算重力沿坡面的分量，下坡越滑越快、上坡很快停
 function rampGrad(e){
   let g = 0, gx = 0, gy = 0;
-  for (const w of WALLS) if (standable(w) &&
+  for (const w of WALLS) if (standable(w) && !(w.base && topAt(w, e.x, e.y, FOOT) > (e.z || 0) + STEP_UP + 0.02) &&
       e.x+FOOT > w.x && e.x-FOOT < w.x+w.w && e.y+FOOT > w.y && e.y-FOOT < w.y+w.h){
     const t = topAt(w, e.x, e.y, FOOT);
     if (t > g){
@@ -898,6 +1059,7 @@ function rampGrad(e){
 function slideOffLedges(p, dt){
   for (const w of WALLS){
     if (!standable(w) || !aabbHit(p,w)) continue;
+    if (w.base && w.base > p.z + bodyH()) continue;          // 頭頂上方的樓板與這一步無關
     // 腳還在頂面上方就只是從它上面飛過去，落地判定會處理，不能推（否則飛越斜坡時會被橫推）
     if (p.z >= topAt(w, p.x, p.y, FOOT)) continue;
     // 最淺的那一側就是往外的方向
@@ -1202,7 +1364,7 @@ scene.add(sun, sun.target);
 const skyMat = new THREE.ShaderMaterial({
   uniforms:{
     uTop:{value:new THREE.Color()}, uHorizon:{value:new THREE.Color()},
-    uSunDir:{value:new THREE.Vector3(0,1,0)}, uSun:{value:new THREE.Color()},
+    uSunDir:{value:new THREE.Vector3(0,1,0)}, uSun:{value:new THREE.Color()}, uClouds:{value:0},
   },
   vertexShader:`
     varying vec3 vDir;
@@ -1212,13 +1374,29 @@ const skyMat = new THREE.ShaderMaterial({
     }`,
   fragmentShader:`
     uniform vec3 uTop, uHorizon, uSun, uSunDir;
+    uniform float uClouds;
     varying vec3 vDir;
+    float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+    float vnoise(vec2 p){
+      vec2 i = floor(p), f = fract(p); f = f*f*(3.0 - 2.0*f);
+      return mix(mix(hash(i), hash(i + vec2(1,0)), f.x), mix(hash(i + vec2(0,1)), hash(i + vec2(1,1)), f.x), f.y);
+    }
+    float fbm(vec2 p){ float a = 0.5, v = 0.0; for (int k=0;k<5;k++){ v += a*vnoise(p); p *= 2.03; a *= 0.5; } return v; }
     void main(){
-      float h = max(vDir.y, 0.0);
+      vec3 d = normalize(vDir);
+      float h = max(d.y, 0.0);
       // 指數小於 1：離開地平線不遠就轉成天藍，暖色只留在低空一圈，天空才不會混成灰
       vec3 col = mix(uHorizon, uTop, pow(h, 0.35));
-      float s = max(dot(normalize(vDir), uSunDir), 0.0);
+      float s = max(dot(d, uSunDir), 0.0);
       col += uSun * (pow(s, 900.0) * 3.0 + pow(s, 24.0) * 0.25);
+      // 雲：投影到高空平面上取 fbm，靠地平線的遠雲壓扁變淡；向陽面偏亮、背陽面偏灰
+      if (uClouds > 0.0 && d.y > 0.02){
+        vec2 q = d.xz / (d.y + 0.08) * 1.6;
+        float c = smoothstep(0.52, 0.78, fbm(q + vec2(3.1, 7.4)));
+        c *= smoothstep(0.02, 0.22, d.y) * uClouds;
+        vec3 cc = mix(vec3(0.78, 0.8, 0.84), vec3(1.0, 0.98, 0.95), 0.5 + 0.5*s);
+        col = mix(col, cc, c * 0.85);
+      }
       gl_FragColor = vec4(col, 1.0);
     }`,
   side:THREE.BackSide, depthWrite:false,
@@ -1647,6 +1825,30 @@ function buildBurlapSurface(){
   }
   return {color:c, normal:heightToNormal(h, 2.6)};
 }
+// 貨櫃鋼板：直向的波浪壓紋（高度圖 → 法線）加上淡淡的鏽斑與髒污；顏色在材質上染，所以貼圖是灰階
+function buildCorrugatedSurface(){
+  const N = 256, c = mkCanvas(N), x = c.getContext("2d"), h = mkCanvas(N), hx = h.getContext("2d");
+  let seed = 707;
+  const R = () => (seed = (seed*1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+  x.fillStyle = "#D0D0D0"; x.fillRect(0,0,N,N);
+  for (let i=0;i<N;i++){
+    const v = 0.5 + 0.5*Math.sin(i/N*Math.PI*2*8);
+    const g = Math.round(90 + v*120);
+    hx.fillStyle = `rgb(${g},${g},${g})`; hx.fillRect(i, 0, 1, N);
+    x.fillStyle = `rgba(0,0,0,${(0.10*(1-v)).toFixed(3)})`; x.fillRect(i, 0, 1, N);
+  }
+  for (let k=0;k<30;k++){
+    const px = R()*N, py = R()*N, r = 4 + R()*22;
+    const gr = x.createRadialGradient(px, py, 0, px, py, r);
+    gr.addColorStop(0, `rgba(70,62,56,${(0.12 + R()*0.16).toFixed(2)})`); gr.addColorStop(1, "rgba(0,0,0,0)");
+    x.fillStyle = gr; x.fillRect(px - r, py - r, r*2, r*2);
+  }
+  // 雨水往下拖的污痕
+  for (let k=0;k<40;k++){ x.fillStyle = `rgba(40,40,40,${(0.04 + R()*0.06).toFixed(2)})`; x.fillRect(R()*N, R()*N*0.3, 1 + R()*2, N*(0.3 + R()*0.6)); }
+  return {color:c, normal:heightToNormal(h, 3.2)};
+}
+let CORRUGATED = null;
+function corrugated(){ return CORRUGATED || (CORRUGATED = buildCorrugatedSurface()); }
 let WOOD_SIDE = null, WOOD_TOP = null, BURLAP = null;
 function woodSide(){ return WOOD_SIDE || (WOOD_SIDE = buildWoodSurface(true)); }
 function woodTop(){ return WOOD_TOP || (WOOD_TOP = buildWoodSurface(false)); }
@@ -1822,7 +2024,8 @@ function buildMapGeometry(){
     mapLayer.remove(mapLayer.children[mapLayer.children.length-1]);
   }
   const theme = activeMap.theme;
-  const PX = 1600, PY = Math.round(PX * H / W);
+  // 大地圖用高一點的解析度，牆腳暗影才不會糊成一片（約每公尺 40 像素，上限 3200）
+  const PX = Math.min(3200, Math.max(1600, Math.round(W*S*40))), PY = Math.round(PX * H / W);
   const c = document.createElement("canvas");
   c.width = PX; c.height = PY;
   const x = c.getContext("2d");
@@ -1834,6 +2037,7 @@ function buildMapGeometry(){
   x.filter = "blur(16px)";
   x.fillStyle = "rgba(0,0,0,0.85)";
   for (const w of WALLS){
+    if (w.base) continue;                  // 懸空結構底下沒有牆腳
     const pad = 13;
     x.fillRect((w.x-pad)*k, (w.y-pad)*k, (w.w+pad*2)*k, (w.h+pad*2)*k);
   }
@@ -1844,6 +2048,7 @@ function buildMapGeometry(){
   x.filter = "blur(5px)";
   x.fillStyle = "rgba(0,0,0,0.9)";
   for (const w of WALLS){
+    if (w.base) continue;
     const pad = 5;
     x.fillRect((w.x-pad)*k, (w.y-pad)*k, (w.w+pad*2)*k, (w.h+pad*2)*k);
   }
@@ -2279,7 +2484,88 @@ function put(g, geo, mat, x, y, z){
 // 建築用的窗玻璃與門：窗偏冷的深藍灰（環境裝飾一律冷色或暗色，暖色留給敵人）
 const glassMat = new THREE.MeshStandardMaterial({color:0x26313C, roughness:0.22, metalness:0.55});
 const doorMat  = new THREE.MeshStandardMaterial({color:theme.propDark ?? 0x4A3E34, roughness:0.8});
+// 貨櫃的顏色：低彩度的藍、綠、灰、灰紫（暖色留給敵人）
+const CONTAINER_TONES = [0x5A7A8C, 0x6E8466, 0x8A8F94, 0x6C6680, 0x7C8A92];
+const containerMats = CONTAINER_TONES.map(c => new THREE.MeshStandardMaterial({
+  map:texFrom(corrugated().color), normalMap:texFrom(corrugated().normal), color:c, roughness:0.62, metalness:0.35}));
+const steelDarkMat = new THREE.MeshStandardMaterial({color:0x33373B, roughness:0.5, metalness:0.7});
+const tankMat = new THREE.MeshStandardMaterial({color:0x9AA6AE, roughness:0.45, metalness:0.55});
+const lampGlowMat = new THREE.MeshStandardMaterial({color:0xE8F0F4, emissive:0xCFE4F0, emissiveIntensity:0.35, roughness:0.3});
+// 岩石與懸崖用的頂點擾動：座標雜湊出來的平滑雜訊，同一個位置每次載入都一樣
+function rockNoise(x, y, z){
+  const h = (a, b, c) => { const n = Math.sin(a*127.1 + b*311.7 + c*74.7)*43758.5453; return n - Math.floor(n); };
+  const xi = Math.floor(x), yi = Math.floor(y), zi = Math.floor(z), xf = x - xi, yf = y - yi, zf = z - zi;
+  const sm = t => t*t*(3 - 2*t), u = sm(xf), v = sm(yf), w2 = sm(zf);
+  const L = (a, b, t) => a + (b - a)*t;
+  return L(L(L(h(xi,yi,zi), h(xi+1,yi,zi), u), L(h(xi,yi+1,zi), h(xi+1,yi+1,zi), u), v),
+           L(L(h(xi,yi,zi+1), h(xi+1,yi,zi+1), u), L(h(xi,yi+1,zi+1), h(xi+1,yi+1,zi+1), u), v), w2) * 2 - 1;
+}
 const STYLES = {
+  // 懸崖：地圖外圍的岩壁。細分的方塊把頂點照雜訊往外推（最多 0.5m），平面變成一面面的岩石切面；
+  // 只往外推、不往內縮，看得到的岩面不會比碰撞範圍更靠近玩家
+  cliff(g, gw, gd, wh, w){
+    const sx = Math.max(2, Math.round(gw/1.6)), sy = Math.max(2, Math.round(wh/1.6)), sz = Math.max(2, Math.round(gd/1.6));
+    const geo = new THREE.BoxGeometry(gw, wh, gd, sx, sy, sz);
+    const pa = geo.attributes.position, ox = (w.x + w.w/2)*S, oz = (w.y + w.h/2)*S;
+    for (let i=0;i<pa.count;i++){
+      const x = pa.getX(i), y = pa.getY(i), z = pa.getZ(i);
+      const n = rockNoise((x + ox)*0.55, (y + wh/2)*0.55, (z + oz)*0.55);
+      const k = (0.5 + 0.5*n) * 0.5 * Math.min(1, (y + wh/2)/1.2);      // 牆腳不推，免得浮起來
+      pa.setXYZ(i, x + Math.sign(x)*k, y + (y > wh/2 - 0.01 ? n*0.6 : 0), z + Math.sign(z)*k);
+    }
+    geo.computeVertexNormals();
+    put(g, geo, stoneDarkMat, 0, wh/2, 0);
+  },
+  // 岩石：壓扁的二十面體加雜訊，塞進碰撞方塊裡；下緣埋進地面一點
+  rock(g, gw, gd, wh, w){
+    const geo = new THREE.IcosahedronGeometry(1, 2), pa = geo.attributes.position;
+    for (let i=0;i<pa.count;i++){
+      const x = pa.getX(i), y = pa.getY(i), z = pa.getZ(i);
+      const k = 0.82 + 0.18*rockNoise(x*1.7 + w.x*0.01, y*1.7, z*1.7 + w.y*0.01);
+      pa.setXYZ(i, x*k*gw/2, y*k*wh*0.62, z*k*gd/2);
+    }
+    geo.computeVertexNormals();
+    put(g, geo, stoneMat, 0, wh*0.4, 0).rotation.y = (w.x*0.13 + w.y*0.07) % Math.PI;
+  },
+  // 貨櫃（20 呎約 6.1m x 2.4m x 2.6m）：波浪鋼板箱身、四角立柱與上下橫樑、一端的門與門閂桿
+  container(g, gw, gd, wh, w){
+    const mat = containerMats[(w.tone || 0) % containerMats.length];
+    put(g, rescaleBoxUV(new THREE.BoxGeometry(gw - 0.06, wh - 0.08, gd - 0.06), gw, wh, gd, 0.5), mat, 0, wh/2, 0);
+    const t = 0.14;
+    for (const x of [-1, 1]) for (const z of [-1, 1]) put(g, new THREE.BoxGeometry(t, wh, t), steelDarkMat, x*(gw/2 - t/2), wh/2, z*(gd/2 - t/2));
+    for (const y of [t/2, wh - t/2]){
+      put(g, new THREE.BoxGeometry(gw, t, t), steelDarkMat, 0, y, -gd/2 + t/2);
+      put(g, new THREE.BoxGeometry(gw, t, t), steelDarkMat, 0, y,  gd/2 - t/2);
+      put(g, new THREE.BoxGeometry(t, t, gd), steelDarkMat, -gw/2 + t/2, y, 0);
+      put(g, new THREE.BoxGeometry(t, t, gd), steelDarkMat,  gw/2 - t/2, y, 0);
+    }
+    // 門在短邊：四根直的門閂桿
+    const along = gw >= gd, end = (along ? gw : gd)/2 + 0.02, span = along ? gd : gw;
+    for (let i=0;i<4;i++){
+      const u = -span/2 + span*(i + 0.5)/4;
+      put(g, new THREE.CylinderGeometry(0.025, 0.025, wh - 0.35, 6), steelDarkMat, along ? end : u, wh/2, along ? u : end);
+    }
+  },
+  // 水塔的儲水槽（懸空在支腳上）：鋼製圓柱、頂面平的可以站、邊緣一圈矮欄杆與檢修口
+  tank(g, gw, gd, wh){
+    const r = Math.min(gw, gd)/2;
+    put(g, new THREE.CylinderGeometry(r, r, wh, 28), tankMat, 0, wh/2, 0);
+    for (const y of [wh*0.33, wh*0.66]) put(g, new THREE.CylinderGeometry(r + 0.04, r + 0.04, 0.1, 28), steelDarkMat, 0, y, 0);
+    put(g, new THREE.TorusGeometry(r - 0.05, 0.035, 6, 32), steelDarkMat, 0, wh + 0.45, 0).rotation.x = Math.PI/2;
+    for (let i=0;i<12;i++){
+      const a = i/12*Math.PI*2;
+      put(g, new THREE.CylinderGeometry(0.025, 0.025, 0.45, 5), steelDarkMat, Math.cos(a)*(r - 0.05), wh + 0.22, Math.sin(a)*(r - 0.05));
+    }
+    put(g, new THREE.BoxGeometry(0.7, 0.12, 0.7), steelDarkMat, r*0.4, wh + 0.06, 0);
+  },
+  // 支腳：細鋼柱，碰撞是很小的方塊
+  leg(g, gw, gd, wh){ put(g, new THREE.CylinderGeometry(0.11, 0.14, wh, 10), steelDarkMat, 0, wh/2, 0); },
+  // 路燈：燈桿、往外伸的燈臂與燈罩（白天只微微發光）
+  lamp(g, gw, gd, wh){
+    put(g, new THREE.CylinderGeometry(0.06, 0.09, wh, 8), steelDarkMat, 0, wh/2, 0);
+    put(g, new THREE.BoxGeometry(0.9, 0.06, 0.06), steelDarkMat, 0.42, wh - 0.1, 0);
+    put(g, new THREE.BoxGeometry(0.34, 0.1, 0.2), lampGlowMat, 0.82, wh - 0.18, 0);
+  },
   // 建築（小鎮地圖）：實心量體，碰撞就是整塊長方體，屋頂站得上去（攀牆翻越上去）。
   // 外觀：每約 3 公尺一道樓層線腳、每層一排窗、較長的那一面一樓開一扇門、屋頂一圈矮女兒牆。
   // 窗與門都凸出牆面 3cm，不和牆面共平面；窗用 InstancedMesh，要關掉視錐裁切
@@ -2447,8 +2733,9 @@ const STYLES = {
 };
 function addStyled(w){
   const g = new THREE.Group();
-  g.position.set((w.x+w.w/2)*S, 0, (w.y+w.h/2)*S);
-  STYLES[w.style](g, w.w*S, w.h*S, w.ht || WALL_H);
+  const b = w.base || 0;
+  g.position.set((w.x+w.w/2)*S, b, (w.y+w.h/2)*S);
+  STYLES[w.style](g, w.w*S, w.h*S, (w.ht || WALL_H) - b, w);
   mapLayer.add(g);
 }
 
@@ -2468,7 +2755,67 @@ function addBattlements(w){
   mapLayer.add(inst);
 }
 
+// 建築構件（house() 產生的牆段、窗台、窗楣、樓板、屋頂）：只畫方塊，不加簷口與踢腳板。
+// 貼圖座標用世界位置對齊，相鄰構件的磚縫才會連續，窗洞兩側不會錯開
+// 室內樓板：木地板，壓成偏灰的淺木色（飽和的橘棕會和敵人的暖色撞色）；屋頂：深灰的防水水泥面
+const slabMat = new THREE.MeshStandardMaterial({map:texFrom(woodTop().color), normalMap:texFrom(woodTop().normal),
+                                                color:0x9C958C, roughness:0.85});
+const roofMat = new THREE.MeshStandardMaterial({map:texFrom(WALL_COL), normalMap:texFrom(WALL_NRM), color:0x7C7872, roughness:0.95});
+function addPart(w){
+  // 貼圖密度：木地板的板條要細，所以密一點
+  const b = w.base || 0, gw = w.w*S, gd = w.h*S, gh = w.ht - b, D = w.part === "floor" ? 1.1 : 0.42;
+  const geo = rescaleBoxUV(new THREE.BoxGeometry(gw, gh, gd), gw, gh, gd, D);
+  // 面的順序：+X, -X, +Y, -Y, +Z, -Z，每面 4 個頂點。側面 u 沿著牆的方向、v 是高度
+  const uv = geo.attributes.uv, x0 = w.x*S*D, z0 = w.y*S*D, y0 = b*D;
+  const off = [[z0, y0], [z0, y0], [x0, z0], [x0, z0], [x0, y0], [x0, y0]];
+  for (let f=0; f<6; f++) for (let i=0;i<4;i++){
+    const k = f*4 + i;
+    uv.setXY(k, uv.getX(k) + off[f][0], uv.getY(k) + off[f][1]);
+  }
+  const mat = w.part === "floor" ? slabMat : w.part === "roof" ? roofMat : w.part === "frame" ? trimMat
+            : wallMats[(w.tone || 0) % wallMats.length];
+  const m = new THREE.Mesh(geo, mat);
+  m.position.set((w.x + w.w/2)*S, b + gh/2, (w.y + w.h/2)*S);
+  m.castShadow = true; m.receiveShadow = true;
+  mapLayer.add(m);
+}
+
+// 滑索：纜繩是細圓柱，兩端各一根柱子（柱子的碰撞在 useMap 時加進牆的清單，這裡只畫）
+const zipCableMat = new THREE.MeshStandardMaterial({color:0x2A2D30, roughness:0.4, metalness:0.8});
+const zipPoleMat  = new THREE.MeshStandardMaterial({color:theme.propMetal ?? 0x6A6660, roughness:0.55, metalness:0.6});
+const zipHeadMat  = new THREE.MeshStandardMaterial({color:0x2F6F8A, roughness:0.5, metalness:0.3});
+for (const zp of activeMap.zips || []){
+  const A = new THREE.Vector3(zp.a[0]*S, zp.a[2], zp.a[1]*S), B = new THREE.Vector3(zp.b[0]*S, zp.b[2], zp.b[1]*S);
+  const len = A.distanceTo(B);
+  const cable = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, len, 6), zipCableMat);
+  cable.position.copy(A).add(B).multiplyScalar(0.5);
+  cable.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), B.clone().sub(A).normalize());
+  mapLayer.add(cable);
+  const vertical = Math.hypot(zp.b[0]-zp.a[0], zp.b[1]-zp.a[1]) < 2;
+  if (vertical){
+    const top = A.y > B.y ? A : B;
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.22, 0.34), zipHeadMat);
+    head.position.set(top.x, top.y + 0.12, top.z);
+    mapLayer.add(head);
+    continue;
+  }
+  const ends = [[A, zp.a], [B, zp.b]];
+  for (const [E, src] of ends){
+    const pb = src[3] || 0, h = E.y + 0.45 - pb;
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.12, h, 10), zipPoleMat);
+    pole.position.set(E.x, pb + h/2, E.z);
+    mapLayer.add(pole);
+    // 頂端的滑輪座：藍灰色，遠處也看得出這裡有滑索
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.22, 0.34), zipHeadMat);
+    head.position.set(E.x, E.y + 0.12, E.z);
+    mapLayer.add(head);
+  }
+}
+
+for (const w of activeMap.deco || []) addPart(w);
 for (const w of WALLS){
+  if (w.pole) continue;
+  if (w.part){ addPart(w); continue; }
   if (w.tree){ addTree((w.x+w.w/2)*S, (w.y+w.h/2)*S); continue; }
   if (w.ramp){ addRamp(w); continue; }
   if (w.crate){ addCrate(w); continue; }
@@ -2865,6 +3212,38 @@ addDoorFrames();
   }
   })();
 
+  // 遠景（露天大地圖）：地圖外圍一片大地面與兩圈起伏的山稜。
+  // 山的顏色往天際線的顏色靠，外圈更靠，靠顏色和霧做出遠近；站上屋頂或水塔往牆外看，才不會看到一片虛空
+  if (activeMap.vista){
+    const cx = W*S/2, cz = H*S/2, R0 = Math.hypot(W, H)*S/2 + 8;
+    const horizon = new THREE.Color(activeMap.atmo.skyHorizon), rockC = new THREE.Color(theme.stoneDark ?? 0x847A68);
+    const outGround = new THREE.Mesh(new THREE.CircleGeometry(R0 + 70, 64),
+      new THREE.MeshStandardMaterial({color:new THREE.Color(theme.terrain ?? 0xB0A08A).lerp(horizon, 0.15), roughness:1}));
+    outGround.rotation.x = -Math.PI/2; outGround.position.set(cx, -0.04, cz);
+    mapLayer.add(outGround);
+    for (const [R, hMin, hMax, mix, seed] of [[R0 + 6, 5, 16, 0.3, 11], [R0 + 32, 14, 34, 0.62, 37]]){
+      const N = 120, pos = [], idx = [];
+      for (let i=0;i<=N;i++){
+        const a = i/N*Math.PI*2;
+        const n = 0.55*rockNoise(Math.cos(a)*3 + seed, Math.sin(a)*3, seed) + 0.45*rockNoise(Math.cos(a)*9, Math.sin(a)*9 + seed, 1);
+        const hgt = hMin + (hMax - hMin)*(0.5 + 0.5*n);
+        pos.push(cx + Math.cos(a)*R, -1, cz + Math.sin(a)*R,
+                 cx + Math.cos(a)*(R + 10), hgt, cz + Math.sin(a)*(R + 10),
+                 cx + Math.cos(a)*(R + 22), -1, cz + Math.sin(a)*(R + 22));
+      }
+      for (let i=0;i<N;i++){
+        const a = i*3, b = (i + 1)*3;
+        idx.push(a, a + 1, b, b, a + 1, b + 1,  a + 1, a + 2, b + 1, b + 1, a + 2, b + 2);
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+      geo.setIndex(idx); geo.computeVertexNormals();
+      const ridge = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({color:rockC.clone().lerp(horizon, mix), roughness:1,
+                                                                         flatShading:true, side:THREE.DoubleSide}));
+      mapLayer.add(ridge);
+    }
+  }
+
   // 露天地圖：場景裡不透明的物件都投影、也接收陰影
   if (activeMap.outdoor){
     mapLayer.traverse(o => {
@@ -2891,10 +3270,32 @@ function resizeWorld(){
   const r = Math.max(W, H)*S/2 + 4;
   Object.assign(sun.shadow.camera, {left:-r, right:r, top:r, bottom:-r, far:Math.max(90, r*3)});
   sun.shadow.camera.updateProjectionMatrix();
+  // 大地圖的遠景（山稜）在一百多公尺外：遠裁切面與天空球一起放大
+  camera.far = Math.max(120, Math.hypot(W, H)*S + 130); camera.updateProjectionMatrix();
+  sky.scale.setScalar(Math.max(1, (Math.hypot(W, H)*S/2 + 70) / 80));
 }
 function useMap(id){
   activeMap = MAPS[id] || MAPS.atrium;
   resizeWorld();
+  // 滑索柱子的碰撞：第一次載入這張圖時加進牆的清單（畫的部分在 buildMapGeometry）
+  if (activeMap.zips && !activeMap.polesAdded){
+    activeMap.polesAdded = true;
+    for (const zp of activeMap.zips){
+      const vertical = Math.hypot(zp.b[0]-zp.a[0], zp.b[1]-zp.a[1]) < 2;
+      if (vertical) continue;                 // 垂直滑索不立柱
+      for (const e of [zp.a, zp.b]){
+        if (e[2] < 0.5) continue;
+        const pb = e[3] || 0;               // 端點第 4 個數字：柱子立在多高的地方（屋頂、貨櫃頂）
+        activeMap.walls.push(Object.assign({x:e[0]-5, y:e[1]-5, w:10, h:10, ht:e[2] + 0.45, pole:true}, pb ? {base:pb} : {}));
+      }
+    }
+  }
+  // 門窗外框這類純裝飾：第一次載入時移到 deco，碰撞、視線、尋路都不看它們
+  if (!activeMap.decoSplit){
+    activeMap.decoSplit = true;
+    activeMap.deco = activeMap.walls.filter(w => w.deco);
+    activeMap.walls = activeMap.walls.filter(w => !w.deco);
+  }
   WALLS = activeMap.walls;
   SPAWNS = activeMap.spawns;
   rebuildSegments();
@@ -2966,12 +3367,14 @@ function applyAtmo(){
   sun.intensity = out ? ATMO.sunI : 0;
   if (out){
     const sd = new THREE.Vector3().fromArray(ATMO.sunDir).normalize();
-    sun.position.copy(sun.target.position).addScaledVector(sd, 45);
+    // 大地圖的太陽要放遠一點，陰影相機才包得住整張圖
+    sun.position.copy(sun.target.position).addScaledVector(sd, Math.max(45, Math.max(W, H)*S*0.6));
     sun.color.setHex(ATMO.sunColor);
     skyMat.uniforms.uTop.value.setHex(ATMO.skyTop);
     skyMat.uniforms.uHorizon.value.setHex(ATMO.skyHorizon);
     skyMat.uniforms.uSun.value.setHex(ATMO.sunColor);
     skyMat.uniforms.uSunDir.value.copy(sd);
+    skyMat.uniforms.uClouds.value = ATMO.clouds;
     // 陰影貼圖不會自動更新，換圖之後要手動要求重畫一次
     renderer.shadowMap.needsUpdate = true;
   }
@@ -2994,7 +3397,7 @@ function applyAtmo(){
 
 // ── 補給品：給你「離開掩體」的理由 ──
 const PICKUPS = {
-  cell: {name:"THERMAL CELL", color:0x3FE0C8, label:"+35 HP"},
+  cell: {name:"SUPPLY",       color:0x3FE0C8, label:"補給"},
   ammo: {name:"AMMO",         color:0xFFD24D, label:"AMMO FULL"},
 };
 const pickupGeo = new THREE.BoxGeometry(0.34,0.34,0.34);
@@ -4634,7 +5037,12 @@ const ACTIONS = [
   {id:"reload",     label:"換彈",             def:["KeyR", ""]},
   {id:"inspect",    label:"檢視武器",         def:["KeyF", ""]},
   {id:"sonar",      label:"聲納",             def:["KeyQ", ""]},
-  {id:"echo",       label:"ECHO 回溯",        def:["KeyE", ""]},
+  {id:"interact",   label:"互動（滑索）",     def:["KeyE", ""]},
+  {id:"useCell",    label:"補品：小電池",     def:["Digit4", ""]},
+  {id:"useBattery", label:"補品：大電池",     def:["Digit5", ""]},
+  {id:"useSyringe", label:"補品：針筒",       def:["Digit6", ""]},
+  {id:"useMedkit",  label:"補品：醫療包",     def:["Digit7", ""]},
+  {id:"echo",       label:"ECHO 回溯",        def:["KeyZ", ""]},
   {id:"gun1",       label:"武器 1 · VECTOR",  def:["Digit1", ""]},
   {id:"gun2",       label:"武器 2 · LANCE",   def:["Digit2", ""]},
   {id:"gun3",       label:"武器 3 · BREACH",  def:["Digit3", ""]},
@@ -4650,8 +5058,13 @@ function resetBinds(){ for (const a of ACTIONS) BINDS[a.id] = a.def.slice(); }
 resetBinds();
 try {
   const saved = JSON.parse(localStorage.getItem("echo3d.binds") || "null");
-  if (saved) for (const a of ACTIONS){
-    if (Array.isArray(saved[a.id])) BINDS[a.id] = [saved[a.id][0] || "", saved[a.id][1] || ""];
+  if (saved){
+    for (const a of ACTIONS){
+      if (Array.isArray(saved[a.id])) BINDS[a.id] = [saved[a.id][0] || "", saved[a.id][1] || ""];
+    }
+    for (const a of ACTIONS) if (!Array.isArray(saved[a.id])){
+      BINDS[a.id] = BINDS[a.id].map(c => ACTIONS.some(o => o.id !== a.id && Array.isArray(saved[o.id]) && saved[o.id].includes(c)) ? "" : c);
+    }
   }
 } catch(e){}
 function saveBinds(){ try { localStorage.setItem("echo3d.binds", JSON.stringify(BINDS)); } catch(e){} }
@@ -4688,6 +5101,8 @@ function newGame(){
     player:{
       x:start.x, y:start.y, rad:P.rad, angle:start.angle,
       hp:P.maxHp, cool:0, reloading:0,
+      // Evo 護盾：開局白盾 50；evo 是往下一級累積的傷害
+      shield:50, evoTier:1, evo:0,
       gun:"vector", mags:{vector:GUNS.vector.mag, lance:GUNS.lance.mag, breach:GUNS.breach.mag},
       firedThisPress:false, bloom:0, iframe:0, heat:0,
       z:0, vz:0, grounded:true, vx:0, vy:0,
@@ -4708,7 +5123,9 @@ function newGame(){
     // 跳躍是按下觸發：keydown 設 jumpPress，update 用完就清掉
     jumpPress:false, coyoteT:0, airTop:0, stunT:0,
     // 牆上技術：mantle / climb 是進行中的狀態，sgFrame 是翻越跳發生的那一幀（superglide 要下一幀按蹲）
-    mantle:null, climb:null, climbSpace:WT.climbSpace, lastFace:null,
+    mantle:null, climb:null, climbSpace:WT.climbSpace, lastFace:null, zip:null, usePress:false,
+    // 補品：背包裡的數量與正在使用的那一個
+    inv:{cell:2, battery:1, syringe:2, medkit:1}, heal:null,
     frameNo:0, sgFrame:-9, sgSprint:false, jumpT:-9, dirPrev:0,
     // 後座力圖形與壓槍分析：sprayN 是這一串第幾發，aimVX 是準心橫移速度，smoothT 是平滑射擊提示的剩餘時間
     sprayN:0, lastShotT:-9, spray:{gun:"vector", ads:false, yaw0:0, pitch0:0, pts:[], smoothN:0, adad:0, lastStrafe:0, judged:true},
@@ -4724,6 +5141,97 @@ function freshRangeStats(){
   // bStart/bDmg：目前這一串連續命中（中斷 1.5 秒就重算），DPS 用它算
   // trackT / onT：按著射擊的時間與其中準心停在假人身上的時間（跟槍命中率）
   return {dmg:0, heads:0, kills:0, ttk:-1, last:-9, bStart:0, bDmg:0, trackT:0, onT:0};
+}
+
+// ── 敵人尋路（A*）──
+// 地圖切成 NAV_CELL 的格子，障礙物往外擴 NAV_PAD（一般敵人的半徑）標成走不過去；懸空結構（base ≥ BOT_H）不擋。
+// 敵人直線走得到目標就直線走，被擋住才照路徑走（每 0.7 秒或目標移動超過 40px 重算）。
+// 有了它，地圖才能有房間、門、U 型的角落；原本沒有尋路時這些地形會把敵人卡住
+const NAV_CELL = 12, NAV_PAD = 14;
+let NAV = null;
+function buildNav(){
+  const cols = Math.ceil(W / NAV_CELL), rows = Math.ceil(H / NAV_CELL), g = new Uint8Array(cols*rows);
+  for (const w of WALLS){
+    if ((w.base || 0) >= BOT_H) continue;
+    const i0 = Math.max(0, Math.floor((w.x - NAV_PAD)/NAV_CELL)), i1 = Math.min(cols-1, Math.floor((w.x + w.w + NAV_PAD)/NAV_CELL));
+    const j0 = Math.max(0, Math.floor((w.y - NAV_PAD)/NAV_CELL)), j1 = Math.min(rows-1, Math.floor((w.y + w.h + NAV_PAD)/NAV_CELL));
+    for (let j=j0;j<=j1;j++) for (let i=i0;i<=i1;i++){
+      const cx = (i + 0.5)*NAV_CELL, cy = (j + 0.5)*NAV_CELL;
+      if (cx > w.x - NAV_PAD && cx < w.x + w.w + NAV_PAD && cy > w.y - NAV_PAD && cy < w.y + w.h + NAV_PAD) g[j*cols + i] = 1;
+    }
+  }
+  NAV = {cols, rows, g, map:activeMap};
+}
+function navBlocked(x, y){
+  const i = Math.floor(x / NAV_CELL), j = Math.floor(y / NAV_CELL);
+  if (i < 0 || j < 0 || i >= NAV.cols || j >= NAV.rows) return true;
+  return NAV.g[j*NAV.cols + i] === 1;
+}
+// 兩點之間每半格取樣一次，都沒碰到障礙就算走得通
+function lineClear(ax, ay, bx, by){
+  const d = Math.hypot(bx - ax, by - ay), n = Math.ceil(d / (NAV_CELL*0.5));
+  for (let k=1;k<=n;k++){ const t = k/n; if (navBlocked(ax + (bx-ax)*t, ay + (by-ay)*t)) return false; }
+  return true;
+}
+function findPath(ax, ay, bx, by){
+  const {cols, rows, g} = NAV, N = cols*rows;
+  // 起點或終點落在障礙裡（貼著牆）就找最近的空格
+  const nearestFree = (x, y) => {
+    let i = Math.floor(x/NAV_CELL), j = Math.floor(y/NAV_CELL);
+    for (let r=0;r<8;r++) for (let dj=-r;dj<=r;dj++) for (let di=-r;di<=r;di++){
+      const ii = i + di, jj = j + dj;
+      if (ii >= 0 && jj >= 0 && ii < cols && jj < rows && !g[jj*cols + ii]) return jj*cols + ii;
+    }
+    return -1;
+  };
+  const s0 = nearestFree(ax, ay), s1 = nearestFree(bx, by);
+  if (s0 < 0 || s1 < 0) return null;
+  const gs = new Float32Array(N).fill(1e9), from = new Int32Array(N).fill(-1), closed = new Uint8Array(N);
+  const heap = [], hx = s1 % cols, hy = (s1 / cols) | 0;
+  const h = k => { const dx = Math.abs(k % cols - hx), dy = Math.abs(((k / cols) | 0) - hy); return (dx + dy) + (Math.SQRT2 - 2)*Math.min(dx, dy); };
+  const push = (k, f) => { heap.push([f, k]); let i = heap.length - 1; while (i > 0){ const pi = (i - 1) >> 1; if (heap[pi][0] <= heap[i][0]) break; [heap[pi], heap[i]] = [heap[i], heap[pi]]; i = pi; } };
+  const pop = () => { const top = heap[0], last = heap.pop(); if (heap.length){ heap[0] = last; let i = 0;
+    for (;;){ const l = 2*i + 1, r = l + 1; let m = i; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === i) break; [heap[m], heap[i]] = [heap[i], heap[m]]; i = m; } }
+    return top; };
+  gs[s0] = 0; push(s0, h(s0));
+  let found = false, it = 0;
+  while (heap.length && it++ < 60000){
+    const [, k] = pop();
+    if (closed[k]) continue;
+    closed[k] = 1;
+    if (k === s1){ found = true; break; }
+    const ci = k % cols, cj = (k / cols) | 0;
+    for (let dj=-1;dj<=1;dj++) for (let di=-1;di<=1;di++){
+      if (!di && !dj) continue;
+      const ni = ci + di, nj = cj + dj;
+      if (ni < 0 || nj < 0 || ni >= cols || nj >= rows) continue;
+      const nk = nj*cols + ni;
+      if (g[nk] || closed[nk]) continue;
+      // 斜走不能切牆角
+      if (di && dj && (g[cj*cols + ni] || g[nj*cols + ci])) continue;
+      const ng = gs[k] + (di && dj ? Math.SQRT2 : 1);
+      if (ng < gs[nk]){ gs[nk] = ng; from[nk] = k; push(nk, ng + h(nk)); }
+    }
+  }
+  if (!found) return null;
+  const path = [];
+  for (let k = s1; k !== -1; k = from[k]) path.push({x:(k % cols + 0.5)*NAV_CELL, y:(((k / cols) | 0) + 0.5)*NAV_CELL});
+  path.reverse();
+  path[path.length - 1] = {x:bx, y:by};
+  return path;
+}
+// 回傳這一幀要走向的點：直線走得通就是目標本身，否則是路徑上能直線走到的最遠那一點
+function navStep(b, tx, ty, dt){
+  if (!NAV || NAV.map !== activeMap) buildNav();
+  if (lineClear(b.x, b.y, tx, ty)){ b.path = null; return [tx, ty]; }
+  b.pathT = (b.pathT || 0) - dt;
+  if (!b.path || b.pathT <= 0 || Math.hypot(b.pathGX - tx, b.pathGY - ty) > 40){
+    b.path = findPath(b.x, b.y, tx, ty); b.pathI = 0; b.pathT = 0.7; b.pathGX = tx; b.pathGY = ty;
+  }
+  const path = b.path;
+  if (!path || !path.length) return [tx, ty];
+  while (b.pathI < path.length - 1 && lineClear(b.x, b.y, path[b.pathI + 1].x, path[b.pathI + 1].y)) b.pathI++;
+  return [path[b.pathI].x, path[b.pathI].y];
 }
 
 function rosterFor(round){
@@ -4751,12 +5259,16 @@ function spawnRound(){
   for (let i=0;i<n;i++){
     const s = picked[i % picked.length];
     const type = roster[i], T = TYPES[type];
+    // 敵人的 Evo 護盾：第 3 波起白盾、第 5 波藍、第 8 波紫（WARDEN 已有正面裝甲，不另外給）
+    const tierN = type === "warden" ? 0 : G.round >= 8 ? 3 : G.round >= 5 ? 2 : G.round >= 3 ? 1 : 0;
+    const shieldCap = SHIELD_TIERS[tierN].cap;
     const obj = makeBotObject(type);
     botLayer.add(obj);
     G.bots.push({
       type, obj,
       x:s.x+(Math.random()*30-15), y:s.y+(Math.random()*30-15),
       rad:T.rad, hp:T.hp, maxHp:T.hp, angle:Math.random()*Math.PI*2,
+      shield:shieldCap, maxShield:shieldCap,
       cool:Math.random()*0.5, burst:T.burstSize, see:0,
       lastX:s.x, lastY:s.y, goalX:s.x, goalY:s.y,
       strafe:Math.random()<0.5?1:-1, stuck:0, px:s.x, py:s.y,
@@ -4852,7 +5364,7 @@ function clearDummies(){
 }
 function spotFree(x, y, r){
   if (x < r || y < r || x > W-r || y > H-r) return false;
-  for (const w of WALLS) if (x+r > w.x && x-r < w.x+w.w && y+r > w.y && y-r < w.y+w.h) return false;
+  for (const w of WALLS) if ((w.base || 0) < BOT_H && x+r > w.x && x-r < w.x+w.w && y+r > w.y && y-r < w.y+w.h) return false;
   return true;
 }
 // 朝 ang 方向找每個 LANE 距離的落點：先試原本的距離與錯開量，被擋住就在前後 3 公尺、
@@ -4902,6 +5414,64 @@ function deployDummies(auto){
   else banner("RANGE · " + placed + " TARGETS", kT + " 在面前重新佈置 · " + kX + " 統計歸零 · ESC 調整假人");
   sfx("sine", 520, 0.12, 0.04, 780);
 }
+// ── 玩家護盾與補品（Apex）──
+// 補品的回復量與時間照 Apex（wiki）；攜帶上限取 Apex 沒有背包時的數量（小電池 6、大電池 2、針筒 4、醫療包 2）
+const HEALS = {
+  cell:    {name:"小電池", shield:25,  hp:0,   t:3, max:6, act:"useCell"},
+  battery: {name:"大電池", shield:100, hp:0,   t:5, max:2, act:"useBattery"},
+  syringe: {name:"針筒",   shield:0,   hp:25,  t:5, max:4, act:"useSyringe"},
+  medkit:  {name:"醫療包", shield:0,   hp:100, t:8, max:2, act:"useMedkit"},
+};
+// Evo 護盾：對敵人打出的傷害累積到門檻就升一級（白→藍 150、藍→紫 300、紫→紅 750），升級時護盾補滿
+const EVO_NEXT = [0, 150, 300, 750];
+function startHeal(kind){
+  const p = G.player, H2 = HEALS[kind];
+  if (G.heal || G.inv[kind] <= 0 || G.mode === "dead") return;
+  if (H2.shield && p.shield >= SHIELD_TIERS[p.evoTier].cap){ banner("護盾是滿的"); return; }
+  if (H2.hp && p.hp >= P.maxHp){ banner("血量是滿的"); return; }
+  G.heal = {kind, t:0};
+  G.adsOn = false;
+  sfx("sine", 440, 0.12, 0.03, 520);
+}
+function cancelHeal(){ if (G.heal){ G.heal = null; sfx("sine", 300, 0.08, 0.03, 220); } }
+function updateHeal(dt){
+  const hl = G.heal;
+  if (!hl) return;
+  hl.t += dt;
+  const H2 = HEALS[hl.kind];
+  if (hl.t < H2.t) return;
+  const p = G.player;
+  p.shield = Math.min(SHIELD_TIERS[p.evoTier].cap, p.shield + H2.shield);
+  p.hp = Math.min(P.maxHp, p.hp + H2.hp);
+  G.inv[hl.kind]--;
+  G.heal = null;
+  sfx("triangle", 660, 0.16, 0.04, 990);
+}
+function gainEvo(dmg){
+  const p = G.player;
+  if (p.evoTier >= 4) return;
+  p.evo += dmg;
+  if (p.evo >= EVO_NEXT[p.evoTier]){
+    p.evo -= EVO_NEXT[p.evoTier];
+    p.evoTier++;
+    p.shield = SHIELD_TIERS[p.evoTier].cap;
+    banner("EVO 護盾升級", ["", "白", "藍", "紫", "紅"][p.evoTier] + " · " + SHIELD_TIERS[p.evoTier].cap);
+    sfx("sine", 880, 0.3, 0.05, 1320);
+  }
+}
+// 敵人的護盾：先扣護盾、溢出的扣血；破盾時準心閃護盾色（和訓練場假人一樣）
+function damageBot(b, dealt){
+  const toSh = Math.min(b.shield || 0, dealt), toHp = Math.min(Math.max(0, b.hp), dealt - toSh);
+  if (toSh) b.shield -= toSh;
+  b.hp -= dealt - toSh;
+  const tier = SHIELD_TIERS.find(t => t.cap === b.maxShield) || SHIELD_TIERS[0];
+  if (toSh > 0 && b.shield <= 0){
+    G.breakMark = 1; G.breakColor = tier.color;
+    sfx("triangle", 1600, 0.16, 0.05, 520); sfxNoise(0.12, 0.05, 5200);
+  }
+  return {real:toSh + toHp, color:toSh > 0 ? tier.color : null};
+}
+
 // ── 身法與槍法教學（訓練場）──
 // 每一課：說明幾行、要偵測的事件（lessonEvent 的名字）與要成功幾次。
 // 說明是函式，按鍵名稱跟著目前的按鍵設定走
@@ -5168,6 +5738,7 @@ function canInspect(){
 }
 function startReload(){
   const p = G.player, g = gun();
+  cancelHeal();
   if (p.reloading > 0 || p.mags[g.key] === g.mag) return;
   p.reloading = g.reload;
   vm.inspect = 0;
@@ -5183,6 +5754,7 @@ function startReload(){
 function swapGun(to){
   const p = G.player;
   if (p.gun === to) return;
+  cancelHeal();
   p.gun = to; p.reloading = 0; p.bloom = 0;
   G.adsOn = false;
   p.cool = Math.max(p.cool, P.swapTime);
@@ -5265,7 +5837,7 @@ function useEcho(){
   p.vz = target.vz !== undefined ? target.vz : 0;
   p.grounded = target.grounded !== undefined ? target.grounded : p.z <= groundAt(p) + 0.001;
   p.hp = Math.max(p.hp, target.hp);
-  G.mantle = null; G.climb = null;        // 倒帶到三秒前，牆上的動作一併取消
+  G.mantle = null; G.climb = null; G.zip = null;   // 倒帶到三秒前，牆上與滑索上的動作一併取消
   p.iframe = 0.45; p.echoCd = P.echoCd; p.trail.length = 0;
   echoShock(p.x, p.y);
   spawnSpark(p.x, p.y, 0xA277FF, 18);
@@ -5309,8 +5881,10 @@ function tookOff(p, vz, kind){
 function wallContact(p){
   let best = null, bestD = 3;
   for (const w of WALLS){
+    if (w.pole) continue;                                    // 滑索柱爬不上去
     const top = topAt(w, p.x, p.y);
     if (top <= p.z + STEP_UP) continue;
+    if ((w.base || 0) > p.z + BODY_H - 0.2) continue;       // 頭頂上方的懸空結構邊緣抓不到
     const cx = Math.max(w.x, Math.min(w.x+w.w, p.x)), cy = Math.max(w.y, Math.min(w.y+w.h, p.y));
     const d = Math.hypot(p.x-cx, p.y-cy) - p.rad;
     if (d > bestD) continue;
@@ -5326,16 +5900,46 @@ function wallContact(p){
 }
 // 頂面上站得下人嗎：室內圖要留出身高到天花板的空間
 function ledgeOK(top){ return !!activeMap.outdoor || top + 1.9 <= WALL_H; }
+// 翻上去的落腳點頭頂要有蹲得下的空間（窗戶：窗台到窗楣至少蹲姿高度）
+function mantleClear(p, c){
+  const x1 = p.x - c.nx*(p.rad + 6), y1 = p.y - c.ny*(p.rad + 6);
+  return ceilingAt(x1, y1, c.top, p.rad*0.7) - c.top >= CROUCH_H;
+}
 
 // 在空中碰到牆時，決定要翻越、攀牆，還是什麼都不做
+// 窗戶：碰到的是窗楣（懸空的牆段），底下有窗台、窗台到窗楣至少蹲得過去、手搆得到窗台，
+// 就翻過窗台（Apex 跳向窗戶會直接翻進去，而不是攀上窗楣外面的牆）
+function windowAt(p){
+  for (const w of WALLS){
+    if (!w.base || w.base <= p.z + 0.3 || w.pole) continue;
+    const cx = Math.max(w.x, Math.min(w.x+w.w, p.x)), cy = Math.max(w.y, Math.min(w.y+w.h, p.y));
+    if (Math.hypot(p.x-cx, p.y-cy) - p.rad > 3) continue;
+    let sill = 0;
+    for (const s2 of WALLS){
+      if (s2.base || s2 === w || !s2.ht || s2.ht > w.base) continue;
+      if (s2.x < w.x + w.w - 1 && s2.x + s2.w > w.x + 1 && s2.y < w.y + w.h - 1 && s2.y + s2.h > w.y + 1) sill = Math.max(sill, s2.ht);
+    }
+    if (sill < 0.3 || w.base - sill < CROUCH_H || sill - p.z > WT.mantleReach || sill < p.z - 0.6) continue;
+    const ox = p.x < w.x ? -1 : p.x > w.x + w.w ? 1 : 0, oy = p.y < w.y ? -1 : p.y > w.y + w.h ? 1 : 0;
+    if (!ox && !oy) continue;
+    return {w, nx:ox && Math.abs(p.x - cx) >= Math.abs(p.y - cy) ? ox : 0, ny:ox && Math.abs(p.x - cx) >= Math.abs(p.y - cy) ? 0 : oy, top:sill};
+  }
+  return null;
+}
 function tryWallStart(p, wx, wy, wl, vx, vy){
+  const win = windowAt(p);
+  if (win){
+    let dx = wx, dy = wy;
+    if (!wl){ const sp = Math.hypot(vx, vy); if (sp < 1) return; dx = vx/sp; dy = vy/sp; }
+    if (-(dx*win.nx + dy*win.ny) >= Math.cos(WT.mantleAngle)){ startMantle(p, win, false); return; }
+  }
   const c = wallContact(p);
   if (!c) return;
   // 往牆裡的方向：有按鍵就看按鍵，沒按就看撞上去的速度
   let dx = wx, dy = wy;
   if (!wl){ const sp = Math.hypot(vx, vy); if (sp < 1) return; dx = vx/sp; dy = vy/sp; }
   const into = -(dx*c.nx + dy*c.ny);
-  if (into >= Math.cos(WT.mantleAngle) && c.top - p.z <= WT.mantleReach && ledgeOK(c.top)){
+  if (into >= Math.cos(WT.mantleAngle) && c.top - p.z <= WT.mantleReach && ledgeOK(c.top) && mantleClear(p, c)){
     startMantle(p, c, false);
     return;
   }
@@ -5371,7 +5975,7 @@ function updateClimb(p, dt, rgtX, rgtY){
   else { p.vz = 0; if (c.t > WT.stallT){ detachClimb(p, WT.penalty); return; } }
   p.z += p.vz*dt;
   const rise = p.z - c.z0;
-  if (c.top - p.z <= WT.mantleReach && ledgeOK(c.top)){
+  if (c.top - p.z <= WT.mantleReach && ledgeOK(c.top) && mantleClear(p, c)){
     G.climb = null;
     startMantle(p, c, true);
     return;
@@ -5379,7 +5983,7 @@ function updateClimb(p, dt, rgtX, rgtY){
   if (G.jumpPress){ wallBounce(p, rise, rgtX, rgtY); return; }
   if (held("crouch")){ detachClimb(p, WT.penalty); return; }
   // 攀爬空間用完或頂到天花板：往上甩一小段再掉下來
-  const ceiling = !activeMap.outdoor && p.z > WALL_H - EYE - 0.25;
+  const ceiling = (!activeMap.outdoor && p.z > WALL_H - EYE - 0.25) || p.z + BODY_H > ceilingAt(p.x, p.y, p.z, p.rad*0.7);
   if (rise >= G.climbSpace || ceiling){
     p.vz = ceiling ? 0 : Math.sqrt(2*P.gravity*WT.endBoost);
     detachClimb(p, WT.penalty);
@@ -5467,6 +6071,76 @@ function superglide(p, wx, wy, wl){
   sfxNoise(0.35, 0.05, 700); sfx("sine", 95, 0.2, 0.03, 60);
 }
 
+// ── 滑索 ──
+// 地圖的 zips：{a:[x, y, 高度], b:[x, y, 高度]}（平面像素、高度公尺）。計算時把高度換成像素，當成 3D 線段
+function zipSeg(zp){
+  const A = {x:zp.a[0], y:zp.a[1], z:zp.a[2]/S}, B = {x:zp.b[0], y:zp.b[1], z:zp.b[2]/S};
+  const L = Math.hypot(B.x-A.x, B.y-A.y, B.z-A.z);
+  return {A, B, L, D:{x:(B.x-A.x)/L, y:(B.y-A.y)/L, z:(B.z-A.z)/L}, vertical:Math.hypot(B.x-A.x, B.y-A.y) < 2};
+}
+// 手的位置離纜繩最近的點：回傳 {seg, u, d}
+function nearestZip(p){
+  let best = null;
+  const hx = p.x, hy = p.y, hz = (p.z + 1.9)/S;
+  for (const zp of activeMap.zips || []){
+    const g = zipSeg(zp);
+    const u = Math.max(0, Math.min(1, ((hx-g.A.x)*g.D.x + (hy-g.A.y)*g.D.y + (hz-g.A.z)*g.D.z) / g.L));
+    const d = Math.hypot(g.A.x + (g.B.x-g.A.x)*u - hx, g.A.y + (g.B.y-g.A.y)*u - hy, g.A.z + (g.B.z-g.A.z)*u - hz);
+    if (!best || d < best.d) best = {seg:g, u, d};
+  }
+  return best;
+}
+function tryZip(p){
+  const n = nearestZip(p);
+  if (!n || n.d > WT.zipReach) return;
+  const g = n.seg;
+  // 方向：水平滑索看面向，垂直滑索一律往上（已經在頂端就往下）
+  const s = g.vertical ? (n.u < 0.95 ? 1 : -1)
+          : ((Math.cos(p.angle)*g.D.x + Math.sin(p.angle)*g.D.y) >= 0 ? 1 : -1);
+  // 沿滑索方向的既有速度保留（wiki）
+  const along = s*(p.vx*g.D.x + p.vy*g.D.y + (p.vz/S)*g.D.z);
+  G.zip = Object.assign({u:n.u, s, v:Math.max(0, along), t:0}, g);
+  p.vx = 0; p.vy = 0; p.vz = 0; p.grounded = false;
+  endSlide(); G.climb = null;
+  sfxNoise(0.1, 0.04, 2600); sfx("sine", 300, 0.12, 0.03, 520);
+}
+function updateZip(p, dt, wx, wy, wl, crouchEdge){
+  const z = G.zip;
+  z.t += dt;
+  z.v = Math.min(z.vertical ? WT.zipVMax : WT.zipMax, z.v + (z.t < 0.3 ? WT.zipJumpOnAccel : WT.zipAccel)*dt);
+  z.u += z.s * z.v * dt / z.L;
+  // 水平滑索在端點前 0.6m 就放手，不會撞上或站到柱子上；垂直滑索要騎到頂，腳才高得過平台邊緣
+  const uEnd = z.vertical ? 0 : Math.min(0.5, 0.6/S / z.L);
+  const u = Math.max(uEnd, Math.min(1 - uEnd, z.u));
+  p.x = z.A.x + (z.B.x - z.A.x)*u; p.y = z.A.y + (z.B.y - z.A.y)*u;
+  p.z = (z.A.z + (z.B.z - z.A.z)*u)*S - WT.zipHang;
+  const dx = z.D.x*z.s, dy = z.D.y*z.s, dz = z.D.z*z.s, hl = Math.hypot(dx, dy);
+  if (G.jumpPress){
+    // 跳離：沿滑索方向最多保留 445hu/s，另外可以往按鍵方向帶一點
+    const k = Math.min(z.v, WT.zipJumpOff);
+    p.vx = dx*k + (wl ? wx*WT.zipJumpOff*0.4 : 0);
+    p.vy = dy*k + (wl ? wy*WT.zipJumpOff*0.4 : 0);
+    G.zip = null;
+    tookOff(p, P.jumpV*WT.zipJumpVz, "zip");
+    return;
+  }
+  if (crouchEdge){
+    // 按蹲：鬆手直接掉下來，只保留往前的速度
+    const k = Math.min(z.v, WT.zipJumpOff);
+    p.vx = dx*k; p.vy = dy*k; p.vz = 0; G.zip = null; G.airTop = p.z;
+    return;
+  }
+  if (z.s > 0 ? z.u >= 1 - uEnd : z.u <= uEnd){
+    // 騎到底：被甩出去，沿纜繩最多 600hu/s（wiki）。只保留水平分量、往上只給一點（自訂）：
+    // 斜的滑索如果連垂直分量一起甩，會飛過整個屋頂。垂直滑索到頂端時往面向的方向推上平台
+    const k = Math.min(z.v, WT.zipEnd);
+    if (z.vertical){ p.vx = Math.cos(p.angle)*160*HU; p.vy = Math.sin(p.angle)*160*HU; }
+    else { p.vx = dx*k; p.vy = dy*k; }
+    G.zip = null;
+    tookOff(p, z.vertical ? 4.0 : 1.5, "zip");
+  }
+}
+
 // ── Lurch：起跳後按下新的方向鍵，速度往按鍵方向掰（見 WT.lurch*）──
 function lurch(p, wx, wy){
   const t = G.t - G.jumpT;
@@ -5547,6 +6221,7 @@ function update(dt){
     G.frameNo++;
     // 攀牆、翻越中：槍放下（沿用衝刺的持槍姿勢）、不能開鏡與開槍
     const onWall = !!(G.mantle || G.climb);
+    const onZip = !!G.zip;
     // 瞄準是切換式的。換彈、衝刺、失去鎖定時強制退出，
     // 而且把切換狀態一起關掉，不然條件解除後會自己彈回瞄準
     if (G.adsOn && (!locked || G.mode !== "fight" || p.reloading > 0 || G.sprinting || onWall)){
@@ -5555,7 +6230,8 @@ function update(dt){
     const wantAds = G.adsOn;
     G.ads = wantAds;
     // 衝刺的權重平滑變化，視野與持槍姿勢都吃它
-    G.sprintT += ((G.sprinting || onWall ? 1 : 0) - G.sprintT) * Math.min(1, dt*6);
+    G.sprintT += ((G.sprinting || onWall || G.heal ? 1 : 0) - G.sprintT) * Math.min(1, dt*6);
+    updateHeal(dt);
     G.adsT += ((wantAds ? 1 : 0) - G.adsT) * Math.min(1, dt*11);
     if (G.adsT < 0.002) G.adsT = 0;
 
@@ -5564,7 +6240,7 @@ function update(dt){
     const slideJumpOk = G.sliding &&
       (G.slideT >= SLIDE.jumpDelay || Math.hypot(p.vx, p.vy) <= SLIDE.jumpSpeed);
     G.coyoteT = Math.max(0, G.coyoteT - dt);
-    if (G.jumpPress && !onWall && (p.grounded || G.coyoteT > 0) && (!G.crouching || slideJumpOk) && G.mode !== "dead"){
+    if (G.jumpPress && !onWall && !onZip && (p.grounded || G.coyoteT > 0) && (!G.crouching || slideJumpOk) && G.mode !== "dead"){
       tookOff(p, jumpVz());               // 落地後太快再跳會吃跳躍疲勞（見 WT.fatigue*）
       if (G.sliding){ endSlide(); lessonEvent("slideJump"); }   // 滑鏟跳保留滑行的水平速度，這正是它的用途
       // 連跳懲罰：落地 1 秒內又起跳，超過衝刺速度的部分最多扣 100hu/s
@@ -5575,10 +6251,13 @@ function update(dt){
       }
       sfxNoise(0.05, 0.02, 380);
     }
-    if (!p.grounded && !onWall){
+    if (!p.grounded && !onWall && !onZip){
       p.vz -= P.gravity*dt;
       p.z  += p.vz*dt;
       G.airTop = Math.max(G.airTop, p.z);
+      // 撞到樓板底：頭停在樓板下面，往上的速度歸零
+      const ceil = ceilingAt(p.x, p.y, p.z, p.rad*0.7);
+      if (p.z + bodyH() > ceil){ p.z = Math.max(0, ceil - bodyH()); p.vz = Math.min(0, p.vz); }
       // 別撞到天花板（露天地圖沒有天花板）
       if (!activeMap.outdoor && p.z > WALL_H - EYE - 0.25){ p.z = WALL_H - EYE - 0.25; p.vz = Math.min(0, p.vz); }
       const gz = groundAt(p);
@@ -5613,7 +6292,10 @@ function update(dt){
     if (G.sliding && (!crouchKey || !p.grounded)) endSlide();
 
     // 蹲下：視線壓低，而且槍口更穩（空中不能蹲）。滑鏟也是蹲姿，但槍不會比較穩
-    G.crouching = crouchKey && p.grounded && G.mode !== "dead";
+    // 頭頂空間不夠站（窗台上、樓梯下）就自動蹲著，和 Apex 一樣。在空中也算：
+    // 從窗台往屋內走下去的那一刻如果恢復站姿，頭會卡進窗楣，被碰撞推回窗外
+    const lowCeil = ceilingAt(p.x, p.y, p.z, p.rad) - p.z < BODY_H;
+    G.crouching = ((crouchKey && p.grounded) || lowCeil) && G.mode !== "dead";
     G.crouchT += ((G.crouching ? 1 : 0) - G.crouchT) * Math.min(1, dt*(G.sliding ? 16 : 11));
     if (G.crouching && !G.sliding) p.bloom = Math.max(0, p.bloom - dt*0.25);
     if (G.sliding) p.bloom = Math.min(0.12, p.bloom + dt*0.4);
@@ -5622,13 +6304,16 @@ function update(dt){
 
     // 衝刺：Apex 只能往前方左右各 45 度內衝刺（W 加 A/D 斜走剛好 45 度），地面、非瞄準、沒有摔落硬直
     const sprint = held("sprint") && mf > 0 && p.reloading <= 0 &&
-                   !G.crouching && p.grounded && G.adsT < 0.2 && G.stunT <= 0;
+                   !G.crouching && p.grounded && G.adsT < 0.2 && G.stunT <= 0 && !G.heal;
     G.sprinting = sprint;
     if (sprint) p.bloom = Math.min(0.14, p.bloom + dt*0.5);
 
-    let maxSpd = P.speed * (sprint ? P.sprintMul : 1);
+    // 衝刺的目標速度從走路速度往上爬（見 P.sprintRamp）；沒在衝刺就回到走路速度
+    G.sprintWish = sprint ? Math.min(SPRINT_SPD, Math.max(G.sprintWish || 0, P.speed) + P.sprintRamp*dt) : P.speed;
+    let maxSpd = sprint ? G.sprintWish : P.speed;
     if (G.crouching) maxSpd *= P.crouchMul;
     if (G.stunT > 0) maxSpd *= P.stunMul;
+    if (G.heal) maxSpd *= 0.5;                  // 打補品時走得慢（Apex 的倍率 wiki 沒有，自訂一半）
     maxSpd *= 1 - (1 - P.adsMul) * G.adsT;      // 瞄準時移動變慢
 
     // 想走的方向（單位向量）
@@ -5639,16 +6324,19 @@ function update(dt){
     // 牆上：攀牆與翻越自己處理位置與速度，下面一般的摩擦、加速、碰撞都跳過
     if (G.mantle) updateMantle(p, dt, wx, wy, wl);
     else if (G.climb) updateClimb(p, dt, rgtX, rgtY);
+    else if (G.zip) updateZip(p, dt, wx, wy, wl, crouchEdge);
+    else if (G.usePress) tryZip(p);
+    G.usePress = false;
     // Superglide：翻越跳的「下一幀」剛好按下蹲（同一幀或先按蹲都不算）
     if (crouchEdge && G.sgFrame === G.frameNo - 1 && !p.grounded) superglide(p, wx, wy, wl);
     // Lurch：空中按下新的方向鍵（滾輪綁的前進也算，一格就是一次按下）
     const dirNow = (held("forward")?1:0) | (held("back")?2:0) | (held("left")?4:0) | (held("right")?8:0);
-    if (!p.grounded && !G.mantle && !G.climb && wl && (dirNow & ~G.dirPrev)) lurch(p, wx, wy);
+    if (!p.grounded && !G.mantle && !G.climb && !G.zip && wl && (dirNow & ~G.dirPrev)) lurch(p, wx, wy);
     G.dirPrev = dirNow;
 
     // 地面摩擦（Source 式，見 P.friction）：有沒有按鍵都一樣，放開後從衝刺約 0.49 秒停下
-    if (G.mantle || G.climb){
-      // 牆上，上面已經處理過
+    if (G.mantle || G.climb || G.zip){
+      // 牆上、滑索上，上面已經處理過
     } else if (G.sliding){
       // 滑鏟：不吃一般的摩擦與加速，改成慢慢衰減的滑行
       G.slideT += dt;
@@ -5684,7 +6372,7 @@ function update(dt){
       }
     }
     // 加速：只補到目標速度為止，起步因此有一段加速過程
-    if (G.sliding || G.mantle || G.climb){
+    if (G.sliding || G.mantle || G.climb || G.zip){
       // 滑行中、牆上的方向與速度上面已經處理過
     } else if (wl && p.grounded){
       const cur = p.vx*wx + p.vy*wy;
@@ -5703,7 +6391,7 @@ function update(dt){
         p.vx += wx*acc; p.vy += wy*acc;
       }
     }
-    if (!G.mantle && !G.climb){
+    if (!G.mantle && !G.climb && !G.zip){
       const onRampBefore = p.grounded && groundAt(p) > 0 && groundOnRamp;
       if (!p.grounded) slideOffLedges(p, dt);
       const preVx = p.vx, preVy = p.vy;       // 撞牆前的速度：撞牆會歸零，攀牆與蹬牆跳要用撞上去的那個速度
@@ -5771,7 +6459,7 @@ function update(dt){
       if (sp.smoothN >= 10) lessonEvent("smooth");
       if (n >= 15 && sp.adad >= 3) lessonEvent("adad");
     }
-    if (held("fire") && locked && G.mode === "fight" && !onWall && (gun().auto || !p.firedThisPress)){
+    if (held("fire") && locked && G.mode === "fight" && !onWall && !G.heal && (gun().auto || !p.firedThisPress)){
       if (playerShoot()) p.firedThisPress = true;
     }
 
@@ -5798,11 +6486,21 @@ function update(dt){
         // 敵人會卡在圈邊每幀轉身 180 度，看起來就是在原地抖出殘影
         b.chase = false;
         if (Math.hypot(b.goalX-b.x, b.goalY-b.y) < 40){
-          const s = SPAWNS[(Math.random()*SPAWNS.length)|0];
-          b.goalX = s.x; b.goalY = s.y;
+          // 搜索：七成往玩家大概的位置（附近 8m 內隨機一點）走，三成隨機去一個出生點。
+          // 大地圖上只靠隨機閒晃，躲進房子裡的玩家永遠不會被找到；有了 A* 尋路，敵人會從門進去找
+          let gx, gy;
+          if (Math.random() < 0.7){
+            for (let k=0;k<6;k++){
+              const a = Math.random()*Math.PI*2, r = Math.random()*260;
+              gx = p.x + Math.cos(a)*r; gy = p.y + Math.sin(a)*r;
+              if (!NAV || !navBlocked(gx, gy)) break;
+            }
+          } else { const s = SPAWNS[(Math.random()*SPAWNS.length)|0]; gx = s.x; gy = s.y; }
+          b.goalX = gx; b.goalY = gy;
         }
         tx = b.goalX; ty = b.goalY;
       }
+      [tx, ty] = navStep(b, tx, ty, dt);
       let ax = tx-b.x, ay = ty-b.y;
       const al = Math.hypot(ax,ay) || 1;
       ax /= al; ay /= al;
@@ -5947,7 +6645,11 @@ function update(dt){
               }
               const r = damageDummy(b, dealt, zone);
               dealt = r.real; popColor = r.color;
-            } else b.hp -= dealt;
+            } else {
+              const r = damageBot(b, dealt);
+              dealt = r.real; popColor = r.color;
+              gainEvo(r.real);
+            }
             b.flash = 0.1;
             b.hitT = 0.25;
             b.hitAngle = Math.atan2(bl.vy, bl.vx);
@@ -5979,7 +6681,9 @@ function update(dt){
         const topH = eyeH() + 0.16;
         if (p2.iframe <= 0 && bl.h > p2.z + 0.05 && bl.h < topH &&
             Math.hypot(bl.x-p2.x, bl.y-p2.y) < p2.rad){
-          p2.hp -= bl.dmg;
+          const toSh = Math.min(p2.shield, bl.dmg);
+          p2.shield -= toSh; p2.hp -= bl.dmg - toSh;
+          if (toSh > 0 && p2.shield <= 0){ sfx("triangle", 1100, 0.2, 0.06, 300); sfxNoise(0.15, 0.06, 4200); }
           G.vignette = 1; G.kick = Math.min(0.12, G.kick+0.05); G.tookDamage = true;
           G.dmgArcs.push({
             angle: Math.atan2((bl.srcY ?? bl.y)-p2.y, (bl.srcX ?? bl.x)-p2.x),
@@ -6092,9 +6796,18 @@ function update(dt){
     if (G.mode === "dead") continue;
     if (Math.hypot(G.player.x-u.x, G.player.y-u.y) < 34){
       const info = PICKUPS[u.kind];
-      if (u.kind === "cell") G.player.hp = Math.min(P.maxHp, G.player.hp + 35);
+      let label = info.label;
+      if (u.kind === "cell"){
+        // 補給箱：隨機兩樣補品（小電池、針筒比較常見），超過攜帶上限的不拿
+        const got = [];
+        for (let k=0;k<2;k++){
+          const r = Math.random(), kind = r < 0.4 ? "cell" : r < 0.7 ? "syringe" : r < 0.85 ? "battery" : "medkit";
+          if (G.inv[kind] < HEALS[kind].max){ G.inv[kind]++; got.push(HEALS[kind].name); }
+        }
+        label = got.length ? "+ " + got.join("、") : "補品已滿";
+      }
       else { G.player.mags = {vector:GUNS.vector.mag, lance:GUNS.lance.mag, breach:GUNS.breach.mag}; G.player.reloading = 0; }
-      G.feed.unshift({text:info.label, score:0, life:2.2, max:2.2, pickup:true});
+      G.feed.unshift({text:label, score:0, life:2.2, max:2.2, pickup:true});
       if (G.feed.length > 5) G.feed.pop();
       spawnSpark(u.x, u.y, info.color, 12);
       sfx("sine", 620, 0.12, 0.05, 1100);
@@ -6461,14 +7174,50 @@ function drawUI(){
   uctx.strokeRect(28.5,h-52.5,219,12);
   uctx.fillStyle = "#F2ECFF";
   uctx.font = '600 22px "IBM Plex Mono", ui-monospace, monospace';
-  uctx.fillText(String(Math.ceil(hp)).padStart(3," "), 28, h-70);
+  uctx.fillText(String(Math.ceil(hp)).padStart(3," "), 28, h-84);
   uctx.fillStyle = "#9184B4";
   uctx.font = '600 10px "Chakra Petch", system-ui';
-  uctx.fillText("INTEGRITY", 80, h-69);
+  uctx.fillText("INTEGRITY", 80, h-83);
 
+  // Evo 護盾：血條上方一排分段的護盾格（一格 25），顏色是目前等級；下面一條細線是升級進度
+  const tierNow = SHIELD_TIERS[p.evoTier], nSeg = tierNow.cap / 25, segW = (220 - (nSeg-1)*3) / nSeg;
+  for (let i=0;i<nSeg;i++){
+    const f = Math.max(0, Math.min(1, (p.shield - i*25) / 25));
+    uctx.fillStyle = "rgba(0,0,0,.45)"; uctx.fillRect(28 + i*(segW+3), h-66, segW, 8);
+    uctx.fillStyle = tierNow.color;     uctx.fillRect(28 + i*(segW+3), h-66, segW*f, 8);
+  }
+  if (p.evoTier < 4){
+    uctx.fillStyle = "rgba(0,0,0,.4)"; uctx.fillRect(28, h-37, 220, 2);
+    uctx.fillStyle = SHIELD_TIERS[p.evoTier + 1].color;
+    uctx.fillRect(28, h-37, 220 * Math.min(1, p.evo / EVO_NEXT[p.evoTier]), 2);
+  }
   // 技能
-  drawAbility(uctx, 292, h-46, "Q", p.sonarCd, P.sonarCd, "#7CE0FF");
-  drawAbility(uctx, 348, h-46, "E", p.echoCd,  P.echoCd,  "#A277FF");
+  drawAbility(uctx, 292, h-46, bindLabel("sonar"), p.sonarCd, P.sonarCd, "#7CE0FF");
+  drawAbility(uctx, 348, h-46, bindLabel("echo"),  p.echoCd,  P.echoCd,  "#A277FF");
+  // 補品欄：按鍵、名稱、數量；使用中的那格亮起來
+  let ix = 392;
+  for (const k of Object.keys(HEALS)){
+    const H2 = HEALS[k], on = G.heal && G.heal.kind === k, n = G.inv[k];
+    uctx.fillStyle = on ? "rgba(63,169,255,.35)" : "rgba(8,6,20,.62)"; uctx.fillRect(ix, h-66, 62, 38);
+    uctx.strokeStyle = n ? "rgba(242,236,255,.25)" : "rgba(242,236,255,.08)"; uctx.strokeRect(ix + .5, h-65.5, 61, 37);
+    uctx.textAlign = "left"; uctx.fillStyle = "#9184B4"; uctx.font = '700 10px "IBM Plex Mono", ui-monospace, monospace';
+    uctx.fillText(bindLabel(H2.act), ix + 5, h-57);
+    uctx.fillStyle = n ? (H2.shield ? "#3FA9FF" : "#F2ECFF") : "rgba(145,132,180,.4)";
+    uctx.font = '600 11px "Chakra Petch", system-ui'; uctx.fillText(H2.name, ix + 5, h-40);
+    uctx.textAlign = "right"; uctx.font = '700 12px "IBM Plex Mono", ui-monospace, monospace';
+    uctx.fillText("×" + n, ix + 58, h-57);
+    ix += 66;
+  }
+  // 使用進度：準心外一圈，跑完就生效
+  if (G.heal){
+    const H2 = HEALS[G.heal.kind], f = G.heal.t / H2.t;
+    uctx.strokeStyle = "rgba(0,0,0,.35)"; uctx.lineWidth = 4;
+    uctx.beginPath(); uctx.arc(w/2, h/2, 30, 0, Math.PI*2); uctx.stroke();
+    uctx.strokeStyle = H2.shield ? "#3FA9FF" : "#F2ECFF";
+    uctx.beginPath(); uctx.arc(w/2, h/2, 30, -Math.PI/2, -Math.PI/2 + Math.PI*2*f); uctx.stroke();
+    uctx.textAlign = "center"; uctx.fillStyle = "#F2ECFF"; uctx.font = '700 11px "Chakra Petch", system-ui';
+    uctx.fillText(H2.name + "  " + Math.max(0, H2.t - G.heal.t).toFixed(1) + "s", w/2, h/2 + 50);
+  }
 
   // 武器與彈藥
   uctx.textAlign = "right";
@@ -6568,10 +7317,18 @@ function drawUI(){
     uctx.globalAlpha = 1;
   }
 
+  // 靠近滑索：提示互動鍵
+  if (!G.zip && G.mode !== "dead" && activeMap.zips){
+    const n = nearestZip(p);
+    if (n && n.d <= WT.zipReach){
+      uctx.textAlign = "center"; uctx.fillStyle = "#7CE0FF"; uctx.font = '700 12px "Chakra Petch", system-ui';
+      uctx.fillText(bindLabel("interact") + "  滑索", w/2, h/2 + 70);
+    }
+  }
   // 衝刺時準心散開，順便提示狀態
-  if (G.sprinting || G.crouching || !p.grounded || G.mantle){
+  if (G.sprinting || G.crouching || !p.grounded || G.mantle || G.zip){
     uctx.textAlign = "center";
-    const label = G.mantle ? "MANTLE" : G.climb ? "CLIMB" : !p.grounded ? "AIRBORNE"
+    const label = G.zip ? "ZIPLINE" : G.mantle ? "MANTLE" : G.climb ? "CLIMB" : !p.grounded ? "AIRBORNE"
                 : G.sliding ? "SLIDE" : G.crouching ? "CROUCH" : "SPRINT";
     uctx.fillStyle = !p.grounded ? "rgba(255,200,120,.6)"
                    : G.sliding ? "rgba(255,210,77,.75)"
@@ -6795,6 +7552,8 @@ function drawMinimap(x, ox, oy, size){
   x.strokeRect(ox+.5,oy+.5,size-1,mh-1);
   for (const w of WALLS){
     // 矮牆畫淡一點：它擋腳步但不擋視線
+    // 懸空結構（樓板、屋頂）不擋路，小地圖上不畫，否則整棟房子會變成一塊實心
+    if (w.base) continue;
     x.fillStyle = w.ht ? "rgba(196,86,42,.16)" : "rgba(196,86,42,.34)";
     x.fillRect(ox+w.x*k, oy+w.y*k, w.w*k, w.h*k);
   }
@@ -6903,12 +7662,17 @@ function inputDown(code){
   if (!G || G.mode === "dead" || !locked) return;
   for (const id of actionsOf(code)){
     if (id === "jump") G.jumpPress = true;
-    else if (id === "fire") G.player.firedThisPress = false;
+    else if (id === "fire"){ G.player.firedThisPress = false; cancelHeal(); }
     else if (id === "ads") G.adsOn = !G.adsOn;
     else if (id === "reload") startReload();
     else if (id === "inspect"){ if (canInspect()) vm.inspect = 1; }
     else if (id === "sonar") useSonar();
     else if (id === "echo") useEcho();
+    else if (id === "interact") G.usePress = true;
+    else if (id === "useCell") startHeal("cell");
+    else if (id === "useBattery") startHeal("battery");
+    else if (id === "useSyringe") startHeal("syringe");
+    else if (id === "useMedkit") startHeal("medkit");
     else if (id === "gun1") swapGun("vector");
     else if (id === "gun2") swapGun("lance");
     else if (id === "gun3") swapGun("breach");

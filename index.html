@@ -276,6 +276,9 @@
         <label class="opt" for="rgRandom">隨機間隔
           <select id="rgRandom"><option value="1">開：換向、蹲起時機不固定</option><option value="0">關：固定節奏</option></select>
         </label>
+        <label class="opt" for="rgJump">跳躍
+          <select id="rgJump"><option value="0">不跳</option><option value="1">隨機跳躍（練跟跳起來的目標）</option></select>
+        </label>
         <label class="opt" for="rgShield">護盾
           <select id="rgShield">
             <option value="0">無</option><option value="1">白 · 50</option><option value="2">藍 · 75</option>
@@ -615,6 +618,24 @@ const GUNS = {
            rcV:0.072, rcH:0.013, rcBack:3.0 },
 };
 const GUN_ORDER = ["vector","lance","breach"];
+// 後座力圖形（Apex 式）：每把槍第 n 發往哪裡跳是固定的，只帶 ±8% 的隨機，所以能靠練習背下來反向壓槍。
+// 回傳 [橫向, 垂直]：橫向以 rcH 為單位（正值往右）、垂直以 rcV 為單位（正值往上）。形狀照 Dexerto 整理的 Apex 圖形描述
+const RECOIL = {
+  // VECTOR 照 R-301：前 8 發幾乎直直往上、略偏右；之後爬升變慢，在頂端左右小幅擺動
+  vector: n => n < 8  ? [0.3, 1.0]
+             : n < 16 ? [((n >> 1) & 1) ? 1.0 : -0.8, 0.65]
+             :          [((n >> 2) & 1) ? 1.2 : -1.2, 0.4],
+  // LANCE 照 Longbow：一發一個大踢，略偏左
+  lance: n => [-0.4, 1.0],
+  // BREACH 照霰彈槍：直直往上
+  breach: n => [0.1, 1.0],
+};
+// 平滑射擊與走位（Apex 的 recoil smoothing）：準心穩定往同一個方向橫移時，往上的後座力變小；
+// 邊射邊左右走位時，橫向晃動變小。wiki 沒有數字，門檻與倍率是自訂的：
+// 準心橫移超過 0.35rad/s（約 20 度/秒，大約是 15 公尺外橫移的敵人）垂直後座力 ×0.55；走位中橫向 ×0.35。
+// 橫移速度取平滑過的平均，所以左右來回甩會互相抵銷、不會觸發（和 Apex 一樣只認單一方向的穩定移動）
+const RC = {smoothSpeed:0.35, smoothV:0.55, strafeH:0.35};
+function recoilStep(g, n){ return RECOIL[g.key](n); }
 
 // 命中部位：頭部要準但回報高，打腿懲罰命中率不佳的射擊
 const ZONE = { head:2.5, torso:1.0, leg:0.6 };
@@ -3939,6 +3960,7 @@ const vm = {
   heatParts:[],
 };
 let mouseDX = 0, mouseDY = 0;
+let aimAcc = 0;          // 這一幀準心往右轉了多少弧度（平滑射擊用）
 
 // 槍身上的實體彈藥顯示器：把彈量做在槍上而不是只有 HUD，
 // 低於三成轉紅。只有數字變動時才重畫貼圖
@@ -4538,6 +4560,8 @@ function newGame(){
     // 牆上技術：mantle / climb 是進行中的狀態，sgFrame 是翻越跳發生的那一幀（superglide 要下一幀按蹲）
     mantle:null, climb:null, climbSpace:WT.climbSpace, lastFace:null,
     frameNo:0, sgFrame:-9, sgSprint:false, jumpT:-9, dirPrev:0,
+    // 後座力圖形與壓槍分析：sprayN 是這一串第幾發，aimVX 是準心橫移速度，smoothT 是平滑射擊提示的剩餘時間
+    sprayN:0, lastShotT:-9, spray:{gun:"vector", ads:false, yaw0:0, pitch0:0, pts:[]}, aimVX:0, smoothT:0,
     // 訓練場
     practice:modeSelect.value === "range", rs:freshRangeStats(), respawns:[],
     breakMark:0, breakColor:"#FFFFFF",
@@ -4545,7 +4569,8 @@ function newGame(){
 }
 function freshRangeStats(){
   // bStart/bDmg：目前這一串連續命中（中斷 1.5 秒就重算），DPS 用它算
-  return {dmg:0, heads:0, kills:0, ttk:-1, last:-9, bStart:0, bDmg:0};
+  // trackT / onT：按著射擊的時間與其中準心停在假人身上的時間（跟槍命中率）
+  return {dmg:0, heads:0, kills:0, ttk:-1, last:-9, bStart:0, bDmg:0, trackT:0, onT:0};
 }
 
 function rosterFor(round){
@@ -4638,7 +4663,7 @@ const CROUCH_DROP = 0.28;       // 蹲下時骨盆降多少（模型尺度，乘
 const LANE = [8, 15, 22, 30];
 const LANE_SIDE = [-1.8, 1.8, -1.2, 1.2];
 
-const RANGE = {move:"strafe", speed:"mid", stance:"stand", random:1, shield:2, infinite:1};
+const RANGE = {move:"strafe", speed:"mid", stance:"stand", random:1, shield:2, infinite:1, jump:0};
 try {
   const raw = localStorage.getItem("echo3d.range");
   if (raw) Object.assign(RANGE, JSON.parse(raw));
@@ -4660,6 +4685,7 @@ function makeDummy(x, y, ax, ay){
     x, y, px:x, py:y, rad:TYPES.grunt.rad, hp:DUMMY_HP, maxHp:DUMMY_HP, shield:sh, maxShield:sh,
     angle:0, vel:0, dir:Math.random() < 0.5 ? 1 : -1, turnT:0, spdKey:"mid",
     crouch:0, crouchT:RANGE.stance === "crouch" ? 1 : 0, stanceT:0.8,
+    jz:0, jvz:0, jumpT:0.5 + Math.random(),
     lastHit:-9, firstHit:-1, moved:0,
     cool:0, see:0, revealed:0, flash:0, laser:null, strafe:1, stuck:0,
     hitT:0, hitAngle:0, hitForce:0, headT:0, headForce:0,
@@ -4758,6 +4784,15 @@ function updateDummy(b, dt){
     const spd = b.crouchT > 0.5 ? Math.min(STRAFE_SPD[b.spdKey], STRAFE_SPD.slow) : STRAFE_SPD[b.spdKey];
     target = b.dir * spd;
   }
+  // 跳躍：隨機 0.6～1.8 秒跳一次，跳法和玩家一樣（Apex 的起跳速度與重力）
+  if (RANGE.jump){
+    b.jumpT -= dt;
+    if (b.jz <= 0 && b.jumpT <= 0){ b.jvz = P.jumpV; b.jumpT = 0.6 + Math.random()*1.2; }
+  }
+  if (b.jz > 0 || b.jvz > 0){
+    b.jz += b.jvz*dt; b.jvz -= P.gravity*dt;
+    if (b.jz <= 0){ b.jz = 0; b.jvz = 0; }
+  }
   const acc = DUMMY_ACCEL*dt;
   b.vel += Math.max(-acc, Math.min(acc, target - b.vel));
   b.px = b.x; b.py = b.y;
@@ -4771,8 +4806,22 @@ function updateDummy(b, dt){
 }
 // 命中高度的分界：蹲下時整個上半身往下平移
 function dummyZones(b){
-  const z = zonesOf(b.type), d = CROUCH_DROP * botK(b.type) * b.crouchT;
-  return {legTop:z.legTop - d, torsoTop:z.torsoTop - d, headTop:z.headTop - d};
+  const z = zonesOf(b.type), d = CROUCH_DROP * botK(b.type) * b.crouchT - b.jz;
+  return {base:b.jz, legTop:z.legTop - d, torsoTop:z.torsoTop - d, headTop:z.headTop - d};
+}
+// 準心現在有沒有停在某隻假人身上：沿視線找最近通過的假人，比對那個距離上準心的高度與身體的寬度
+function aimOnDummy(p){
+  const dx = Math.cos(p.angle), dy = Math.sin(p.angle), tp = Math.tan(aimPitch()), eye = eyeH();
+  for (const b of G.bots){
+    if (!b.dummy || b.hp <= 0) continue;
+    const t = (b.x-p.x)*dx + (b.y-p.y)*dy;
+    if (t <= 0) continue;
+    const off = Math.abs((b.x-p.x)*dy - (b.y-p.y)*dx);
+    const z = dummyZones(b), h = eye + t*S*tp;
+    if (h < z.base || h > z.headTop) continue;
+    if (off < (h > z.torsoTop ? b.rad*0.55 : b.rad)) return true;
+  }
+  return false;
 }
 // 先扣護盾、溢出的扣血，跟 Apex 一樣。回傳實際造成的傷害與數字要用的顏色
 function damageDummy(b, dealt, zone){
@@ -4830,6 +4879,14 @@ function playerShoot(){
   if (p.mags[g.key] <= 0){ startReload(); return false; }
   if (!(G.practice && RANGE.infinite)) p.mags[g.key]--;
   p.cool = g.fireGap;
+  // 一串射擊：停火超過射速 + 0.15 秒就算新的一串，後座力圖形從第一發重新開始
+  if (G.t - G.lastShotT > g.fireGap + 0.15){
+    G.sprayN = 0;
+    G.spray = {gun:g.key, ads:G.adsT > 0.5, yaw0:aimYaw(), pitch0:aimPitch(), pts:[]};
+  }
+  G.lastShotT = G.t;
+  // 壓槍分析：記下每一發開火當下準心相對第一發的位置（後座力加上你的反向修正），x 往右、y 往上
+  if (G.spray.pts.length < 60) G.spray.pts.push([-(aimYaw() - G.spray.yaw0), aimPitch() - G.spray.pitch0]);
   G.shots += (g.pellets || 1);
   const pellets = g.pellets || 1;
   const h0 = eyeH();
@@ -4853,11 +4910,15 @@ function playerShoot(){
   ejectShell(p.x, p.y, eyeH() - 0.42, p.angle);
   G.kick = Math.min(0.07, G.kick + (g.auto ? 0.016 : g.pellets ? 0.06 : 0.045));
   vm.recoil = Math.min(1.4, vm.recoil + (g.auto ? 0.42 : g.pellets ? 1.35 : 1.1));
-  // 後座：垂直往上爬，水平隨機偏。瞄準時手比較穩，收 35%
-  const rcK = 1 - G.adsT*0.35;
-  rcPitch += g.rcV * rcK * (0.85 + Math.random()*0.3);
-  rcYaw   += (Math.random()*2-1) * g.rcH * rcK;
+  // 後座：照這把槍的圖形（見 RECOIL）。瞄準時手比較穩，收 35%；平滑射擊與走位見 RC
+  const rcK = 1 - G.adsT*0.35, jit = 0.92 + Math.random()*0.16;
+  const [kx, ky] = recoilStep(g, G.sprayN++);
+  const smooth = Math.abs(G.aimVX) > RC.smoothSpeed;
+  const strafing = G.strafe !== 0 && Math.hypot(p.vx, p.vy) > P.speed*0.5;
+  rcPitch += g.rcV * rcK * ky * jit * (smooth ? RC.smoothV : 1);
+  rcYaw   -= g.rcH * rcK * kx * jit * (strafing ? RC.strafeH : 1);
   rcHold   = 0.12;
+  if (smooth) G.smoothT = 0.35;
   muzzleLight.intensity = g.auto ? 3.2 : 7;
   if (g.auto){ sfx("square",320,0.06,0.05,90); sfxNoise(0.05,0.035,2400); }
   else if (g.pellets){ sfx("square",120,0.22,0.08,40); sfxNoise(0.2,0.085,900); }
@@ -5193,6 +5254,10 @@ function update(dt){
   G.landDip *= Math.pow(0.00004, dt);   // 落地下沉很快彈回來
   G.stepLift *= Math.pow(0.00001, dt);  // 踩上台階時鏡頭約 0.1 秒追上腳的高度
   mouseDX *= Math.pow(0.0008, dt); mouseDY *= Math.pow(0.0008, dt);
+  // 準心的橫移角速度（rad/s，往右為正），取約 0.1 秒的平均：左右來回甩會互相抵銷
+  G.aimVX += (aimAcc / Math.max(dt, 1e-3) - G.aimVX) * Math.min(1, dt*10);
+  aimAcc = 0;
+  G.smoothT = Math.max(0, G.smoothT - dt);
   // 停火後才開始回正，所以連射時槍口會一路往上爬
   if (rcHold > 0) rcHold -= dt;
   else {
@@ -5444,6 +5509,10 @@ function update(dt){
       p.reloading -= dt;
       if (p.reloading <= 0){ p.mags[p.gun] = gun().mag; sfx("sine",320,0.08,0.045,460); }
     }
+    if (G.practice && held("fire") && G.mode === "fight"){
+      G.rs.trackT += dt;
+      if (aimOnDummy(p)) G.rs.onT += dt;
+    }
     if (held("fire") && locked && G.mode === "fight" && !onWall && (gun().auto || !p.firedThisPress)){
       if (playerShoot()) p.firedThisPress = true;
     }
@@ -5595,7 +5664,7 @@ function update(dt){
         for (const b of G.bots){
           if (b.hp <= 0) continue;
           const z = b.dummy ? dummyZones(b) : zonesOf(b.type);
-          if (bl.h > z.headTop || bl.h < 0) continue;      // 從頭上飛過去
+          if (bl.h > z.headTop || bl.h < (z.base || 0)) continue;      // 從頭上飛過去（或從跳起來的假人腳下）
           // 頭比身體窄很多，所以橫向判定也要跟著收緊
           const isHead = bl.h > z.torsoTop;
           const reach = isHead ? b.rad*0.55 : b.rad;
@@ -5882,7 +5951,7 @@ function sync(dtLast){
   camera.rotation.z = G.lean + Math.sin(G.bobT)*0.006*G.bobAmp + G.slideVis*0.045;
 
   for (const b of G.bots){
-    b.obj.position.set(b.x*S, 0, b.y*S);
+    b.obj.position.set(b.x*S, b.jz || 0, b.y*S);
     b.obj.rotation.y = yawOf(b.angle);
     // 走路循環：相位由實際走過的距離推進，速度不同擺動頻率自然不同
     const ud = b.obj.userData;
@@ -6307,6 +6376,7 @@ function drawRangeHud(w, h, cx){
     ["ACCURACY", G.shots ? Math.round(G.hits/G.shots*100) + "%" : "--"],
     ["HEADSHOT", G.hits ? Math.round(rs.heads/G.hits*100) + "%" : "--"],
     ["TTK",      rs.ttk >= 0 ? rs.ttk.toFixed(2) + "s" : "--"],
+    ["TRACKING", rs.trackT > 0.2 ? Math.round(rs.onT/rs.trackT*100) + "%" : "--"],
     ["DOWNS",    String(rs.kills)],
   ];
   const x0 = 28, y0 = 196;
@@ -6324,6 +6394,14 @@ function drawRangeHud(w, h, cx){
   }
   uctx.textAlign = "left"; uctx.fillStyle = "rgba(145,132,180,.7)";
   uctx.fillText(bindLabel("deploy") + " 佈置  ·  " + bindLabel("resetStats") + " 歸零  ·  ESC 設定", x0 + 10, y0 + rows.length*19 + 20);
+  drawSprayChart(x0, y0 + rows.length*19 + 46, 150);
+  // 平滑射擊觸發中：準心下方一行提示，練的時候才知道自己有沒有做到
+  if (G.smoothT > 0){
+    uctx.textAlign = "center"; uctx.globalAlpha = Math.min(1, G.smoothT/0.15);
+    uctx.fillStyle = "#7CE0FF"; uctx.font = '700 10px "Chakra Petch", system-ui';
+    uctx.fillText("SMOOTH", w/2, h/2 + 40);
+    uctx.globalAlpha = 1;
+  }
 
   for (const b of G.bots){
     if (!b.dummy) continue;
@@ -6349,6 +6427,59 @@ function drawRangeHud(w, h, cx){
     uctx.fillStyle = "rgba(0,0,0,.5)"; uctx.fillRect(bx, sp.y + 2, bw, 3);
     uctx.fillStyle = "#F2ECFF";        uctx.fillRect(bx, sp.y + 2, bw*Math.max(0, b.hp)/b.maxHp, 3);
   }
+}
+
+// 壓槍分析圖：最近一串射擊，每一發開火當下準心相對第一發的位置（換算成 20 公尺外的公分）。
+// 灰線是這把槍不壓槍時的原始圖形，壓槍就是把準心往灰線的反方向拉，理想結果是所有點都在中心。
+// 比例自動縮放：把原始圖形、實際落點與原點一起框進圖裡
+function drawSprayChart(x0, y0, size){
+  const sp = G.spray, g = GUNS[sp.gun];
+  const cm = a => a * 2000;                                              // 弧度 → 20 公尺外的公分
+  const rcK = sp.ads ? 0.65 : 1;
+  const ref = [[0, 0]];
+  let rx = 0, ry = 0;
+  for (let n=0; n<g.mag - 1; n++){
+    const [kx, ky] = recoilStep(g, n);
+    rx += g.rcH*kx*rcK; ry += g.rcV*ky*rcK;
+    ref.push([cm(rx), cm(ry)]);
+  }
+  const pts = sp.pts.map(q => [cm(q[0]), cm(q[1])]);
+  let minX = -20, maxX = 20, minY = -20, maxY = 20;
+  for (const [x, y] of ref.concat(pts)){ minX = Math.min(minX, x); maxX = Math.max(maxX, x); minY = Math.min(minY, y); maxY = Math.max(maxY, y); }
+  const inner = size - 20, k = Math.min(inner / (maxX - minX), inner / (maxY - minY));
+  const top = y0 + 16;
+  const ox = x0 + 10 + (inner - (maxX - minX)*k)/2 - minX*k;              // 原點的螢幕位置
+  const oy = top + 4 + (inner - (maxY - minY)*k)/2 + maxY*k;
+  const sx = x => ox + x*k, sy = y => oy - y*k;
+  uctx.fillStyle = "rgba(8,6,20,.55)"; uctx.fillRect(x0, y0, size, size + 16);
+  uctx.save();
+  uctx.beginPath(); uctx.rect(x0, top, size, size - 4); uctx.clip();
+  // 格線：取 10、20、50、100 公分裡讓圖上大約有四圈的那一個
+  const step = [10, 20, 50, 100, 200].find(v => v*k*4 >= inner/2) || 200;
+  uctx.strokeStyle = "rgba(145,132,180,.22)"; uctx.lineWidth = 1;
+  for (let r=step; r*k < size*1.5; r+=step){ uctx.beginPath(); uctx.arc(ox, oy, r*k, 0, Math.PI*2); uctx.stroke(); }
+  uctx.strokeStyle = "rgba(145,132,180,.35)";
+  uctx.beginPath(); uctx.moveTo(x0, oy); uctx.lineTo(x0 + size, oy); uctx.moveTo(ox, top); uctx.lineTo(ox, top + size); uctx.stroke();
+  uctx.strokeStyle = "rgba(242,236,255,.3)"; uctx.lineWidth = 1.5;
+  uctx.beginPath(); uctx.moveTo(sx(0), sy(0));
+  for (const [x, y] of ref) uctx.lineTo(sx(x), sy(y));
+  uctx.stroke();
+  // 實際：越後面的子彈顏色越紅
+  let sum = 0;
+  for (let i=0;i<pts.length;i++){
+    const [x, y] = pts[i], f = i / Math.max(1, pts.length - 1);
+    sum += Math.hypot(x, y);
+    uctx.fillStyle = `rgb(255,${Math.round(210 - 150*f)},${Math.round(90 - 60*f)})`;
+    uctx.beginPath(); uctx.arc(sx(x), sy(y), 2.4, 0, Math.PI*2); uctx.fill();
+  }
+  uctx.restore();
+  uctx.textAlign = "left"; uctx.fillStyle = "#9184B4"; uctx.font = '600 10px "Chakra Petch", system-ui';
+  uctx.fillText(g.name + (sp.ads ? " · ADS" : " · HIP") + " · 格 " + step + "cm", x0 + 8, y0 + 10);
+  if (!pts.length) return;
+  uctx.font = '600 9px "Chakra Petch", system-ui';
+  uctx.fillText("平均偏移 @20m", x0 + 8, y0 + size + 10);
+  uctx.textAlign = "right"; uctx.fillStyle = "#F2ECFF"; uctx.font = '600 11px "IBM Plex Mono", ui-monospace, monospace';
+  uctx.fillText(Math.round(sum / pts.length) + " cm", x0 + size - 8, y0 + size + 10);
 }
 
 function drawAbility(x, cx, cy, label, cd, cdMax, color){
@@ -6615,6 +6746,7 @@ addEventListener("mousemove", ev => {
   yaw   -= mx * 0.0022 * SET.sens * zoomK;
   pitch -= my * 0.0022 * SET.sens * zoomK;
   mouseDX += mx; mouseDY += my;
+  aimAcc += mx * 0.0022 * SET.sens * zoomK;
   const lim = Math.PI/2 - 0.08;
   pitch = Math.max(-lim, Math.min(lim, pitch));
 });
@@ -6738,7 +6870,7 @@ refreshKeyHints();
 
 // 訓練場設定：和其他設定一樣存在瀏覽器本機
 const rangeSet = document.getElementById("rangeSet");
-const RANGE_EL = {move:"rgMove", speed:"rgSpeed", stance:"rgStance", random:"rgRandom", shield:"rgShield", infinite:"rgInfinite"};
+const RANGE_EL = {move:"rgMove", speed:"rgSpeed", stance:"rgStance", random:"rgRandom", shield:"rgShield", infinite:"rgInfinite", jump:"rgJump"};
 for (const [key, id] of Object.entries(RANGE_EL)){
   const el = document.getElementById(id);
   el.value = String(RANGE[key]);

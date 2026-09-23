@@ -5038,6 +5038,7 @@ const ACTIONS = [
   {id:"inspect",    label:"檢視武器",         def:["KeyF", ""]},
   {id:"sonar",      label:"聲納",             def:["KeyQ", ""]},
   {id:"interact",   label:"互動（滑索）",     def:["KeyE", ""]},
+  {id:"ping",       label:"標記（ping）",     def:["Mouse1", ""]},
   {id:"useCell",    label:"補品：小電池",     def:["Digit4", ""]},
   {id:"useBattery", label:"補品：大電池",     def:["Digit5", ""]},
   {id:"useSyringe", label:"補品：針筒",       def:["Digit6", ""]},
@@ -5131,6 +5132,7 @@ function newGame(){
     sprayN:0, lastShotT:-9, spray:{gun:"vector", ads:false, yaw0:0, pitch0:0, pts:[], smoothN:0, adad:0, lastStrafe:0, judged:true},
     aimVX:0, smoothT:0,
     // 教學：lessonOn 是否開著、lessonI 第幾課、lessonN 這一課成功幾次；trackHold 是這一次按住射擊的跟槍計時
+    pingMark:null,
     lessonOn:false, lessonI:0, lessonN:0, takeoffSp:0, takeoffKind:"jump", trackHold:{t:0, on:0},
     // 訓練場
     practice:modeSelect.value === "range", rs:freshRangeStats(), respawns:[],
@@ -6088,6 +6090,21 @@ function superglide(p, wx, wy, wl){
   sfxNoise(0.35, 0.05, 700); sfx("sine", 95, 0.2, 0.03, 60);
 }
 
+// ── 標記（Apex 的 ping）──
+// 沿準心方向每 6px 走一步，碰到牆或地面（含可站的頂面）就停，最遠 80m；標記 8 秒後消失
+function placePing(){
+  const p = G.player;
+  const dx = Math.cos(p.angle), dy = Math.sin(p.angle), dz = Math.tan(aimPitch())*S;
+  let x = p.x, y = p.y, h = eyeH();
+  for (let i=0;i<Math.round(80/S/6);i++){
+    x += dx*6; y += dy*6; h += dz*6;
+    if (h <= 0.02){ h = 0; break; }
+    if (inWallAt(x, y, h)) break;
+  }
+  G.pingMark = {x, y, h, t:8};
+  sfx("sine", 1320, 0.08, 0.04, 1760); sfx("sine", 1760, 0.12, 0.03, 1760);
+}
+
 // ── 滑索 ──
 // 地圖的 zips：{a:[x, y, 高度], b:[x, y, 高度]}（平面像素、高度公尺）。計算時把高度換成像素，當成 3D 線段
 function zipSeg(zp){
@@ -6221,6 +6238,7 @@ function update(dt){
     if (G.timer <= 0){ G.mode = "fight"; spawnRound(); }
   }
   G.breakMark = Math.max(0, G.breakMark - dt*2.2);
+  if (G.pingMark && (G.pingMark.t -= dt) <= 0) G.pingMark = null;
   for (let i=G.respawns.length-1;i>=0;i--){
     const r = G.respawns[i];
     r.t -= dt;
@@ -7275,11 +7293,11 @@ function drawUI(){
     uctx.textAlign = "center";
     uctx.fillStyle = "#9184B4";
     uctx.font = '600 11px "Chakra Petch", system-ui';
-    uctx.fillText("ROUND " + Math.max(1,G.round), cx, 26);
+    uctx.fillText("ROUND " + Math.max(1,G.round), cx, 50);
     for (let i=0;i<G.bots.length;i++){
       const x = cx - (G.bots.length-1)*7 + i*14;
       uctx.fillStyle = "#" + TYPES[G.bots[i].type].color.toString(16).padStart(6,"0");
-      uctx.beginPath(); uctx.arc(x,44,3.6,0,Math.PI*2); uctx.fill();
+      uctx.beginPath(); uctx.arc(x,66,3.6,0,Math.PI*2); uctx.fill();
     }
     uctx.textAlign = "right";
     uctx.fillStyle = "#9184B4";
@@ -7372,6 +7390,20 @@ function drawUI(){
   }
 
   drawMinimap(uctx, 28, 28, 150);
+  drawCompass(w, cx);
+  // 標記：場景裡的菱形與距離
+  if (G.pingMark){
+    const pm = G.pingMark, sp2 = projectToScreen(pm.x, pm.h + 0.4, pm.y, w, h);
+    if (sp2){
+      const a = Math.min(1, pm.t);
+      uctx.globalAlpha = a;
+      uctx.strokeStyle = "#FFD24D"; uctx.lineWidth = 2;
+      uctx.beginPath(); uctx.moveTo(sp2.x, sp2.y - 9); uctx.lineTo(sp2.x + 7, sp2.y); uctx.lineTo(sp2.x, sp2.y + 9); uctx.lineTo(sp2.x - 7, sp2.y); uctx.closePath(); uctx.stroke();
+      uctx.textAlign = "center"; uctx.fillStyle = "#FFD24D"; uctx.font = '700 11px "IBM Plex Mono", ui-monospace, monospace';
+      uctx.fillText(Math.round(Math.hypot(pm.x - p.x, pm.y - p.y)*S) + "m", sp2.x, sp2.y - 18);
+      uctx.globalAlpha = 1;
+    }
+  }
 
   // 中央提示
   if (G.mode === "break"){
@@ -7403,7 +7435,7 @@ function drawRangeHud(w, h, cx){
   uctx.textAlign = "center";
   uctx.fillStyle = "#9184B4";
   uctx.font = '600 11px "Chakra Petch", system-ui';
-  uctx.fillText("TRAINING RANGE", cx, 26);
+  if (!G.lessonOn) uctx.fillText("TRAINING RANGE", cx, 50);
 
   const burst = rs.last - rs.bStart + gun().fireGap;
   const rows = [
@@ -7468,7 +7500,7 @@ function drawRangeHud(w, h, cx){
 
 // 教學面板：畫面上方中央，標題、進度與說明
 function drawLesson(w){
-  const L = LESSONS[G.lessonI], lines = L.lines(), pw = 520, px = w/2 - pw/2, py = 44;
+  const L = LESSONS[G.lessonI], lines = L.lines(), pw = 520, px = w/2 - pw/2, py = 42;
   const ph = 50 + lines.length*18;
   uctx.fillStyle = "rgba(8,6,20,.72)"; uctx.fillRect(px, py, pw, ph);
   uctx.strokeStyle = "rgba(255,138,43,.45)"; uctx.lineWidth = 1; uctx.strokeRect(px + .5, py + .5, pw - 1, ph - 1);
@@ -7536,6 +7568,36 @@ function drawSprayChart(x0, y0, size){
   uctx.fillText(Math.round(sum / pts.length) + " cm", x0 + size - 8, y0 + size + 10);
 }
 
+// 指南針：畫面上方一條方位刻度（北 = 地圖上方）。每 15 度一格、每 45 度標字，中間是目前的方位角
+function drawCompass(w, cx){
+  const p = G.player, bearing = ((p.angle*180/Math.PI + 90) % 360 + 360) % 360;
+  const span = 120, width = 420, k = width / span, y = 16;
+  uctx.save();
+  uctx.beginPath(); uctx.rect(cx - width/2, 0, width, 34); uctx.clip();
+  uctx.fillStyle = "rgba(8,6,20,.45)"; uctx.fillRect(cx - width/2, 4, width, 24);
+  const names = {0:"N", 45:"NE", 90:"E", 135:"SE", 180:"S", 225:"SW", 270:"W", 315:"NW"};
+  for (let d = Math.floor((bearing - span/2)/15)*15; d <= bearing + span/2; d += 15){
+    const dd = ((d % 360) + 360) % 360, x = cx + (d - bearing)*k;
+    const major = dd % 45 === 0;
+    uctx.strokeStyle = major ? "rgba(242,236,255,.75)" : "rgba(242,236,255,.35)"; uctx.lineWidth = 1;
+    uctx.beginPath(); uctx.moveTo(x, y + 8); uctx.lineTo(x, y + (major ? 0 : 4)); uctx.stroke();
+    if (major){
+      uctx.textAlign = "center"; uctx.fillStyle = dd === 0 ? "#FF8A2B" : "#F2ECFF";
+      uctx.font = '700 10px "Chakra Petch", system-ui'; uctx.fillText(names[dd], x, y - 3);
+    }
+  }
+  // 標記在指南針上的方位
+  if (G.pingMark){
+    const pb = ((Math.atan2(G.pingMark.y - p.y, G.pingMark.x - p.x)*180/Math.PI + 90) % 360 + 360) % 360;
+    let rel = ((pb - bearing + 540) % 360) - 180;
+    rel = Math.max(-span/2, Math.min(span/2, rel));
+    uctx.fillStyle = "#FFD24D"; uctx.fillRect(cx + rel*k - 3, y + 9, 6, 4);
+  }
+  uctx.restore();
+  uctx.textAlign = "center"; uctx.fillStyle = "#FF8A2B"; uctx.font = '700 11px "IBM Plex Mono", ui-monospace, monospace';
+  uctx.fillText(String(Math.round(bearing) % 360).padStart(3, "0"), cx, 36);
+}
+
 function drawAbility(x, cx, cy, label, cd, cdMax, color){
   const r = 20, ready = cd <= 0;
   x.save(); x.translate(cx,cy);
@@ -7562,13 +7624,17 @@ function drawAbility(x, cx, cy, label, cd, cdMax, color){
 
 // 第一人稱最大的代價是失去方位感，所以補一張只顯示地形的小地圖
 function drawMinimap(x, ox, oy, size){
-  const k = size / W, mh = H*k;
+  // 世界寬過 45m 就改成以玩家為中心、顯示周圍 60m 的局部小地圖（Apex 式），整張縮進 150px 房子會小到看不見
+  const local = W*S > 45, k = local ? size / (60/S) : size / W, mh = local ? size : H*k;
+  const cx0 = local ? G.player.x - size/2/k : 0, cy0 = local ? G.player.y - size/2/k : 0;
   x.save();
   x.globalAlpha = 0.9;
   x.fillStyle = "rgba(6,5,16,.72)";
   x.fillRect(ox,oy,size,mh);
   x.strokeStyle = "rgba(196,86,42,.35)"; x.lineWidth = 1;
   x.strokeRect(ox+.5,oy+.5,size-1,mh-1);
+  x.beginPath(); x.rect(ox, oy, size, mh); x.clip();
+  x.translate(-cx0*k, -cy0*k);
   for (const w of WALLS){
     // 矮牆畫淡一點：它擋腳步但不擋視線
     // 懸空結構（樓板、屋頂）不擋路，小地圖上不畫，否則整棟房子會變成一塊實心
@@ -7589,6 +7655,10 @@ function drawMinimap(x, ox, oy, size){
     x.fillRect(ox+u.x*k-2.4, oy+u.y*k-2.4, 4.8, 4.8);
   }
 
+  if (G.pingMark){
+    x.fillStyle = "#FFD24D";
+    x.fillRect(ox + G.pingMark.x*k - 3, oy + G.pingMark.y*k - 3, 6, 6);
+  }
   const p = G.player;
   const px = ox+p.x*k, py = oy+p.y*k;
   x.fillStyle = "rgba(255,138,43,.22)";
@@ -7688,6 +7758,7 @@ function inputDown(code){
     else if (id === "sonar") useSonar();
     else if (id === "echo") useEcho();
     else if (id === "interact") G.usePress = true;
+    else if (id === "ping") placePing();
     else if (id === "useCell") startHeal("cell");
     else if (id === "useBattery") startHeal("battery");
     else if (id === "useSyringe") startHeal("syringe");

@@ -3469,6 +3469,7 @@ function applyAtmo(){
   hemiLight.color.setHex(ATMO.hemiSky);
   hemiLight.groundColor.setHex(ATMO.hemiGround);
   hemiLight.intensity = ATMO.hemi;
+  CHAR_RIM.value.setHex(ATMO.hemiSky).multiplyScalar(ATMO.rim ?? 0.35);
   sensorLight.intensity = ATMO.sensor;
   // 後製材質宣告在後面；這個函式只在它們都建好之後才會被呼叫
   brightMat.uniforms.threshold.value = ATMO.threshold;
@@ -3553,7 +3554,8 @@ function botMeshes(type){
 // ─────────────────────────────────────────────
 // 兵種靠裝備輪廓區分：頭盔步槍兵、毛帽衝鋒槍、圓帽狙擊、重甲盾兵
 const SOLDIER = {
-  grunt:  {camo:["#5E5239","#48452E","#766A4E","#332B1F"], vest:0x5A4C36, mask:0x4A4032, head:"helmet", glasses:true,
+  // 步槍兵原本是淺沙漠迷彩，站在 RIDGE TOWN 的砂岩前面會融進去；改成偏暗、帶橄欖綠的多地形迷彩
+  grunt:  {camo:["#554A34","#6A6644","#3E3526","#231D15"], vest:0x5A4C36, mask:0x4A4032, head:"helmet", glasses:true,
            gun:"carbine", pack:true,  bulk:1.00, lean:0.06, blade:0.35},
   stalker:{camo:["#3A3C40","#232528","#55575A","#2E2D2A"], vest:0x1F2022, mask:0x1B1B1C, head:"beanie", glasses:false,
            gun:"smg",     pack:false, bulk:0.90, lean:0.22, blade:0.35},
@@ -3781,6 +3783,18 @@ function soldierGeo(){
     shieldPort: roundBox(0.200, 0.060, 0.012, 0.004),
     shieldPortFrame: roundBox(0.230, 0.090, 0.008, 0.004),
     shieldRim: roundBox(0.600, 0.740, 0.030, 0.014),
+    // 裝備細節：遠看是輪廓上的凸起（天線、配重包、槍套），近看才認得出是什麼
+    counterweight: roundBox(0.075, 0.050, 0.035, 0.010),
+    radio: roundBox(0.070, 0.160, 0.045, 0.010),
+    antenna: new THREE.CylinderGeometry(0.0035, 0.005, 0.50, 5),
+    holster: roundBox(0.045, 0.150, 0.095, 0.012),
+    cargo: roundBox(0.030, 0.120, 0.100, 0.010),
+    grenade: new THREE.SphereGeometry(0.030, 10, 8),
+    buckle: roundBox(0.050, 0.040, 0.012, 0.004),
+    admin: roundBox(0.200, 0.070, 0.012, 0.005),
+    scarf: new THREE.TorusGeometry(0.064, 0.024, 8, 22),
+    bedroll: new THREE.CylinderGeometry(0.060, 0.060, 0.300, 14),
+    groin: roundBox(0.180, 0.160, 0.030, 0.012),
     shadow: new THREE.CircleGeometry(0.42, 22),
     flash: new THREE.PlaneGeometry(0.26, 0.26),
   });
@@ -3900,6 +3914,9 @@ function makeBotObject(type){
   const belt = put(geo.belt, M.gear, 0, 0.02, 0, hips);
   belt.scale.set(bulk, 1, bulk);
   for (const x of [-0.13, 0.13]) put(geo.smallPouch, M.vest, x*bulk, 0.02, 0.06, hips).rotation.y = x > 0 ? 0.9 : -0.9;
+  put(geo.buckle, M.metal, 0, 0.058, -0.121*bulk, hips);
+  // 重甲的護襠：從腰帶前緣垂下來一片
+  if (C.shield) put(geo.groin, M.vest, 0, -0.07, -(0.100*bulk + 0.016), hips).rotation.x = 0.12;
 
   // 上半身：前傾之外再側轉一個角度，擺出持槍的射擊站姿，槍再轉回來朝正前方
   const upper = new THREE.Group();
@@ -3917,7 +3934,23 @@ function makeBotObject(type){
   put(geo.plate, M.vest, 0, 0.45,  0.140*bulk, upper).scale.x = bulk;
   for (const x of [-0.08, 0, 0.08]) put(geo.pouch, M.vest, x*bulk, 0.33, -0.188*bulk, upper);
   for (const x of [-0.115, 0.115]) put(geo.strap, M.vest, x*bulk, 0.665, 0, upper);
+  // 胸前的魔鬼氈名牌板；步槍兵、衝鋒槍兵左胸掛兩顆手榴彈
+  put(geo.admin, M.gear, 0, 0.545, -0.176*bulk, upper);
+  if (!C.shield && C.gun !== "sniper") for (const y of [0.40, 0.47]) put(geo.grenade, M.poly, -0.155*bulk, y, -0.17*bulk, upper);
   if (C.pack) put(geo.pack, M.vest, 0, 0.42, 0.24*bulk, upper);
+  if (C.gun === "carbine" && C.pack){
+    // 步槍兵是通訊兵：背包左側一台無線電，天線往後斜著伸出去，遠看輪廓最好認
+    put(geo.radio, M.poly, -0.155*bulk, 0.50, 0.25*bulk, upper);
+    const ant = put(geo.antenna, M.poly, -0.16*bulk, 0.83, 0.28*bulk, upper);
+    ant.rotation.set(0.18, 0, 0.08);
+  }
+  if (C.gun === "sniper"){
+    // 狙擊手：背包頂綁一捲睡墊，脖子圍一條圍巾
+    put(geo.bedroll, M.mask, 0, 0.65, 0.24*bulk, upper).rotation.z = Math.PI/2;
+    put(geo.scarf, M.mask, 0, 0.79, 0.006, upper).rotation.x = Math.PI/2 + 0.12;
+  }
+  // 重甲的護頸：一圈硬領圍住脖子
+  if (C.shield) put(geo.band, M.vest, 0, 0.80, 0, upper).scale.set(1.45, 1.8, 1.4);
 
   put(geo.neck, M.mask, 0, 0, 0, upper);
   const head = new THREE.Group();
@@ -3955,6 +3988,8 @@ function makeBotObject(type){
     if (!heavy){
       for (const x of [-0.121, 0.121]) put(geo.rail, M.poly, x, 0.05, 0.005, head);
       put(geo.nvgMount, M.poly, 0, 0.098, -0.118, head);
+      // 夜視鏡的配重電池包掛在頭盔後緣，前後都有東西，頭盔的側面輪廓才對
+      put(geo.counterweight, M.vest, 0, 0.065, 0.128, head).rotation.x = -0.45;
     } else {
       // 重甲：整片深色面罩蓋住臉
       put(geo.visor, M.glass, 0, 0.0, 0, head).scale.set(0.108, 0.118, 0.118);
@@ -4002,9 +4037,16 @@ function makeBotObject(type){
     put(geo.sole, M.poly, 0, -0.455, -0.035, l.lo);
     l.up.position.set(s*0.095*bulk, -0.02, 0);
     hips.add(l.up);
+    // 大腿外側的側袋
+    put(geo.cargo, M.camo, s*0.087*bulk, -0.24, -0.005, l.up);
     return l;
   });
   const [legL, legR] = legs;
+  if (C.gun !== "sniper" && !C.shield){
+    // 右腿的腿掛槍套：槍套本體加兩條綁腿帶
+    put(geo.holster, M.gear, 0.098*bulk, -0.13, 0.0, legR.up);
+    for (const [y, r] of [[-0.08, 1.34], [-0.19, 1.24]]) put(geo.band, M.gear, 0, y, 0, legR.up).scale.set(r*bulk, 0.35, r*bulk);
+  }
 
   // 武器與持槍姿勢
   const gun = makeBotGun(C.gun, M);
@@ -4063,7 +4105,7 @@ function makeBotObject(type){
   root.userData = {
     // k 已經套在 root 的縮放上，sync 裡乘 ud.k 的位移要用 1
     hips, upper, head, armL, armR, legL, legR, k:1, phase:0, muzzle,
-    upperRestQuat, hitAxis, hitQuat, headRestQuat, headQuat,
+    upperRestQuat, hitAxis, hitQuat, headRestQuat, headQuat, breathT:Math.random()*20,
     hitMats:[M.camo, M.vest, M.gear, M.mask, M.shell], hitGlow:0,
   };
 
@@ -4102,6 +4144,10 @@ function makeBotObject(type){
 // 人物輪廓的標記：在場景緩衝的 alpha 通道寫 0.5（其他東西都是 1），合成時找出「自己沒標記、旁邊有標記」的像素畫外框。
 // 不另外多畫一趟；而且場景本來就有深度測試，被牆擋住的部分不會被標記，外框不會穿牆
 // （熱成像「看不到牆後面」的設定不變）。屍體把 uMark 設成 0，不畫外框
+// 同一個 shader 順便加邊緣補光：法線越側對鏡頭越亮（天光色），像背光打在輪廓上，人物從背景跳出來。
+// 顏色跟著地圖的天光走（applyAtmo 設定），室內偏紫、戶外偏藍白
+const CHAR_RIM = {value:new THREE.Color(0)};
+const BREATH_E = new THREE.Euler(), BREATH_Q = new THREE.Quaternion();
 function markCharacter(m){
   if (m.userData.mark) return m.userData.mark;
   const u = m.userData.mark = {value:1};
@@ -4109,8 +4155,11 @@ function markCharacter(m){
   m.onBeforeCompile = (sh, r) => {
     if (prev) prev(sh, r);
     sh.uniforms.uMark = u;
+    sh.uniforms.uRim = CHAR_RIM;
     sh.fragmentShader = sh.fragmentShader
-      .replace("#include <common>", "#include <common>\nuniform float uMark;")
+      .replace("#include <common>", "#include <common>\nuniform float uMark;\nuniform vec3 uRim;")
+      .replace("#include <output_fragment>",
+        "outgoingLight += uRim * uMark * pow(1.0 - saturate(dot(geometry.normal, geometry.viewDir)), 3.0);\n#include <output_fragment>")
       .replace(/}\s*$/, "  gl_FragColor.a = mix(gl_FragColor.a, 0.5, uMark);\n}");
   };
   m.needsUpdate = true;
@@ -7176,6 +7225,11 @@ function sync(dtLast){
     b.headT = Math.max(0, b.headT - dtLast);
     const hitPhase = Math.min(1, b.hitT/0.25);
     const upperKick = Math.sin(hitPhase*Math.PI*0.5) * b.hitForce;
+    // 站著的呼吸：胸口約每 3.5 秒一起一伏、上半身慢慢左右轉一點，走動時淡掉
+    ud.breathT += dtLast;
+    const still = Math.max(0, 1 - (b.moved || 0) / 1.5);
+    BREATH_Q.setFromEuler(BREATH_E.set(Math.sin(ud.breathT*1.8)*0.02*still, Math.sin(ud.breathT*0.55)*0.025*still, 0));
+    ud.upper.quaternion.copy(ud.upperRestQuat).multiply(BREATH_Q);
     if (upperKick > 0.0001){
       const hitDelta = b.hitAngle - b.angle;
       const hitDirX = Math.sin(hitDelta);
@@ -7183,9 +7237,7 @@ function sync(dtLast){
       // 受擊軸跟著子彈方向轉，側面命中也會真的往側邊歪，而不是只點頭
       ud.hitAxis.set(hitDirZ, 0, -hitDirX);
       ud.hitQuat.setFromAxisAngle(ud.hitAxis, upperKick);
-      ud.upper.quaternion.copy(ud.upperRestQuat).multiply(ud.hitQuat);
-    } else {
-      ud.upper.quaternion.copy(ud.upperRestQuat);
+      ud.upper.quaternion.multiply(ud.hitQuat);
     }
     const headKick = b.headT > 0
       ? Math.sin((1 - b.headT/0.14)*Math.PI) * b.headForce : 0;

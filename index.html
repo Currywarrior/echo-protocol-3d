@@ -40,8 +40,10 @@
     overflow:hidden;background:#000;
     box-shadow:0 24px 70px rgba(0,0,0,.7);
   }
-  #gl,#ui{position:absolute;inset:0;width:100%;height:100%;display:block;}
-  #ui{pointer-events:none;}
+  #gl,#ui,#xh{position:absolute;inset:0;width:100%;height:100%;display:block;}
+  #ui,#xh{pointer-events:none;}
+  /* 準心畫布用螢幕實體像素，不能讓瀏覽器縮放時做平滑，否則 2px 的線會糊 */
+  #xh{image-rendering:pixelated;}
 
   .overlay{
     position:absolute;inset:0;z-index:5;
@@ -188,6 +190,16 @@
   }
   .trackrow button:hover{transform:none;box-shadow:none;color:var(--ink);}
   .tracknote{margin:0;font-size:10px;color:var(--muted);opacity:.7;text-align:left;}
+  .xhrow{display:grid;grid-template-columns:1fr auto;gap:8px;}
+  .xhrow input{
+    min-width:0;padding:6px 8px;color:var(--ink);background:var(--panel);
+    border:1px solid var(--line);border-radius:3px;font:500 11px "IBM Plex Mono",ui-monospace,monospace;
+  }
+  .xhrow button{
+    font-size:11px;letter-spacing:.1em;padding:6px 10px;
+    background:transparent;color:var(--muted);border:1px solid var(--line);
+  }
+  .xhrow button:hover{transform:none;box-shadow:none;color:var(--ink);}
   .ghost{
     background:transparent;color:var(--muted);
     border:1px solid var(--line);
@@ -207,6 +219,7 @@
   <div id="frame">
     <canvas id="gl"></canvas>
     <canvas id="ui"></canvas>
+    <canvas id="xh"></canvas>
 
     <div class="overlay" id="overStart">
       <div class="eyebrow">Thermal Recon · First Person</div>
@@ -320,6 +333,30 @@
         <p class="tracknote">音檔只存在你這台瀏覽器裡，不會寫進遊戲檔案</p>
         <button type="button" class="ghost keysbtn">按鍵設定</button>
         <button type="button" class="ghost fsbtn">全螢幕</button>
+      </div>
+      <div class="settings" data-for="valorant" hidden>
+        <label class="opt" for="xhPreset">準心
+          <select id="xhPreset">
+            <option value="static">靜態十字（不動、不外擴）</option>
+            <option value="dotcross">十字加中心點（不動）</option>
+            <option value="dot">只有中心點</option>
+            <option value="cyan">青色小十字（不動）</option>
+            <option value="default">Valorant 遊戲預設（會隨射擊、移動外擴）</option>
+            <option value="custom">自訂代碼</option>
+          </select>
+        </label>
+        <label class="opt" for="xhColor">顏色
+          <select id="xhColor">
+            <option value="0">白</option><option value="1">綠</option><option value="2">黃綠</option>
+            <option value="3">綠黃</option><option value="4">黃</option><option value="5">青</option>
+            <option value="6">粉紅</option><option value="7">紅</option><option value="8">自訂</option>
+          </select>
+        </label>
+        <div class="xhrow">
+          <input type="text" id="xhCode" spellcheck="false" aria-label="準心代碼">
+          <button type="button" id="xhApply">套用</button>
+        </div>
+        <p class="tracknote">可以直接貼上 Valorant 的準心代碼（設定 → 準心 → 匯入設定檔）。尺寸是螢幕實體像素，和遊戲裡一樣</p>
       </div>
       <div class="settings" id="rangeSet" hidden>
         <label class="opt" for="rgMove">假人移動
@@ -1551,6 +1588,8 @@ function updateTrackLabel(){
 const glCanvas = document.getElementById("gl");
 const uiCanvas = document.getElementById("ui");
 const uctx = uiCanvas.getContext("2d");
+const xhCanvas = document.getElementById("xh");     // Valorant 準心專用，用螢幕實體像素畫
+const xctx = xhCanvas.getContext("2d");
 const frame = document.getElementById("frame");
 const overStart = document.getElementById("overStart");
 const overDead  = document.getElementById("overDead");
@@ -6446,6 +6485,8 @@ function valSpread(alt){
   const cr = G.crouching && p.grounded;
   const first = cr ? s4[1] : s4[0], cap = cr ? s4[3] : s4[2];
   let s = first + (cap - first) * Math.min(1, G.vs.n / d.rc.grow);
+  SPREAD_PARTS.fire = s - first;          // 準心的「射擊誤差」只顯示連射累積的部分
+  const s0 = s;
   const mv = A ? A.mv : d.mv;
   if (!p.grounded) s += mv[3];
   else {
@@ -6458,8 +6499,10 @@ function valSpread(alt){
     }
   }
   if (G.t - G.landT < VAL.landT) s += VAL.land;
+  SPREAD_PARTS.move = s - s0;
   return s;
 }
+const SPREAD_PARTS = {fire:0, move:0};      // 最近一次 valSpread 算出的兩種誤差（度），給準心用
 function valUp(rc, n){
   return rc.up.length === 1 ? rc.up[0] : n < rc.n[0] ? rc.up[0] : n < rc.n[1] ? rc.up[1] : rc.up[2];
 }
@@ -8138,6 +8181,7 @@ function drawUI(){
   const w = uiCanvas.width/scale, h = uiCanvas.height/scale;
   uctx.setTransform(scale,0,0,scale,0,0);
   uctx.clearRect(0,0,w,h);
+  xctx.clearRect(0, 0, xhCanvas.width, xhCanvas.height);
   const p = G.player, g = gun();
   const cx = w/2, cy = h/2;
 
@@ -8191,7 +8235,7 @@ function drawUI(){
     // 準心：瞄準時淡出，倍率鏡直接不畫。
     // 開口大小直接對應當下的散布錐（含瞄準內插與 bloom），
     // 玩家才看得出「這把槍腰射不準、要開鏡」
-    if (G.val) drawValCrosshair(cx, cy, h);
+    if (G.val) drawValCrosshair();
     const curSpread = gAim.spread + (gAim.adsSpread - gAim.spread) * G.adsT
                     + p.bloom * (1 - G.adsT*0.75);
     const sp = 6 + curSpread * 420;
@@ -8489,25 +8533,121 @@ function drawApexHud(w, h, p, g){
     uctx.fillText("PRESS  " + bindLabel("reload"), w-28, h-30);
   }
 }
-// Valorant 的準心：四條白線加黑框（遊戲預設是線長 4、粗 2、離中心 3）。
-// 線會跟著當下的散布往外推，等於打開 Valorant 設定裡的「射擊誤差」「移動誤差」：一眼看出現在開槍會多散
-function drawValCrosshair(cx, cy, h){
+// ── Valorant 準心 ──
+// 設定與代碼格式照 Valorant（對照開源的 genesy/crosshair-codes 解析器）：
+// 代碼是分號分隔的「鍵;值」，P 段是主準心、A 段是開鏡（進階設定且 p;0 時才獨立）、S 段是狙擊鏡中心點。
+// 主準心：c 顏色（0～7 預設色、8 用 u 的自訂色）、h 外框、t 外框粗、o 外框不透明度、d 中心點、z 中心點大小、
+// a 中心點不透明度、m 用準心間距蓋掉射擊誤差的固定間距。
+// 內線 0x、外線 1x：b 顯示、a 不透明度、l 長度、v 垂直長度（g;1 時才分開）、t 粗細、o 離中心距離、
+// m 移動誤差、s 移動誤差倍率、f 射擊誤差、e 射擊誤差倍率。
+// 尺寸是螢幕實體像素，不隨解析度縮放（所以同一組代碼到 4K 看起來小一半）
+const XH_COLORS = ["FFFFFF", "00FF00", "7FFF00", "DFFF00", "FFFF00", "00FFFF", "FF00FF", "FF0000"];
+function xhDefaults(){
+  const line = (o) => Object.assign({b:1, a:0.8, l:6, v:6, g:0, t:2, o:3, m:0, s:1, f:1, e:1}, o);
+  const prof = () => ({c:0, u:"FFFFFF", h:1, t:1, o:0.5, d:0, z:2, a:1, m:0,
+                       inner:line({}), outer:line({a:0.35, l:2, v:2, o:10, m:1})});
+  return {P:prof(), A:prof(), adsOwn:false};
+}
+function xhParse(code){
+  const X = xhDefaults(), tok = String(code).trim().split(";");
+  let sec = null, adv = false, copy = true;
+  for (let i = 1; i < tok.length; ){
+    const k = tok[i];
+    if (k === "P" || k === "A" || k === "S"){ sec = k; i++; continue; }
+    const v = tok[i + 1]; i += 2;
+    if (v === undefined) break;
+    if (!sec){ if (k === "s") adv = v === "1"; else if (k === "p") copy = v !== "0"; continue; }
+    if (sec === "S") continue;                    // 狙擊鏡中心點：這裡的倍率鏡有自己的分劃板，先不套
+    const pr = X[sec];
+    if (k[0] === "0" || k[0] === "1"){
+      const ln = k[0] === "0" ? pr.inner : pr.outer, lk = k.slice(1);
+      if (lk in ln) ln[lk] = +v;
+    } else if (k === "u") pr.u = v.slice(0, 6);
+    else if (k in pr) pr[k] = +v;
+  }
+  X.adsOwn = adv && !copy;
+  return X;
+}
+// 只寫出和預設不同的欄位，格式和 Valorant 匯出的一樣（主準心在 P 段）
+function xhSerialize(X){
+  const D = xhDefaults().P, P = X.P, out = ["0", "P"];
+  for (const k of ["c", "u", "h", "t", "o", "d", "z", "a", "m"]){
+    if (k === "u"){ if (P.c === 8) out.push("u", P.u + "FF"); continue; }
+    if (P[k] !== D[k]) out.push(k, String(P[k]));
+  }
+  for (const [pre, ln, dl] of [["0", P.inner, D.inner], ["1", P.outer, D.outer]])
+    for (const k of ["b", "t", "l", "v", "g", "o", "a", "m", "s", "f", "e"]) if (ln[k] !== dl[k]) out.push(pre + k, String(ln[k]));
+  return out.length > 2 ? out.join(";") : "0";
+}
+// 預設組合：前四個都關掉移動誤差與射擊誤差（Leo 要的「不會動、不會外擴」），最後一個是 Valorant 原本的預設
+const XH_PRESETS = {
+  static:  "0;P;h;1;0l;4;0o;2;0a;1;0f;0;1b;0",
+  dotcross:"0;P;h;1;d;1;z;2;0l;3;0o;3;0a;1;0f;0;1b;0",
+  dot:     "0;P;h;1;d;1;z;3;0b;0;1b;0",
+  cyan:    "0;P;c;5;h;0;0l;3;0o;2;0a;1;0f;0;1b;0",
+  default: "0",
+};
+let XH = xhParse(XH_PRESETS.static), xhPresetId = "static";
+try {
+  const saved = JSON.parse(localStorage.getItem("echo3d.xh") || "null");
+  if (saved && saved.code){ XH = xhParse(saved.code); xhPresetId = saved.preset || "custom"; }
+} catch(e){}
+const xhOut = document.createElement("canvas");     // 準心外框的離屏畫布
+function saveXh(){ try { localStorage.setItem("echo3d.xh", JSON.stringify({preset:xhPresetId, code:xhSerialize(XH)})); } catch(e){} }
+
+// 畫在 #xh 上（實體像素）。每條線與中心點先畫黑色外框再畫本體，座標全部取整數像素
+function drawValCrosshair(){
   const g = gun(), d = g.val;
   if (g.scope && G.adsT > 0.3) return;               // 倍率鏡有自己的分劃板
-  const deg = valSpread(false);
-  const focal = (h/2) / Math.tan(camera.fov * DEG / 2);
-  const off = 3 + Math.tan(deg * DEG) * focal, L = 5;
-  const col = G.hitMark > 0 ? "#FF4655" : "#FFFFFF";
-  for (const [lw, c, ext] of [[4, "rgba(0,0,0,.6)", 1], [2, col, 0]]){
-    uctx.strokeStyle = c; uctx.lineWidth = lw;
-    uctx.beginPath();
-    for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]){
-      uctx.moveTo(cx + dx*(off - ext), cy + dy*(off - ext));
-      uctx.lineTo(cx + dx*(off + L + ext), cy + dy*(off + L + ext));
-    }
-    uctx.stroke();
+  const pr = G.adsT > 0.5 && XH.adsOwn ? XH.A : XH.P;
+  const W2 = xhCanvas.width, H2 = xhCanvas.height;
+  const X0 = Math.round(W2/2), Y0 = Math.round(H2/2);
+  // 誤差換算成像素：散布角在畫面上的半徑。刀沒有散布
+  let firePx = 0, movePx = 0;
+  if (!d.melee){
+    valSpread(false);
+    const focal = (H2/2) / Math.tan(camera.fov * DEG / 2);
+    firePx = Math.tan(SPREAD_PARTS.fire * DEG) * focal;
+    movePx = Math.tan(SPREAD_PARTS.move * DEG) * focal;
   }
-  if (d.melee){ uctx.fillStyle = "#FFFFFF"; uctx.fillRect(cx - 1, cy - 1, 2, 2); }
+  const col = "#" + (pr.c === 8 ? pr.u : XH_COLORS[pr.c] || "FFFFFF");
+  const ow = pr.h ? pr.t : 0;
+  const rects = [];                                    // [x, y, w, h, 不透明度]
+  if (pr.d && pr.z > 0){
+    const z = Math.round(pr.z), z0 = Math.floor(z/2);
+    rects.push([X0 - z0, Y0 - z0, z, z, pr.a]);
+  }
+  for (const ln of [pr.inner, pr.outer]){
+    if (!ln.b || ln.t <= 0) continue;
+    // 間距：開著射擊誤差時多一段固定 4px（m;1 時不加），再加上誤差換算的像素
+    const gap = Math.round(ln.o + (ln.f ? (pr.m ? 0 : 4) + firePx*ln.e : 0) + (ln.m ? movePx*ln.s : 0));
+    const t = Math.round(ln.t), t0 = Math.floor(t/2);
+    const lh = Math.round(ln.l), lv = Math.round(ln.g ? ln.v : ln.l);
+    if (lh > 0){
+      rects.push([X0 + gap, Y0 - t0, lh, t, ln.a]);
+      rects.push([X0 - gap - lh, Y0 - t0, lh, t, ln.a]);
+    }
+    if (lv > 0){
+      rects.push([X0 - t0, Y0 + gap, t, lv, ln.a]);
+      rects.push([X0 - t0, Y0 - gap - lv, t, lv, ln.a]);
+    }
+  }
+  // 外框：整組先以不透明的黑畫在離屏畫布、把線條本體的位置挖空，再用外框不透明度一次貼上。
+  // 逐條半透明疊畫的話，外框重疊處會更黑、線條底下也會透出黑色
+  if (ow > 0 && rects.length){
+    const R = 160, ox = X0 - R, oy = Y0 - R;
+    if (xhOut.width !== R*2){ xhOut.width = xhOut.height = R*2; }
+    const oc = xhOut.getContext("2d");
+    oc.clearRect(0, 0, R*2, R*2);
+    oc.fillStyle = "#000000";
+    for (const [x, y, w, h] of rects) oc.fillRect(x - ow - ox, y - ow - oy, w + ow*2, h + ow*2);
+    for (const [x, y, w, h] of rects) oc.clearRect(x - ox, y - oy, w, h);
+    xctx.globalAlpha = pr.o;
+    xctx.drawImage(xhOut, ox, oy);
+  }
+  xctx.fillStyle = col;
+  for (const [x, y, w, h, a] of rects){ xctx.globalAlpha = a; xctx.fillRect(x, y, w, h); }
+  xctx.globalAlpha = 1;
 }
 // Valorant 的 HUD：下方中央是護甲、血量、彈藥，右側是三個武器欄，左下是錢
 function drawValHud(w, h, cx){
@@ -8916,6 +9056,9 @@ function layout(){
   makeTargets(Math.floor(w*dpr), Math.floor(h*dpr));
   uiCanvas.width = Math.floor(w*dpr); uiCanvas.height = Math.floor(h*dpr);
   scale = dpr;
+  // 準心畫布不超取樣：一格畫布像素就是一個螢幕像素，線才會跟 Valorant 一樣銳利
+  const sdpr = window.devicePixelRatio || 1;
+  xhCanvas.width = Math.round(w*sdpr); xhCanvas.height = Math.round(h*sdpr);
 }
 addEventListener("resize", layout);
 
@@ -8954,6 +9097,8 @@ function inputDown(code){
 }
 addEventListener("keydown", ev => {
   if (bindWait){ captureKey(ev); return; }
+  // 在文字欄位（準心代碼）打字：不當成遊戲按鍵，否則 W、B 這些字會被 preventDefault 吃掉
+  if (ev.target instanceof HTMLInputElement && ev.target.type === "text") return;
   if (!overKeys.hidden && ev.code === "Escape"){ closeKeys(); return; }
   // 購買選單開著（滑鼠沒鎖定）：按購買鍵或 ESC 關掉
   if (!overBuy.hidden && (BINDS.buy.includes(ev.code) || ev.code === "Escape")){ ev.preventDefault(); closeBuy(); return; }
@@ -9203,6 +9348,26 @@ for (const [key, id] of Object.entries(RANGE_EL)){
     if (key === "board") placeBoard();
   });
 }
+// 準心設定：選預設組合、改顏色，或貼上 Valorant 的準心代碼按套用。代碼欄永遠顯示目前準心的代碼，可以複製回 Valorant
+const xhPreset = document.getElementById("xhPreset"), xhColor = document.getElementById("xhColor"), xhCode = document.getElementById("xhCode");
+function xhRefreshUI(){ xhPreset.value = xhPresetId; xhColor.value = String(XH.P.c); xhCode.value = xhSerialize(XH); }
+xhPreset.addEventListener("change", () => {
+  xhPresetId = xhPreset.value;
+  if (XH_PRESETS[xhPresetId] !== undefined) XH = xhParse(XH_PRESETS[xhPresetId]);
+  saveXh(); xhRefreshUI();
+});
+xhColor.addEventListener("change", () => {
+  XH.P.c = XH.A.c = +xhColor.value;
+  xhPresetId = "custom"; saveXh(); xhRefreshUI();
+});
+function applyXhCode(){
+  const s = xhCode.value.trim();
+  if (!/^\d+(;|$)/.test(s)){ xhCode.value = xhSerialize(XH); return; }     // 不是準心代碼就還原成目前的
+  XH = xhParse(s); xhPresetId = "custom"; saveXh(); xhRefreshUI();
+}
+document.getElementById("xhApply").addEventListener("click", applyXhCode);
+xhCode.addEventListener("keydown", ev => { if (ev.key === "Enter") applyXhCode(); });
+xhRefreshUI();
 loadStoredTrack();
 applySettings();
 
@@ -9337,6 +9502,7 @@ function loop(now){
       renderPosted();
       uctx.setTransform(1,0,0,1,0,0);
       uctx.clearRect(0,0,uiCanvas.width,uiCanvas.height);
+      xctx.clearRect(0, 0, xhCanvas.width, xhCanvas.height);
       requestAnimationFrame(loop);
       return;
     }

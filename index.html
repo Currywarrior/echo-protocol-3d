@@ -190,6 +190,7 @@
   }
   .trackrow button:hover{transform:none;box-shadow:none;color:var(--ink);}
   .tracknote{margin:0;font-size:10px;color:var(--muted);opacity:.7;text-align:left;}
+  .xhprev{display:block;width:100%;height:110px;border:1px solid var(--line);border-radius:3px;image-rendering:pixelated;}
   .xhrow{display:grid;grid-template-columns:1fr auto;gap:8px;}
   .xhrow input{
     min-width:0;padding:6px 8px;color:var(--ink);background:var(--panel);
@@ -335,6 +336,7 @@
         <button type="button" class="ghost fsbtn">全螢幕</button>
       </div>
       <div class="settings" data-for="valorant" hidden>
+        <canvas id="xhPreview" class="xhprev" aria-label="準心預覽"></canvas>
         <label class="opt" for="xhPreset">準心
           <select id="xhPreset">
             <option value="static">靜態十字（不動、不外擴）</option>
@@ -359,7 +361,7 @@
         <p class="tracknote">可以直接貼上 Valorant 的準心代碼（設定 → 準心 → 匯入設定檔）。尺寸是螢幕實體像素，和遊戲裡一樣</p>
       </div>
       <div class="settings" id="rangeSet" hidden>
-        <label class="opt" for="rgMove">假人移動
+        <label class="opt" for="rgMove">假人／機器人移動
           <select id="rgMove"><option value="still">靜止</option><option value="strafe">左右平移</option></select>
         </label>
         <label class="opt" for="rgSpeed">平移速度
@@ -6661,7 +6663,8 @@ function valArmorHit(t, raw){
 // 命中一隻敵人或假人：扣血與護甲、訓練場統計、中彈減速、受擊動畫與命中回饋
 function valApplyHit(b, raw, zone, at, farPellet){
   const r = valArmorHit(b, raw);
-  if (r.broke){ b.armor = 0; G.breakMark = 1; G.breakColor = "#8FD3FF"; sfx("triangle", 1500, 0.14, 0.045, 600); }
+  // 破甲只給聲音，不畫 Apex 那圈擴散的破盾弧線：Valorant 沒有，而且一槍爆頭常同時破甲，看起來像爆頭圓環（Leo 否決過）
+  if (r.broke){ b.armor = 0; sfx("triangle", 1500, 0.14, 0.045, 600); }
   if (b.dummy){
     if (b.firstHit < 0) b.firstHit = G.t;
     b.lastHit = G.t;
@@ -8182,6 +8185,7 @@ function drawUI(){
   uctx.setTransform(scale,0,0,scale,0,0);
   uctx.clearRect(0,0,w,h);
   xctx.clearRect(0, 0, xhCanvas.width, xhCanvas.height);
+  if (!overPause.hidden && G.val) drawXhPreview();     // 暫停頁開著：準心預覽跟著設定即時更新
   const p = G.player, g = gun();
   const cx = w/2, cy = h/2;
 
@@ -8610,9 +8614,11 @@ function drawValCrosshair(){
     firePx = Math.tan(SPREAD_PARTS.fire * DEG) * focal;
     movePx = Math.tan(SPREAD_PARTS.move * DEG) * focal;
   }
-  const col = "#" + (pr.c === 8 ? pr.u : XH_COLORS[pr.c] || "FFFFFF");
-  const ow = pr.h ? pr.t : 0;
-  const rects = [];                                    // [x, y, w, h, 不透明度]
+  xhPaint(xctx, pr, xhRects(pr, X0, Y0, firePx, movePx), X0, Y0);
+}
+// 準心的每一塊：[x, y, w, h, 不透明度]，以 (X0, Y0) 為中心、整數像素
+function xhRects(pr, X0, Y0, firePx, movePx){
+  const rects = [];
   if (pr.d && pr.z > 0){
     const z = Math.round(pr.z), z0 = Math.floor(z/2);
     rects.push([X0 - z0, Y0 - z0, z, z, pr.a]);
@@ -8632,6 +8638,12 @@ function drawValCrosshair(){
       rects.push([X0 - t0, Y0 - gap - lv, t, lv, ln.a]);
     }
   }
+  return rects;
+}
+// 把準心畫到 ctx（遊戲畫面或設定頁的預覽）
+function xhPaint(ctx, pr, rects, X0, Y0){
+  const col = "#" + (pr.c === 8 ? pr.u : XH_COLORS[pr.c] || "FFFFFF");
+  const ow = pr.h ? pr.t : 0;
   // 外框：整組先以不透明的黑畫在離屏畫布、把線條本體的位置挖空，再用外框不透明度一次貼上。
   // 逐條半透明疊畫的話，外框重疊處會更黑、線條底下也會透出黑色
   if (ow > 0 && rects.length){
@@ -8642,12 +8654,27 @@ function drawValCrosshair(){
     oc.fillStyle = "#000000";
     for (const [x, y, w, h] of rects) oc.fillRect(x - ow - ox, y - ow - oy, w + ow*2, h + ow*2);
     for (const [x, y, w, h] of rects) oc.clearRect(x - ox, y - oy, w, h);
-    xctx.globalAlpha = pr.o;
-    xctx.drawImage(xhOut, ox, oy);
+    ctx.globalAlpha = pr.o;
+    ctx.drawImage(xhOut, ox, oy);
   }
-  xctx.fillStyle = col;
-  for (const [x, y, w, h, a] of rects){ xctx.globalAlpha = a; xctx.fillRect(x, y, w, h); }
-  xctx.globalAlpha = 1;
+  ctx.fillStyle = col;
+  for (const [x, y, w, h, a] of rects){ ctx.globalAlpha = a; ctx.fillRect(x, y, w, h); }
+  ctx.globalAlpha = 1;
+}
+// 設定頁的準心預覽：左半深色、右半淺色背景各畫一個，看得出在兩種背景上的樣子。
+// 畫的是靜止時的樣子（沒有移動與射擊誤差），尺寸和遊戲裡一樣是實體像素
+const xhPrev = document.getElementById("xhPreview");
+function drawXhPreview(){
+  const dpr = window.devicePixelRatio || 1;
+  const w = Math.round(xhPrev.clientWidth*dpr), h = Math.round(xhPrev.clientHeight*dpr);
+  if (!w || !h) return;                             // 面板沒顯示
+  if (xhPrev.width !== w || xhPrev.height !== h){ xhPrev.width = w; xhPrev.height = h; }
+  const c = xhPrev.getContext("2d"), half = Math.floor(w/2);
+  c.globalAlpha = 1;
+  c.fillStyle = "#2A2E36"; c.fillRect(0, 0, half, h);
+  c.fillStyle = "#B4B8BC"; c.fillRect(half, 0, w - half, h);
+  const Y0 = Math.round(h/2);
+  for (const X0 of [Math.round(half/2), half + Math.round((w - half)/2)]) xhPaint(c, XH.P, xhRects(XH.P, X0, Y0, 0, 0), X0, Y0);
 }
 // Valorant 的 HUD：下方中央是護甲、血量、彈藥，右側是三個武器欄，左下是錢
 function drawValHud(w, h, cx){

@@ -4502,6 +4502,38 @@ const bulletGeo = new THREE.BoxGeometry(0.05,0.05,0.9);
 const bulletMatFriend = new THREE.MeshBasicMaterial({color:0xFFF4D6});
 const bulletMatFoe    = new THREE.MeshBasicMaterial({color:0xFF6B2B});
 const bulletPool = [];
+// 曳光（Valorant）：子彈一幀就飛 30m，近距離在畫出來之前就命中消失了，所以曳光不跟著子彈走，
+// 而是子彈結束時畫一條從槍口到終點的亮線，0.07 秒內從槍口那端往終點收縮並淡出
+const TRACER_T = 0.07, TRACER_W = 0.018;
+const tracerGeo = new THREE.BoxGeometry(1, 1, 1);
+const tracers = [], tracerPool = [];
+const _tA = new THREE.Vector3(), _tB = new THREE.Vector3();
+function addTracer(s, ex, ey, ez){
+  // 一般混色、偏黃：加法混色疊在白天的亮地板與牆上會變成白色，等於看不見
+  const m = tracerPool.pop() || new THREE.Mesh(tracerGeo, new THREE.MeshBasicMaterial({
+    color:0xFFC94A, transparent:true, depthWrite:false}));
+  m.frustumCulled = false;
+  bulletLayer.add(m);
+  tracers.push({m, s, e:[ex, ey, ez], age:0});
+}
+function updateTracers(dt){
+  for (let i = tracers.length - 1; i >= 0; i--){
+    const t = tracers[i];
+    t.age += dt;
+    const k = t.age / TRACER_T;
+    if (k >= 1){ bulletLayer.remove(t.m); tracerPool.push(t.m); tracers.splice(i, 1); continue; }
+    _tB.set(t.e[0], t.e[1], t.e[2]);
+    _tA.set(t.s[0], t.s[1], t.s[2]).lerp(_tB, k);
+    const len = _tA.distanceTo(_tB);
+    if (len < 0.05){ t.m.visible = false; continue; }
+    t.m.visible = true;
+    t.m.position.copy(_tA).lerp(_tB, 0.5);
+    t.m.lookAt(_tB);
+    t.m.scale.set(TRACER_W, TRACER_W, len);
+    t.m.material.opacity = 0.9 * (1 - k);
+  }
+}
+function clearTracers(){ for (const t of tracers){ bulletLayer.remove(t.m); tracerPool.push(t.m); } tracers.length = 0; }
 const sparkGeo = new THREE.SphereGeometry(0.07, 8, 6);
 
 // ── 彈著點的餘熱 ──
@@ -6683,7 +6715,8 @@ function aimOnDummy(p){
     const off = Math.abs((b.x-p.x)*dy - (b.y-p.y)*dx);
     const z = dummyZones(b), h = eye + t*S*tp;
     if (h < z.base || h > z.headTop) continue;
-    if (off < (h > z.torsoTop ? b.rad*0.55 : b.rad)) return true;
+    const zn = h > z.torsoTop ? "head" : h > z.legTop ? "torso" : "leg";
+    if (off < (G.val ? valReach(b, zn) : zn === "head" ? b.rad*0.55 : b.rad)) return true;
   }
   return false;
 }
@@ -6946,6 +6979,10 @@ function valFire(alt, queued){
   const spr = valSpread(alt);
   const pel = A ? A.pellets : d.pellets || 1;
   const h0 = eyeH();
+  // 曳光起點：槍口約在視線前方 0.9m、偏右下（開鏡時移回中線）。世界座標 x = px·S、z = py·S，面向 +x 時右手邊是 +z
+  const fa = Math.atan2(-Math.cos(yaw), -Math.sin(yaw)), cp = Math.cos(pitch), side = 0.16*(1 - G.adsT);
+  const tr0 = [p.x*S + Math.cos(fa)*cp*0.9 - Math.sin(fa)*side, h0 + Math.sin(pitch)*0.9 - 0.13*(1 - 0.6*G.adsT),
+               p.y*S + Math.sin(fa)*cp*0.9 + Math.cos(fa)*side];
   if (G.spray.pts.length < 60) G.spray.pts.push([-(yaw - G.spray.yaw0) + vs.x*DEG, (pitch - G.spray.pitch0) + vs.y*DEG]);
   for (let i=0;i<pel;i++){
     const r = spr * DEG * Math.sqrt(Math.random()), th = Math.random()*Math.PI*2;
@@ -6957,6 +6994,7 @@ function valFire(alt, queued){
       x:p.x + Math.cos(a)*8, y:p.y + Math.sin(a)*8, h:h0 + 8*S*sh,
       vx:Math.cos(a)*VAL.bulletSpd*ch, vy:Math.sin(a)*VAL.bulletSpd*ch, vh:VAL.bulletSpd*sh*S,
       dmg:0, val:d, ox:p.x, oy:p.y, pellet:pel > 1, friendly:true, life:0.12, mesh:null,
+      tr:i < 6 ? tr0 : null,
     });
   }
   G.shots += pel;
@@ -7033,19 +7071,33 @@ function valApplyHit(b, raw, zone, at, farPellet){
     if (zone === "head") rs.heads++;
   }
   b.tagT = VAL.tagT; b.tagAmt = farPellet ? VAL.tagFar : VAL.tag;
+  // 中彈不後仰、不甩頭：Valorant 的角色中彈幾乎不晃，只有減速（tag）。受擊動畫的力道歸零
   b.flash = 0.1; b.hitT = 0.25;
   b.hitAngle = Math.atan2(b.y - G.player.y, b.x - G.player.x);
-  b.hitForce = Math.min(0.52, 0.08 + raw/200);
-  if (zone === "head"){ b.headT = 0.14; b.headForce = Math.min(0.62, 0.22 + raw/300); }
+  b.hitForce = 0; b.headForce = 0;
   if (b.hp <= 0) b.deathAngle = b.hitAngle;
   G.hits++;
   spawnSpark(at.x, at.y, zone === "head" ? 0xFFFFFF : 0xFF6A5A, zone === "head" ? 10 : 6);
-  G.pops.push({x:at.x, y:at.y, h:at.h + 0.25, text:String(r.real), life:0.9, max:0.9, blocked:false, zone,
+  // 數字顯示這一槍的武器傷害（Vandal 爆頭 160，和商店一樣）。實際扣掉的量會被剩下的血與護甲截掉
+  // （重甲 50 + 血 100 = 150），那個記在左邊的 DAMAGE / DPS 統計裡
+  G.pops.push({x:at.x, y:at.y, h:at.h + 0.25, text:String(Math.round(raw)), life:0.9, max:0.9, blocked:false, zone,
                color:r.armor ? "#8FD3FF" : null, kill:b.hp <= 0});
   G.hitMark = 1;
-  if (zone === "head"){ G.headMark = 1; sfx("square",900,0.07,0.055,420); }
-  else if (zone === "leg") sfx("square",380,0.05,0.03,240);
-  else sfx("square",540,0.05,0.04,300);
+  // 命中音效：身體是悶的肉聲、爆頭是清脆的金屬聲，擊殺再加一聲上揚的確認音（Valorant 沒有命中標記，全靠聲音分辨）
+  if (zone === "head"){
+    G.headMark = 1;
+    sfx("triangle", 3200, 0.12, 0.05, 2900); sfx("sine", 5200, 0.06, 0.02, 5000); sfxNoise(0.025, 0.05, 7000);
+  } else {
+    const k = zone === "leg" ? 0.7 : 1;
+    sfxNoise(0.07, 0.06*k, 700); sfx("sine", 150, 0.08, 0.06*k, 70);
+  }
+  if (b.hp <= 0){ sfx("sine", 660, 0.09, 0.04, 990); sfx("sine", 990, 0.12, 0.03, 1480); }
+}
+// Valorant 的命中判定半徑（像素）：貼著人物模型量的。模型比例 k=0.88 時頭寬約 0.22m（含頭盔 0.3m）、
+// 軀幹 0.45～0.6m、兩腿併起來 0.25～0.36m，所以頭 0.15k、軀幹 0.30k、腿 0.20k 公尺。
+// 原本頭用身體半徑的 0.55 倍（0.43m 寬，比頭大一倍），瞄在頭旁邊 10 公分也算爆頭
+function valReach(b, zone){
+  return (zone === "head" ? 0.15 : zone === "torso" ? 0.30 : 0.20) * botK(b.type) / S;
 }
 function valReloadDone(){
   const p = G.player, g = gun(), inf = G.practice && RANGE.infinite;
@@ -7197,6 +7249,7 @@ function botShoot(b){
     vx:Math.cos(a)*T.bulletSpd, vy:Math.sin(a)*T.bulletSpd,
     vh,
     dmg:G.val ? valBotDamage(b, dist) : T.dmg, friendly:false, life:1.6, srcX:b.x, srcY:b.y, mesh:null,
+    silent:G.val && !!VAL_GUNS[BOT_VAL[b.type] || "vandal"].silenced,
   });
   b.flash = 0.07;
   b.muzzle = 0.05;
@@ -8094,13 +8147,21 @@ function update(dt){
         for (const b of G.bots){
           if (b.hp <= 0) continue;
           const z = b.dummy ? dummyZones(b) : zonesOf(b.type);
-          if (bl.h > z.headTop || bl.h < (z.base || 0)) continue;      // 從頭上飛過去（或從跳起來的假人腳下）
+          // Valorant：取這一小段飛行路徑上離敵人最近的點（真正擦過的距離與高度）。
+          // 只看端點的話，一步約 21cm，擦頭而過會被算成離很遠；判定貼合模型之後誤差會大到打不中
+          let qx = bl.x, qy = bl.y, qh = bl.h;
+          if (bl.val){
+            const sx = bl.vx*dt/STEP, sy = bl.vy*dt/STEP;
+            const u = Math.max(0, Math.min(1, ((b.x - bl.x + sx)*sx + (b.y - bl.y + sy)*sy) / (sx*sx + sy*sy || 1)));
+            qx = bl.x - sx*(1 - u); qy = bl.y - sy*(1 - u); qh = bl.h - bl.vh*dt/STEP*(1 - u);
+          }
+          if (qh > z.headTop || qh < (z.base || 0)) continue;      // 從頭上飛過去（或從跳起來的假人腳下）
           // 頭比身體窄很多，所以橫向判定也要跟著收緊
-          const isHead = bl.h > z.torsoTop;
-          const reach = isHead ? b.rad*0.55 : b.rad;
-          if (Math.hypot(bl.x-b.x, bl.y-b.y) < reach){
+          const isHead = qh > z.torsoTop;
+          const reach = bl.val ? valReach(b, isHead ? "head" : qh > z.legTop ? "torso" : "leg") : isHead ? b.rad*0.55 : b.rad;
+          if (Math.hypot(qx-b.x, qy-b.y) < reach){
             const TT = TYPES[b.type];
-            const zone = isHead ? "head" : (bl.h > z.legTop ? "torso" : "leg");
+            const zone = isHead ? "head" : (qh > z.legTop ? "torso" : "leg");
             if (bl.val){
               // Valorant：依飛了幾公尺查傷害表，頭 / 身 / 腿各有自己的數字
               const distM = Math.hypot(bl.x - bl.ox, bl.y - bl.oy) * S;
@@ -8182,6 +8243,7 @@ function update(dt){
       }
     }
     if (dead){
+      if (bl.tr) addTracer(bl.tr, bl.x*S, bl.h, bl.y*S);
       if (bl.mesh){ bulletLayer.remove(bl.mesh); bulletPool.push(bl.mesh); }
       G.bullets.splice(i,1);
     }
@@ -8212,7 +8274,7 @@ function update(dt){
         G.respawns.push({t:DUMMY_RESPAWN, x:b.homeX, y:b.homeY, ax:b.ax, ay:b.ay});
         G.feed.unshift({text:"DOWN · TTK " + ttk.toFixed(2) + "s", score:0, life:2.6, max:2.6, pickup:true});
         if (G.feed.length > 5) G.feed.pop();
-        sfxAt(b.x,b.y,"triangle",420,0.22,0.5,110);
+        if (!G.val) sfxAt(b.x,b.y,"triangle",420,0.22,0.5,110);   // Valorant 的擊殺音在 valApplyHit
         continue;
       }
       G.kills++;
@@ -8226,7 +8288,7 @@ function update(dt){
       G.feed.unshift({text:TYPES[b.type].name, score:gained,
                       mult:(mult>1 ? mult.toFixed(2)+"x" : ""), life:3.4, max:3.4});
       if (G.feed.length > 5) G.feed.pop();
-      sfxAt(b.x,b.y,"triangle",420,0.22,0.5,110);
+      if (!G.val) sfxAt(b.x,b.y,"triangle",420,0.22,0.5,110);   // Valorant 的擊殺音在 valApplyHit
     }
   }
   if (G.mode === "fight" && G.bots.length === 0 && !G.practice){
@@ -8506,7 +8568,10 @@ function sync(dtLast){
     }
   }
 
+  updateTracers(dtLast);
   for (const bl of G.bullets){
+    // Valorant：自己的子彈用曳光表現（見 addTracer）；滅音槍的子彈敵人看不到曳光（wiki：Tracers not visible to enemies）
+    if ((bl.val && bl.friendly) || bl.silent) continue;
     if (!bl.mesh){
       bl.mesh = bulletPool.pop() || new THREE.Mesh(bulletGeo, bulletMatFriend);
       bl.mesh.material = bl.friendly ? bulletMatFriend : bulletMatFoe;
@@ -8618,8 +8683,8 @@ function drawUI(){
       uctx.globalAlpha = 1;
     }
 
-    // 命中標記：爆頭給明顯不同的回饋，打中哪裡要一眼看得出來
-    if (G.hitMark > 0){
+    // 命中標記：爆頭給明顯不同的回饋，打中哪裡要一眼看得出來。Valorant 沒有命中標記，只靠聲音
+    if (G.hitMark > 0 && !G.val){
       const head = G.headMark > 0;
       uctx.strokeStyle = head
         ? `rgba(255,242,205,${G.headMark.toFixed(2)})`
@@ -9374,6 +9439,7 @@ function clearScene(){
   for (const d of steps) d.mesh.visible = false;
   for (const d of decals) d.mesh.visible = false;
   steps.length = 0; decals.length = 0;
+  clearTracers();
 }
 function endGame(){
   if (G.score > best){

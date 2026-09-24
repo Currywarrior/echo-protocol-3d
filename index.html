@@ -56,6 +56,10 @@
       radial-gradient(62% 52% at 50% 48%, rgba(5,6,14,.94) 0%, rgba(5,6,14,.86) 58%, rgba(5,6,14,.6) 100%);
   }
   #overStart h1,#overStart .lede,#overStart .eyebrow{text-shadow:0 2px 18px rgba(0,0,0,.9);}
+  /* 開場畫面內容多：間距收小、三顆按鈕排成一列；視窗太矮時改成捲動，不讓彈性排版把按鍵表壓扁 */
+  #overStart{gap:14px;overflow-y:auto;justify-content:safe center;}
+  #overStart > *{flex-shrink:0;}
+  .startRow{display:flex;gap:10px;align-items:center;justify-content:center;flex-wrap:wrap;}
   .overlay[hidden]{display:none !important;}
   .eyebrow{font-size:11px;letter-spacing:.34em;text-transform:uppercase;color:var(--heat);font-weight:600;}
   .overlay h1{margin:0;font-size:clamp(28px,5.8vw,54px);font-weight:700;letter-spacing:.06em;line-height:1;text-wrap:balance;}
@@ -64,7 +68,7 @@
   .keys{
     display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));
     gap:1px;background:var(--line);border:1px solid var(--line);border-radius:3px;
-    width:min(100%,680px);overflow:hidden;
+    width:min(100%,860px);overflow:hidden;
   }
   .key{background:var(--panel);padding:10px 12px;display:flex;align-items:baseline;gap:9px;text-align:left;}
   .key b{
@@ -99,6 +103,36 @@
     flex:1;min-width:0;padding:8px 10px;color:var(--ink);background:var(--panel);
     border:1px solid var(--line);border-radius:3px;font:600 12px "Chakra Petch",system-ui;
   }
+  /* 玩法切換：主選單最上面，APEX 與 VALORANT 兩套規則 */
+  .rules{display:flex;gap:10px;width:min(100%,560px);}
+  .rules button{
+    flex:1;display:flex;flex-direction:column;align-items:flex-start;gap:4px;padding:10px 14px;
+    background:var(--panel);border:1px solid var(--line);color:var(--muted);letter-spacing:.14em;font-size:14px;
+  }
+  .rules button small{font-size:11px;font-weight:500;letter-spacing:.02em;text-transform:none;color:var(--muted);}
+  .rules button:hover{box-shadow:none;border-color:var(--muted);}
+  .rules button[aria-checked="true"]{color:var(--ink);border-color:var(--heat);background:rgba(255,138,43,.12);}
+  .rules button[data-rules="valorant"][aria-checked="true"]{border-color:#FF4655;background:rgba(255,70,85,.13);}
+  .rules button[aria-checked="true"] small{color:var(--ink);}
+  /* Valorant 的購買選單：半透明蓋在遊戲上，分欄列出各類武器與護甲 */
+  #overBuy{background:rgba(6,8,14,.8);justify-content:flex-start;align-items:stretch;gap:12px;padding:22px 26px;overflow:auto;text-align:left;}
+  .buyTop{display:flex;align-items:baseline;gap:18px;}
+  .buyTop>b{font-size:18px;letter-spacing:.24em;color:#FF4655;}
+  #buyCredits{font:600 16px "IBM Plex Mono",ui-monospace,monospace;color:#FFD27A;}
+  .buyTip{margin-left:auto;font-size:12px;color:var(--muted);}
+  .buyTip b{font:600 11px "IBM Plex Mono",ui-monospace,monospace;color:var(--ink);border:1px solid var(--line);border-radius:3px;padding:1px 5px;}
+  .buyGrid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;}
+  .buyCol h4{margin:6px 0;font-size:10px;letter-spacing:.24em;color:var(--muted);font-weight:600;}
+  .buyItem{
+    display:block;width:100%;margin:0 0 6px;padding:8px 10px;text-align:left;
+    background:rgba(18,20,30,.9);border:1px solid rgba(242,236,255,.1);color:var(--ink);
+    letter-spacing:.06em;font-size:13px;text-transform:none;
+  }
+  .buyItem:hover{transform:none;box-shadow:none;border-color:#FF4655;}
+  .buyItem.own{border-color:rgba(63,224,200,.7);}
+  .buyItem.poor{opacity:.4;}
+  .buyItem .c{float:right;font:600 12px "IBM Plex Mono",ui-monospace,monospace;color:#FFD27A;letter-spacing:0;}
+  .buyItem .s{display:block;margin-top:3px;font:500 10.5px "IBM Plex Mono",ui-monospace,monospace;color:var(--muted);letter-spacing:0;}
   .settings{
     display:flex;flex-direction:column;gap:14px;
     width:min(100%,380px);
@@ -177,7 +211,12 @@
     <div class="overlay" id="overStart">
       <div class="eyebrow">Thermal Recon · First Person</div>
       <h1>ECHO <em>PROTOCOL</em></h1>
-      <p class="lede">你戴的是紅外線感測器。世界本身是暗的，只有熱才看得見——敵人是發光的熱源，牆是冷的。你的視野只有面前那一塊，背後永遠是盲區。卡角、預瞄、用聲納在開門前先看一眼。</p>
+      <div class="rules" role="radiogroup" aria-label="玩法">
+        <button type="button" role="radio" data-rules="apex" aria-checked="true">APEX<small>身法 · 滑鏟、攀牆、滑索、Evo 護盾</small></button>
+        <button type="button" role="radio" data-rules="valorant" aria-checked="false">VALORANT<small>戰術射擊 · 首發精準、急停、買槍</small></button>
+      </div>
+      <p class="lede" data-for="valorant" hidden>一槍一命的戰術射擊。站定的第一發最準，邊跑邊開槍子彈會亂飛，要先急停再開火。腰射時準心不會跟著後座力跳，子彈卻會往上飄，連射要自己往下拉。按 B 買槍和護甲。</p>
+      <p class="lede" data-for="apex">你戴的是紅外線感測器。世界本身是暗的，只有熱才看得見——敵人是發光的熱源，牆是冷的。你的視野只有面前那一塊，背後永遠是盲區。卡角、預瞄、用聲納在開門前先看一眼。</p>
       <label class="mapPicker" for="mapSelect">地圖
         <select id="mapSelect">
           <option value="atrium">COLUMN FOREST · 開闊柱林</option>
@@ -192,7 +231,7 @@
           <option value="range">訓練場 · 假人不會開槍</option>
         </select>
       </label>
-      <div class="keys">
+      <div class="keys" data-for="apex">
         <div class="key"><b data-act="forward left back right">W A S D</b><span>移動</span></div>
         <div class="key"><b>MOUSE</b><span>視角</span></div>
         <div class="key"><b data-act="fire">LMB</b><span>射擊</span></div>
@@ -211,12 +250,32 @@
         <div class="key"><b data-act="sonar">Q</b><span><i>聲納</i>：穿牆標記敵人 3 秒</span></div>
         <div class="key"><b data-act="echo">E</b><span><i class="v">ECHO</i>：回到三秒前的位置與血量</span></div>
       </div>
-      <button id="btnStart">開始部署</button>
-      <button type="button" class="ghost keysbtn">按鍵設定</button>
-      <button type="button" class="ghost fsbtn">全螢幕</button>
+      <div class="keys" data-for="valorant" hidden>
+        <div class="key"><b data-act="forward left back right">W A S D</b><span>移動：拿刀最快，槍越重越慢</span></div>
+        <div class="key"><b data-act="sprint">SHIFT</b><span><i>靜步</i>：沒有腳步聲，移動誤差比跑步小</span></div>
+        <div class="key"><b data-act="crouch">CTRL</b><span>蹲下：散布小一點，蹲走最慢</span></div>
+        <div class="key"><b data-act="jump">SPACE</b><span>跳躍：空中誤差最大，落地後 0.2 秒也不準</span></div>
+        <div class="key"><b data-act="fire">LMB</b><span>射擊：站定的第一發最準</span></div>
+        <div class="key"><b data-act="ads">RMB</b><span>右鍵：步槍開鏡、Classic 三連發、Operator 兩段倍率</span></div>
+        <div class="key"><b data-act="gun1 gun2 gun3">1 2 3</b><span>主武器 / 手槍 / 刀</span></div>
+        <div class="key"><b data-act="buy">B</b><span><i>購買選單</i>：訓練場全部免費</span></div>
+        <div class="key"><b data-act="reload">R</b><span>換彈（備彈用完就沒了）</span></div>
+        <div class="key"><b>急停</b><span>只放開移動鍵約 0.17 秒才停；同時按反方向鍵 0.08 秒就停住</span></div>
+        <div class="key"><b>腰射</b><span>準心不動、子彈往上飄，要往下拉；開鏡時準心才跟著跳</span></div>
+        <div class="key"><b>護甲</b><span>輕甲 25、重甲 50，只吸收 66% 傷害；Vandal 爆頭 160 一槍倒</span></div>
+      </div>
+      <div class="startRow">
+        <button id="btnStart">開始部署</button>
+        <button type="button" class="ghost keysbtn">按鍵設定</button>
+        <button type="button" class="ghost fsbtn">全螢幕</button>
+      </div>
       <p class="hint">開始後會自動進全螢幕並鎖定滑鼠，按 ESC 解除。全螢幕時 Ctrl 加數字不會切走分頁</p>
     </div>
 
+    <div class="overlay" id="overBuy" hidden>
+      <div class="buyTop"><b>ARMORY</b><span id="buyCredits"></span><span class="buyTip">點一下購買並裝備　·　按 <b data-act="buy">B</b> 回到遊戲</span></div>
+      <div class="buyGrid" id="buyGrid"></div>
+    </div>
     <div class="overlay" id="overDead" hidden>
       <div class="eyebrow">Signal Lost</div>
       <h1>陣亡</h1>
@@ -853,6 +912,123 @@ const RECOIL = {
 // 橫移速度取平滑過的平均，所以左右來回甩會互相抵銷、不會觸發（和 Apex 一樣只認單一方向的穩定移動）
 const RC = {smoothSpeed:0.35, smoothV:0.55, strafeH:0.35};
 function recoilStep(g, n){ return RECOIL[g.key](n); }
+
+// ─────────────────────────────────────────────
+// VALORANT 玩法（主選單的「玩法」選 VALORANT 時 G.val 為真）
+// 槍的數值：valorant-api.com（從遊戲檔案解出的武器資料，2026-09）與 Valorant Wiki 各槍頁面的散布表。
+// Riot 沒公開、這裡自己調的數值都標「自調」
+// ─────────────────────────────────────────────
+let RULES = "apex";
+try { if (localStorage.getItem("echo3d.rules") === "valorant") RULES = "valorant"; } catch(e){}
+const PXM = 1 / S;                   // 每公尺幾像素
+const DEG = Math.PI / 180;
+const VAL = {
+  run:6.75*PXM,                      // 拿刀跑 6.75m/s（wiki）；拿槍再乘上槍的跑速倍率（步槍 0.8 = 5.4m/s）
+  walkMul:0.55, crouchMul:0.45,      // 靜步、蹲走占跑速的比例（自調：Riot 沒公開）
+  accel:70*PXM, brake:32*PXM,        // 地面加速度與只放開按鍵時的煞車（自調）：拿步槍全速時按反方向約 0.08 秒停住、只放開約 0.17 秒
+  airAccel:4*PXM,                    // 空中只能小幅修正方向，不會越跳越快（自調）
+  jumpV:6.0, gravity:18,             // 起跳 6m/s、重力 18m/s²：跳高 1.0m、滯空 0.67 秒（自調）
+  tag:0.725, tagFar:0.30, tagT:0.5,  // 中彈減速 72.5%（wiki）；霰彈在 10m 外只減 30%、0.5 秒回復（wiki）。一般子彈的持續時間自調成一樣
+  land:7, landT:0.225,               // 落地後 0.225 秒內散布 +7°（wiki）
+  rcCap:5,                           // 連射時子彈最多往上飄幾度（自調）
+  bulletSpd:1800*PXM,                // Valorant 是瞬間命中；這裡用每秒 1800m 的子彈，50m 內不到 0.03 秒
+  knifeRange:2*PXM,                  // 刀：2m 內（wiki）
+  hp:100,
+  regenDelay:2.0, regenRate:12,      // 再生護盾：多久沒受傷開始回、每秒回多少（自調，wiki 只給容量）
+};
+// 訓練場假人的平移速度：拿步槍的蹲走、靜步、跑步
+const VAL_STRAFE = {slow:5.4*VAL.crouchMul*PXM, mid:5.4*VAL.walkMul*PXM, fast:5.4*PXM};
+// 護甲：輕甲、重甲只吸收 66% 的傷害（不是直接加血）；再生護盾吸收 100%，打掉的部分會從 50 點的回復池補回來（wiki）
+const VAL_ARMOR = {
+  light:{name:"輕型護甲", cost:400,  cap:25, abs:0.66},
+  regen:{name:"再生護盾", cost:650,  cap:25, abs:1.00, pool:50},
+  heavy:{name:"重型護甲", cost:1000, cap:50, abs:0.66},
+};
+// 欄位：cat 類別、cost 價格、rate 射速（發/秒）、mag 彈匣、res 備彈、rel 換彈（秒）、eq 切槍（秒）、run 跑速倍率、
+// dmg 各距離段 [到幾公尺, 頭, 身, 腿]、spr 散布 [站著首發, 蹲著首發, 站著上限, 蹲著上限]（度）、
+// mv 移動誤差 [蹲走, 走路, 跑步, 空中]（加上去的度數）、ads 右鍵開鏡（zoom 倍率、rate 射速、move 移速倍率、spr 散布、burst 點放發數）。
+// rc 是後座圖形（自調，形狀照社群整理的彈道描述）：up 每發往上飄幾度（前 n[0] 發、到 n[1] 發、之後），
+// side 橫向每發幾度，prot 發之後才開始左右擺，每發 10% 機會換邊、兩次換邊至少隔 0.6 秒（Vandal 的 wiki 數值）；
+// rec 停火後完全回正要幾秒，grow 連射幾發散布長到上限
+const VAL_GUNS = {
+  classic: {name:"CLASSIC", cat:"sidearm", cost:0, rate:6.75, mag:12, res:36, rel:1.75, eq:0.75, run:0.85,
+    dmg:[[30,78,26,22],[50,66,22,19]], spr:[0.4,0.3,1.8,1.35], mv:[0.5,1.1,2.3,7],
+    alt:{pellets:3, rate:2.22, spr:[1.9,1.71,5.78,5.21], mv:[0,0.6,1.5,2.25]}, rc:{up:[0.9], rec:0.35, grow:4}},
+  shorty:  {name:"SHORTY", cat:"sidearm", cost:300, rate:3, mag:2, res:6, rel:1.75, eq:0.75, run:0.8, pellets:15,
+    dmg:[[7,22,11,9],[15,12,6,5],[50,6,3,3]], spr:[4,3,4,3], mv:[0.5,1,2,4], rc:{up:[3], rec:0.4, grow:1}},
+  frenzy:  {name:"FRENZY", cat:"sidearm", cost:450, rate:10, mag:15, res:45, rel:1.5, eq:1, run:0.85, auto:true,
+    dmg:[[20,78,26,22],[50,63,21,18]], spr:[0.65,0.55,1.7,1.45], mv:[0.5,0.8,2,7],
+    rc:{up:[0.55,0.35,0.15], n:[4,10], side:0.25, prot:4, rec:0.35, grow:6}},
+  ghost:   {name:"GHOST", cat:"sidearm", cost:500, rate:6.75, mag:13, res:39, rel:1.5, eq:0.75, run:0.85, silenced:true,
+    dmg:[[30,105,30,26],[50,88,25,21]], spr:[0.3,0.23,1.65,1.24], mv:[0.5,1.1,2.3,7], rc:{up:[1.0], rec:0.3, grow:4}},
+  bandit:  {name:"BANDIT", cat:"sidearm", cost:600, rate:5.1, mag:8, res:24, rel:1.5, eq:0.75, run:0.85,
+    dmg:[[10,152,39,33],[30,128,39,33],[50,112,34,28]], spr:[0.275,0.21,1.97,1.48], mv:[0.5,1.2,2.7,7], rc:{up:[1.4], rec:0.35, grow:3}},
+  sheriff: {name:"SHERIFF", cat:"sidearm", cost:800, rate:4, mag:6, res:24, rel:2.25, eq:1, run:0.8,
+    dmg:[[30,160,55,47],[50,145,50,42]], spr:[0.25,0.19,2.75,2.06], mv:[0.5,1.2,3,7], rc:{up:[3.2], rec:0.45, grow:2}},
+  stinger: {name:"STINGER", cat:"smg", cost:1100, rate:16, mag:20, res:60, rel:2.25, eq:0.75, run:0.85, auto:true,
+    dmg:[[15,68,27,23],[50,57,23,19]], spr:[0.65,0.55,1.5,1.28], mv:[0.15,1,2.5,10],
+    ads:{zoom:1.15, move:0.76, spr:[0.35,0.26,2.74,2.06], burst:4, burstRate:18, rate:2.118},
+    rc:{up:[0.45,0.25,0.1], n:[5,12], side:0.3, prot:5, rec:0.4, grow:8}},
+  spectre: {name:"SPECTRE", cat:"smg", cost:1600, rate:13.33, mag:30, res:90, rel:2.25, eq:0.75, run:0.85, auto:true, silenced:true,
+    dmg:[[15,78,26,22],[30,66,22,19],[50,60,20,17]], spr:[0.4,0.34,1.4,1.19], mv:[0.15,1,2.5,10],
+    ads:{zoom:1.15, move:0.76, rate:12, spr:[0.25,0.21,1.25,1.06]},
+    rc:{up:[0.35,0.2,0.08], n:[6,14], side:0.25, prot:7, rec:0.4, grow:9}},
+  bucky:   {name:"BUCKY", cat:"shotgun", cost:850, rate:1.1, mag:5, res:10, rel:2.5, eq:1, run:0.75, pellets:15,
+    dmg:[[8,34,17,14],[12,26,13,11],[50,18,9,8]], spr:[3,2.34,3,2.34], mv:[0.5,1,2,4], rc:{up:[3.5], rec:0.5, grow:1}},
+  judge:   {name:"JUDGE", cat:"shotgun", cost:1850, rate:3.5, mag:5, res:15, rel:2.2, eq:1, run:0.75, pellets:12, auto:true,
+    dmg:[[10,34,17,14],[15,20,10,8],[50,14,7,6]], spr:[2.5,1.69,4,3], mv:[0.5,1,1,4], rc:{up:[1.6], rec:0.4, grow:3}},
+  bulldog: {name:"BULLDOG", cat:"rifle", cost:2050, rate:10, mag:24, res:72, rel:2.5, eq:1, run:0.8, auto:true,
+    dmg:[[50,116,35,30]], spr:[0.3,0.26,1.25,1.06], mv:[0.8,3,6,10],
+    ads:{zoom:1.25, move:0.76, spr:[0.1,0.08,1.5,1.12], burst:3, burstRate:13.333, rate:2.105},
+    rc:{up:[0.5,0.3,0.12], n:[4,10], side:0.3, prot:4, rec:0.4, grow:6}},
+  guardian:{name:"GUARDIAN", cat:"rifle", cost:2250, rate:5.25, mag:12, res:36, rel:2.5, eq:1, run:0.8,
+    dmg:[[50,195,65,49]], spr:[0.1,0.09,1.58,1.34], mv:[0.8,3,6,10],
+    ads:{zoom:1.5, move:0.76, spr:[0,0,1.48,1.25]}, rc:{up:[1.6], rec:0.4, grow:3}},
+  phantom: {name:"PHANTOM", cat:"rifle", cost:2900, rate:11, mag:30, res:60, rel:2.5, eq:1, run:0.8, auto:true, silenced:true,
+    dmg:[[20,156,39,33],[50,140,35,30]], spr:[0.2,0.17,0.9,0.76], mv:[0.8,3,6,10],
+    ads:{zoom:1.25, move:0.76, rate:9.9, spr:[0.11,0.09,0.91,0.78]},
+    rc:{up:[0.45,0.28,0.1], n:[6,14], side:0.28, prot:6, rec:0.375, grow:8}},
+  vandal:  {name:"VANDAL", cat:"rifle", cost:2900, rate:9.75, mag:25, res:50, rel:2.5, eq:1, run:0.8, auto:true,
+    dmg:[[50,160,40,34]], spr:[0.25,0.21,1,0.85], mv:[0.8,3,6,10],
+    ads:{zoom:1.25, move:0.76, rate:8.775, spr:[0.157,0.13,1.02,0.87]},
+    rc:{up:[0.55,0.32,0.1], n:[6,12], side:0.35, prot:6, rec:0.375, grow:7}},
+  // 狙擊槍：腰射很不準，右鍵開鏡後首發零散布
+  marshal: {name:"MARSHAL", cat:"sniper", cost:950, rate:1.5, mag:5, res:15, rel:2.5, eq:1.25, run:0.8,
+    dmg:[[50,202,101,86]], spr:[1,0.9,1,0.9], mv:[7.5,10,15,20],
+    ads:{zoom:3.5, move:0.9, rate:1.2, spr:[0,0,0,0]}, rc:{up:[3], rec:0.6, grow:1}},
+  outlaw:  {name:"OUTLAW", cat:"sniper", cost:2400, rate:2.75, mag:2, res:10, rel:3.8, eq:1.25, run:0.8,
+    dmg:[[50,238,140,119]], spr:[3.5,3.15,3.5,3.15], mv:[7.5,10,15,20],
+    ads:{zoom:3.5, move:0.8, spr:[0,0,0,0]}, rc:{up:[3.5], rec:0.6, grow:1}},
+  operator:{name:"OPERATOR", cat:"sniper", cost:4700, rate:0.6, mag:5, res:10, rel:3.7, eq:1.5, run:0.76,
+    dmg:[[50,255,150,120]], spr:[5,4.5,5,4.5], mv:[7.5,10,15,15],
+    ads:{zoom:2.5, zoom2:5, move:0.72, spr:[0,0,0,0]}, rc:{up:[4], rec:0.8, grow:1}},
+  // 機槍：ARES 的上限比首發小，越打越準；ODIN 腰射射速會越轉越快
+  ares:    {name:"ARES", cat:"heavy", cost:1600, rate:13, mag:50, res:100, rel:3.25, eq:1.25, run:0.76, auto:true,
+    dmg:[[30,75,30,26],[50,70,28,24]], spr:[1,0.6,0.7,0.42], mv:[0.4,3,6.5,10],
+    ads:{zoom:1.15, move:0.76, spr:[0.9,0.54,0.55,0.33]}, rc:{up:[0.3,0.15,0.05], n:[8,20], side:0.2, prot:10, rec:0.5, grow:12}},
+  odin:    {name:"ODIN", cat:"heavy", cost:3200, rate:12, rateMax:15.6, mag:100, res:200, rel:5, eq:1.25, run:0.76, auto:true,
+    dmg:[[30,95,38,32],[50,78,31,26]], spr:[0.8,0.48,1.3,0.78], mv:[0.4,3,6.5,10],
+    ads:{zoom:1.15, move:0.76, rate:15.6, spr:[0.79,0.47,1.36,0.82]}, rc:{up:[0.35,0.18,0.06], n:[8,25], side:0.25, prot:10, rec:0.6, grow:14}},
+  // 刀：正面 50（右鍵 75）、背後 100（右鍵 150），2m 內（wiki）。揮刀間隔自調：左鍵 0.5 秒、右鍵 1 秒
+  knife:   {name:"MELEE", cat:"melee", cost:0, rate:2, mag:0, res:0, rel:0, eq:0.6, run:1,
+    melee:{front:[50,75], back:[100,150], altGap:1.0}, dmg:[[2,50,50,50]], spr:[0,0,0,0], mv:[0,0,0,0], rc:{up:[0], rec:0.2, grow:1}},
+};
+const VAL_CATS = [["sidearm","手槍"],["smg","衝鋒槍"],["shotgun","霰彈槍"],["rifle","步槍"],["sniper","狙擊槍"],["heavy","機槍"]];
+// 第一人稱模型：依類別借用現有的槍模，手槍與刀是新做的
+const VAL_VM = {sidearm:"pistol", smg:"vector", rifle:"vector", heavy:"vector", shotgun:"breach", sniper:"lance", melee:"knife"};
+// 生存模式的敵人拿什麼槍
+const BOT_VAL = {grunt:"vandal", stalker:"spectre", lancer:"marshal", warden:"odin"};
+// 放大倍率換成視野角：看到的東西放大幾倍，就是 tan(半視角) 縮小幾倍
+function zoomFov(fov, zoom){ return 2*Math.atan(Math.tan(fov*DEG/2) / zoom) / DEG; }
+// 登記進 GUNS（鍵名加 v_ 前綴），換彈、槍模、HUD 的共用部分就能直接用
+for (const [id, d] of Object.entries(VAL_GUNS)){
+  GUNS["v_" + id] = {key:"v_" + id, id, name:d.name, val:d, vm:VAL_VM[d.cat],
+    dmg:0, fireGap:1/d.rate, mag:d.mag, spread:0, adsSpread:0, bloomRate:0, bloomMax:0,
+    reload:d.rel, spd:VAL.bulletSpd, auto:!!d.auto, scope:!!(d.ads && d.ads.zoom >= 2.5),
+    rcV:0, rcH:0, rcBack:6,
+    // 開鏡視角跟著設定的 FOV 算；Operator 第二段是 5 倍
+    get adsFov(){ return d.ads ? zoomFov(SET.fov, d.ads.zoom2 && G && G.zoom2 ? d.ads.zoom2 : d.ads.zoom) : SET.fov; }};
+}
 
 // 命中部位：頭部要準但回報高，打腿懲罰命中率不佳的射擊
 const ZONE = { head:2.5, torso:1.0, leg:0.6 };
@@ -4756,7 +4932,7 @@ function renderPosted(){
 }
 
 const vm = {
-  models:{}, currentKey:null, muzzleZ:-0.42,
+  models:{}, currentKey:null, muzzleZ:-0.42, swing:1,
   swayX:0, swayY:0, bobT:0, recoil:0, swap:0, inspect:0, stepDist:0,
   heatParts:[],
 };
@@ -4880,6 +5056,27 @@ function buildGun(kind){
     mk(g, 0.034,0.056,0.10, dark,  0.058, 0.022, 0.01);
     mk(g, 0.020,0.040,0.020, steel, 0, 0.078, -0.16);
     vm.muzzleZ = -0.70;
+  } else if (kind === "pistol"){
+    // 手槍：滑套（掛在 charge 上，換彈時往後拉）、槍身、往後傾的握把、前後準星
+    mk(charge, 0.046,0.052,0.23, dark, 0, 0.036, -0.065);
+    mk(charge, 0.010,0.014,0.010, steel, 0, 0.068,-0.165);
+    mk(charge, 0.030,0.012,0.012, steel, 0, 0.068, 0.035);
+    mk(g, 0.044,0.036,0.19, body, 0,-0.004, -0.055);
+    cyl(g, 0.011,0.011,0.03, steel, 0, 0.036, -0.19);
+    mk(g, 0.040,0.13,0.056, grip, 0,-0.075, 0.035).rotation.x = -0.22;
+    mk(g, 0.010,0.034,0.052, steel, 0,-0.040,-0.040);
+    mk(mag, 0.036,0.028,0.050, dark, 0,-0.142, 0.052);
+    heats.push(mk(g, 0.030,0.030,0.12, heat, 0, 0.036, -0.10));
+    vm.muzzleZ = -0.215;
+  } else if (kind === "knife"){
+    // 戰術刀：握柄、護手、刀身，刀尖是壓扁的四角錐
+    mk(g, 0.032,0.040,0.12, grip, 0,-0.030, 0.055);
+    mk(g, 0.056,0.014,0.022, steel, 0,-0.022,-0.012);
+    mk(g, 0.006,0.036,0.17, steel, 0,-0.014,-0.105);
+    const tip = new THREE.Mesh(new THREE.ConeGeometry(0.018, 0.06, 4), steel);
+    tip.rotation.x = -Math.PI/2; tip.scale.set(0.35, 1, 1); tip.position.set(0, -0.014, -0.22);
+    g.add(tip);
+    vm.muzzleZ = -0.25;
   } else {
     mk(g, 0.078,0.106,0.54, body,  0, 0, -0.02);
     cyl(g, 0.019,0.019,0.66, dark,  0, 0.012, -0.60);
@@ -4911,7 +5108,10 @@ function buildGun(kind){
     new THREE.PlaneGeometry(0.105, 0.052),
     new THREE.MeshBasicMaterial({map:panel.tex, transparent:true}));
   disp.rotation.y = -Math.PI/2;
-  disp.position.set(-0.042, 0.012, kind === "lance" ? 0.06 : 0.02);
+  disp.position.set(kind === "pistol" ? -0.024 : -0.042, kind === "pistol" ? -0.004 : 0.012,
+                    kind === "lance" ? 0.06 : kind === "pistol" ? -0.06 : 0.02);
+  if (kind === "pistol") disp.scale.setScalar(0.45);
+  disp.visible = kind !== "knife";
   g.add(disp);
 
   // 槍口火焰：白熱核心 + 外層花瓣 + 側向衝擊波
@@ -4934,6 +5134,7 @@ function buildGun(kind){
                                  side:THREE.DoubleSide}));
   flash.add(core, petal, wave);
   flash.position.set(0, 0.012, vm.muzzleZ - 0.06);
+  flash.visible = kind !== "knife";
   g.add(flash);
 
   addVmHands(g, kind, charge);
@@ -4977,7 +5178,8 @@ function addVmHands(g, kind, charge){
     along(parent, 0.046, 0.060, cuffEnd.clone().addScaledVector(dir.clone().normalize(), -0.01), elbow, sleeve);
   };
 
-  const R = {vector:{y:-0.108, z:0.125}, breach:{y:-0.110, z:0.125}, lance:{y:-0.108, z:0.145}}[kind];
+  const R = {vector:{y:-0.108, z:0.125}, breach:{y:-0.110, z:0.125}, lance:{y:-0.108, z:0.145},
+             pistol:{y:-0.070, z:0.045}, knife:{y:-0.030, z:0.060}}[kind];
   // ── 右手：握把 ──
   const rh = new THREE.Group();
   rh.position.set(0, R.y, R.z);
@@ -5001,7 +5203,9 @@ function addVmHands(g, kind, charge){
   // ── 左手：護木下方 ──
   const L = {vector:{p:g, y:-0.060, z:-0.170, r:0.050},
              breach:{p:charge, y:-0.052, z:-0.250, r:0.052},
-             lance: {p:g, y:-0.062, z:-0.200, r:0.046}}[kind];
+             lance: {p:g, y:-0.062, z:-0.200, r:0.046},
+             pistol:{p:g, y:-0.100, z:0.010, r:0.036}}[kind];
+  if (!L) return;          // 刀只有右手
   const lh = new THREE.Group();
   lh.position.set(0, L.y, L.z);
   L.p.add(lh);
@@ -5109,6 +5313,15 @@ function reloadPose(kind, t, ud, out){
     const inMag  = easeBack(seg(t, 0.52, 0.86));
     mag.position.y = -(outMag - inMag)*0.40;
     out.rx += pulse(t, 0.02, 0.22)*0.10;           // 拉槍機的反作用
+  } else if (kind === "pistol"){
+    // 手槍：側傾、退匣、上匣，最後滑套往後一拉
+    const tilt = pulse(t, 0.00, 1.00, 0.85);
+    out.rx = tilt*0.42 + anticip; out.rz = tilt*0.5; out.y = -tilt*0.06;
+    const outMag = ease(seg(t, 0.05, 0.30)), inMag = easeBack(seg(t, 0.30, 0.62));
+    mag.position.y = -(outMag - inMag)*0.30;
+    ch.position.z = pulse(t, 0.66, 0.88, 0.7)*0.05;
+  } else if (kind === "knife"){
+    // 刀不用換彈
   } else {
     // 泵動霰彈：四次壓彈的節奏互相重疊，最後一次泵動收尾
     const tilt = pulse(t, 0.00, 0.96, 0.85);
@@ -5147,26 +5360,30 @@ const VM_BASE = {
   vector:{x:0.185, y:-0.170, z:-0.42, ry:-0.17, rx:0.05},
   lance: {x:0.145, y:-0.155, z:-0.34, ry:-0.12, rx:0.035},
   breach:{x:0.180, y:-0.168, z:-0.40, ry:-0.16, rx:0.05},
+  pistol:{x:0.150, y:-0.150, z:-0.34, ry:-0.10, rx:0.04},
+  knife: {x:0.190, y:-0.190, z:-0.34, ry:-0.40, rx:0.30},
 };
 // 舉槍瞄準時的位置：對齊畫面中線，槍身回正
 const VM_ADS = {
   vector:{x:0.0, y:-0.118, z:-0.50, ry:0, rx:0},
   lance: {x:0.0, y:-0.105, z:-0.46, ry:0, rx:0},
   breach:{x:0.0, y:-0.115, z:-0.48, ry:0, rx:0},
+  pistol:{x:0.0, y:-0.100, z:-0.40, ry:0, rx:0},
+  knife: {x:0.190, y:-0.190, z:-0.34, ry:-0.40, rx:0.30},
 };
 const VM_SCALE = 0.46;
 
 function updateViewModel(dt){
-  const p = G.player, g = gun();
-  selectGun(g.key);
+  const p = G.player, g = gun(), kind = g.vm || g.key;   // Valorant 的槍依類別借用槍模（見 VAL_VM）
+  selectGun(kind);
   // 靜止姿勢與瞄準姿勢之間內插
-  const b0 = VM_BASE[g.key], b1 = VM_ADS[g.key], t = G.adsT;
+  const b0 = VM_BASE[kind], b1 = VM_ADS[kind], t = G.adsT;
   const lerp = (a,b) => a + (b-a)*t;
   const base = {
     x: lerp(b0.x,b1.x), y: lerp(b0.y,b1.y), z: lerp(b0.z,b1.z),
     ry: lerp(b0.ry,b1.ry), rx: lerp(b0.rx,b1.rx),
   };
-  const model = vm.models[g.key];
+  const model = vm.models[kind];
   // 倍率鏡舉起來之後，槍身會擋住整個鏡頭，所以直接淡掉換成鏡框遮罩
   const hide = g.scope ? t : 0;
   vmRoot.visible = hide < 0.92;
@@ -5215,12 +5432,18 @@ function updateViewModel(dt){
   pose.rx += Math.sin(G.t*0.83) * 0.012 * idle;
   const ud0 = model.userData;
   if (p.reloading > 0){
-    reloadPose(g.key, 1 - p.reloading/g.reload, ud0, pose);
+    reloadPose(kind, 1 - p.reloading/g.reload, ud0, pose);
   } else {
     ud0.mag.position.set(0,0,0); ud0.mag.rotation.set(0,0,0);
     ud0.charge.position.set(0,0,0); ud0.charge.rotation.set(0,0,0);
   }
   if (vm.inspect > 0) inspectPose(1 - vm.inspect, pose);
+  // 揮刀：左鍵由右上往左下劃（左右交替），右鍵往前刺；進度借用後座那個值
+  if (kind === "knife" && vm.recoil > 0){
+    const k = Math.min(1, vm.recoil);
+    if (vm.swing > 1){ pose.z -= k*0.12; pose.rx -= k*0.25; }
+    else { pose.x -= k*0.10*vm.swing; pose.rz += k*0.9*vm.swing; pose.ry += k*0.35*vm.swing; pose.y += k*0.03; }
+  }
 
   vmRoot.scale.setScalar(VM_SCALE);
   vmRoot.position.set(
@@ -5281,10 +5504,11 @@ const ACTIONS = [
   {id:"right",      label:"右移",             def:["KeyD", ""]},
   {id:"jump",       label:"跳躍",             def:["Space", "WheelDown"]},
   {id:"crouch",     label:"蹲下 / 滑鏟",      def:["ControlLeft", "KeyC"]},
-  {id:"sprint",     label:"衝刺",             def:["ShiftLeft", ""]},
+  {id:"sprint",     label:"衝刺 / 靜步（Valorant）", def:["ShiftLeft", ""]},
   {id:"fire",       label:"射擊",             def:["Mouse0", ""]},
-  {id:"ads",        label:"瞄準（切換）",     def:["Mouse2", ""]},
+  {id:"ads",        label:"瞄準（切換）/ Valorant 右鍵", def:["Mouse2", ""]},
   {id:"reload",     label:"換彈",             def:["KeyR", ""]},
+  {id:"buy",        label:"購買選單（Valorant）", def:["KeyB", ""]},
   {id:"inspect",    label:"檢視武器",         def:["KeyF", ""]},
   {id:"sonar",      label:"聲納",             def:["KeyQ", ""]},
   {id:"interact",   label:"互動（滑索）",     def:["KeyE", ""]},
@@ -5294,9 +5518,9 @@ const ACTIONS = [
   {id:"useSyringe", label:"補品：針筒",       def:["Digit6", ""]},
   {id:"useMedkit",  label:"補品：醫療包",     def:["Digit7", ""]},
   {id:"echo",       label:"ECHO 回溯",        def:["KeyZ", ""]},
-  {id:"gun1",       label:"武器 1 · VECTOR",  def:["Digit1", ""]},
-  {id:"gun2",       label:"武器 2 · LANCE",   def:["Digit2", ""]},
-  {id:"gun3",       label:"武器 3 · BREACH",  def:["Digit3", ""]},
+  {id:"gun1",       label:"武器 1 · VECTOR / 主武器",  def:["Digit1", ""]},
+  {id:"gun2",       label:"武器 2 · LANCE / 手槍",     def:["Digit2", ""]},
+  {id:"gun3",       label:"武器 3 · BREACH / 刀",      def:["Digit3", ""]},
   {id:"nextGun",    label:"下一把武器",       def:["", ""]},
   {id:"prevGun",    label:"上一把武器",       def:["", ""]},
   {id:"deploy",     label:"訓練場：佈置假人", def:["KeyT", ""]},
@@ -5346,7 +5570,8 @@ function newGame(){
   const start = activeMap.player;
   yaw = yawOf(start.angle); pitch = 0;
   rcPitch = 0; rcYaw = 0; rcHold = 0;
-  return {
+  const g0 = {
+    val:RULES === "valorant",
     mode:"break", t:0, timer:2.2,
     round:0, score:0, kills:0, shots:0, hits:0,
     player:{
@@ -5388,6 +5613,8 @@ function newGame(){
     practice:modeSelect.value === "range", rs:freshRangeStats(), respawns:[],
     breakMark:0, breakColor:"#FFFFFF",
   };
+  if (g0.val) valSetup(g0);
+  return g0;
 }
 function freshRangeStats(){
   // bStart/bDmg：目前這一串連續命中（中斷 1.5 秒就重算），DPS 用它算
@@ -5527,6 +5754,7 @@ function spawnRound(){
       revealed:0, flash:0, laser:null,
       hitT:0, hitAngle:0, hitForce:0, headT:0, headForce:0,
     });
+    if (G.val) valBotStats(G.bots[G.bots.length - 1]);
   }
   // 每回合補給重置，放在離玩家遠且沒有視線的位置
   for (const u of G.pickups) fxLayer.remove(u.obj);
@@ -5534,7 +5762,7 @@ function spawnRound(){
   const far = SPAWNS.filter(sp => Math.hypot(sp.x-p.x, sp.y-p.y) > 380);
   const picks = far.sort(()=>Math.random()-0.5).slice(0,2);
   const kinds = ["cell","ammo"];
-  for (let i=0;i<picks.length;i++){
+  for (let i=0;i<(G.val ? 0 : picks.length);i++){             // Valorant 沒有地上的補給
     const obj = makePickup(kinds[i]);
     obj.position.set(picks[i].x*S, 0.6, picks[i].y*S);
     fxLayer.add(obj);
@@ -5597,7 +5825,7 @@ function makeDummy(x, y, ax, ay){
   const obj = dummyObject();
   botLayer.add(obj);
   const sh = SHIELD_TIERS[RANGE.shield].cap;
-  return {
+  const d0 = {
     type:"grunt", obj, dummy:true, homeX:x, homeY:y, ax, ay,
     x, y, px:x, py:y, rad:TYPES.grunt.rad, hp:DUMMY_HP, maxHp:DUMMY_HP, shield:sh, maxShield:sh,
     angle:0, vel:0, dir:Math.random() < 0.5 ? 1 : -1, turnT:0, spdKey:"mid",
@@ -5607,6 +5835,8 @@ function makeDummy(x, y, ax, ay){
     cool:0, see:0, revealed:0, flash:0, laser:null, strafe:1, stuck:0,
     hitT:0, hitAngle:0, hitForce:0, headT:0, headForce:0,
   };
+  if (G && G.val) valDummySetup(d0);
+  return d0;
 }
 function clearDummies(){
   for (let i=G.bots.length-1;i>=0;i--){
@@ -5678,7 +5908,7 @@ const HEALS = {
 const EVO_NEXT = [0, 150, 300, 750];
 function startHeal(kind){
   const p = G.player, H2 = HEALS[kind];
-  if (G.heal || G.mode === "dead") return;
+  if (G.val || G.heal || G.mode === "dead") return;
   // 訓練場：不會受傷，所以滿的也能打、也不扣數量，拿來練打補品的時機與移動
   if (!G.practice){
     if (G.inv[kind] <= 0) return;
@@ -5798,7 +6028,7 @@ const LESSONS = [
 let LESSON_DONE = [];
 try { LESSON_DONE = JSON.parse(localStorage.getItem("echo3d.lessons") || "[]"); } catch(e){}
 function lessonStep(d){
-  if (!G.practice) return;
+  if (!G.practice || G.val) return;
   if (!G.lessonOn){ G.lessonOn = true; G.lessonI = d > 0 ? 0 : LESSONS.length - 1; }
   else {
     G.lessonI += d;
@@ -5854,18 +6084,20 @@ function updateDummy(b, dt){
     }
     if (RANGE.speed !== "random") b.spdKey = RANGE.speed;
     // 蹲著最快只有蹲走速度
-    const spd = b.crouchT > 0.5 ? Math.min(STRAFE_SPD[b.spdKey], STRAFE_SPD.slow) : STRAFE_SPD[b.spdKey];
+    const SP = G.val ? VAL_STRAFE : STRAFE_SPD;
+    const spd = b.crouchT > 0.5 ? Math.min(SP[b.spdKey], SP.slow) : SP[b.spdKey];
     target = b.dir * spd;
   }
   // 跳躍：隨機 0.6～1.8 秒跳一次，跳法和玩家一樣（Apex 的起跳速度與重力）
   if (RANGE.jump){
     b.jumpT -= dt;
-    if (b.jz <= 0 && b.jumpT <= 0){ b.jvz = P.jumpV; b.jumpT = 0.6 + Math.random()*1.2; }
+    if (b.jz <= 0 && b.jumpT <= 0){ b.jvz = G.val ? VAL.jumpV : P.jumpV; b.jumpT = 0.6 + Math.random()*1.2; }
   }
   if (b.jz > 0 || b.jvz > 0){
-    b.jz += b.jvz*dt; b.jvz -= P.gravity*dt;
+    b.jz += b.jvz*dt; b.jvz -= (G.val ? VAL.gravity : P.gravity)*dt;
     if (b.jz <= 0){ b.jz = 0; b.jvz = 0; }
   }
+  if (b.tagT > 0) target *= 1 - b.tagAmt * b.tagT / VAL.tagT;    // Valorant 中彈減速
   const acc = DUMMY_ACCEL*dt;
   b.vel += Math.max(-acc, Math.min(acc, target - b.vel));
   b.px = b.x; b.py = b.y;
@@ -5873,8 +6105,8 @@ function updateDummy(b, dt){
   if (hit.x || hit.y){ b.dir = -b.dir; b.vel = 0; }
   b.moved = Math.hypot(b.x-b.px, b.y-b.py);
 
-  if (G.t - b.lastHit > DUMMY_REGEN && (b.hp < b.maxHp || b.shield < b.maxShield)){
-    b.hp = b.maxHp; b.shield = b.maxShield; b.firstHit = -1;
+  if (G.t - b.lastHit > DUMMY_REGEN && (b.hp < b.maxHp || b.shield < b.maxShield || (b.armor || 0) < (b.armorMax || 0))){
+    b.hp = b.maxHp; b.shield = b.maxShield; b.armor = b.armorMax || 0; b.firstHit = -1;
   }
 }
 // 命中高度的分界：蹲下時整個上半身往下平移
@@ -6009,12 +6241,13 @@ function startReload(){
   const p = G.player, g = gun();
   cancelHeal();
   if (p.reloading > 0 || p.mags[g.key] === g.mag) return;
+  if (G.val && !(G.practice && RANGE.infinite) && !(p.reserve[g.key] > 0)) return;   // Valorant：備彈打完就換不了
   p.reloading = g.reload;
   vm.inspect = 0;
   sfx("sine",180,0.09,0.04,120);
   sfxNoise(0.05, 0.02, 900);
   // 彈匣式的槍才會掉彈匣，泵動霰彈是逐發壓彈
-  if (g.key !== "breach"){
+  if ((g.vm || g.key) !== "breach"){
     setTimeout(() => {
       if (G && G.player.reloading > 0) dropMag(G.player.x, G.player.y, eyeH()-0.55, G.player.angle);
     }, g.reload*180);
@@ -6025,10 +6258,352 @@ function swapGun(to){
   if (p.gun === to) return;
   cancelHeal();
   p.gun = to; p.reloading = 0; p.bloom = 0;
-  G.adsOn = false;
-  p.cool = Math.max(p.cool, P.swapTime);
+  G.adsOn = false; G.zoom2 = false; G.burstLeft = 0;
+  // Valorant 每把槍的切槍時間不同（wiki：步槍 1 秒、手槍 0.75、Operator 1.5、刀 0.6）
+  p.cool = Math.max(p.cool, G.val ? GUNS[to].val.eq : P.swapTime);
   vm.swap = 1;
   sfx("sine",420,0.07,0.035,640);
+}
+// ── VALORANT：開局配置、散布與後座、射擊、傷害與護甲、購買 ──
+function valSetup(g0){
+  const p = g0.player;
+  p.gun = "v_classic"; p.slots = {primary:null, secondary:"v_classic"};
+  p.reserve = {};
+  for (const k in GUNS) if (GUNS[k].val){ p.mags[k] = GUNS[k].mag; p.reserve[k] = GUNS[k].val.res; }
+  p.shield = 0; p.armor = 0; p.armorKind = null; p.armorAbs = 0; p.regenPool = 0; p.lastHurt = -9;
+  g0.credits = 800;
+  // 連射狀態：n 是這一串打了幾發（停火後隨時間回到 0），y / x 是子彈目前往上、往右飄了幾度
+  g0.vs = {n:0, y:0, x:0, n0:0, y0:0, x0:0, dir:1, sw:-9, last:-9, gap:0.1, spinT:0};
+  g0.tagT = 0; g0.tagAmt = 0; g0.zoom2 = false; g0.burstLeft = 0; g0.walking = false;
+  g0.spray.gun = "v_classic";
+}
+// 這一發會有多散（度）：連射越多發越接近上限，再加上移動、空中與剛落地的誤差（wiki：誤差是疊加上去的）
+function valSpread(alt){
+  const p = G.player, d = gun().val;
+  if (d.melee) return 0;
+  const A = alt ? d.alt : null, ads = !A && d.ads && G.adsT > 0.5;
+  const s4 = A ? A.spr : ads ? d.ads.spr : d.spr;
+  const cr = G.crouching && p.grounded;
+  const first = cr ? s4[1] : s4[0], cap = cr ? s4[3] : s4[2];
+  let s = first + (cap - first) * Math.min(1, G.vs.n / d.rc.grow);
+  const mv = A ? A.mv : d.mv;
+  if (!p.grounded) s += mv[3];
+  else {
+    // 移動誤差跟著實際速度走（wiki：加速時漸漸加上去、減速時漸漸退掉），所以急停到接近零速就幾乎沒有
+    const run = VAL.run * d.run, sp = Math.hypot(p.vx, p.vy);
+    if (G.crouching) s += mv[0] * Math.min(1, sp / (run*VAL.crouchMul));
+    else {
+      const walk = run * VAL.walkMul;
+      s += sp <= walk ? mv[1] * sp / walk : mv[1] + (mv[2] - mv[1]) * Math.min(1, (sp - walk) / (run - walk));
+    }
+  }
+  if (G.t - G.landT < VAL.landT) s += VAL.land;
+  return s;
+}
+function valUp(rc, n){
+  return rc.up.length === 1 ? rc.up[0] : n < rc.n[0] ? rc.up[0] : n < rc.n[1] ? rc.up[1] : rc.up[2];
+}
+// 停火後回正：停火滿一發的間隔之後，連射狀態在 rec 秒內線性回到零（Vandal 的 wiki 值是 0.375 秒）。
+// 開鏡時準心跟著後座走（寫進 rcPitch / rcYaw），腰射時準心不動、只有子彈會飄
+function valRecover(){
+  const vs = G.vs, d = gun().val;
+  const since = G.t - vs.last - vs.gap;
+  if (since > 0){
+    const k = Math.max(0, 1 - since / d.rc.rec);
+    vs.n = vs.n0 * k; vs.y = vs.y0 * k; vs.x = vs.x0 * k;
+    if (since > 0.25) vs.spinT = 0;
+  }
+  rcPitch = G.adsT * vs.y * DEG;
+  rcYaw = -G.adsT * vs.x * DEG;
+}
+// 按住連發：開鏡點放的槍（Stinger、Bulldog）開鏡時一次只打一串
+function valAuto(){
+  const d = gun().val;
+  return !!d.auto && !(G.adsT > 0.5 && d.ads && d.ads.burst);
+}
+function valMaxSpeed(){
+  const d = gun().val;
+  let v = VAL.run * d.run;
+  if (G.crouching) v *= VAL.crouchMul; else if (G.walking) v *= VAL.walkMul;
+  if (d.ads) v *= 1 - (1 - d.ads.move) * G.adsT;
+  if (G.tagT > 0) v *= 1 - G.tagAmt * (G.tagT / VAL.tagT);
+  return v;
+}
+// 地面：朝「按鍵方向 × 最高速」以固定加速度逼近；沒按鍵用比較小的煞車減速。
+// 按反方向鍵時目標速度在另一邊、用的又是加速度，所以停得比只放開快，這就是急停（counter-strafe）
+function valMove(p, dt, wx, wy, wl, maxSpd){
+  if (p.grounded){
+    const tx = wx*maxSpd, ty = wy*maxSpd;
+    const dx = tx - p.vx, dy = ty - p.vy, dl = Math.hypot(dx, dy);
+    const rate = (wl ? VAL.accel : VAL.brake) * dt;
+    if (dl <= rate){ p.vx = tx; p.vy = ty; }
+    else { p.vx += dx/dl*rate; p.vy += dy/dl*rate; }
+  } else if (wl){
+    // 空中：可以微調方向，但速度不會超過離地時的水平速度（原地跳起來也能挪一點點）
+    const cap = Math.max(Math.hypot(p.vx, p.vy), maxSpd*0.3);
+    p.vx += wx*VAL.airAccel*dt; p.vy += wy*VAL.airAccel*dt;
+    const sp = Math.hypot(p.vx, p.vy);
+    if (sp > cap){ p.vx *= cap/sp; p.vy *= cap/sp; }
+  }
+}
+// 開一槍。alt 是 Classic 右鍵的三發散射；queued 是開鏡點放那一串後面自動補上的幾發
+function valFire(alt, queued){
+  const p = G.player, g = gun(), d = g.val;
+  if (p.reloading > 0 || p.cool > 0) return false;
+  if (d.melee) return valKnife(false);
+  const A = alt ? d.alt : null;
+  const ads = !A && !!d.ads && (queued || G.adsT > 0.5);
+  const cost = A ? A.pellets : 1;
+  if (p.mags[g.key] < cost){ if (p.mags[g.key] <= 0) startReload(); G.burstLeft = 0; return false; }
+  if (!(G.practice && RANGE.infinite)) p.mags[g.key] -= cost;
+  const vs = G.vs;
+  // 新的一串（停火超過一發的間隔 + 0.15 秒）：重開壓槍分析，左右擺的方向重新擲
+  if (G.t - G.lastShotT > vs.gap + 0.15){
+    G.spray = {gun:g.key, ads, yaw0:yaw, pitch0:pitch, pts:[], smoothN:0, adad:0, lastStrafe:0, judged:false};
+    if (vs.n < 0.5) vs.dir = Math.random() < 0.5 ? -1 : 1;
+  }
+  // 射速：開鏡用開鏡射速；ODIN 腰射從 12 發/秒爬到 15.6（連射 0.5 秒到頂，自調）
+  let rate = A ? A.rate : ads && d.ads.rate ? d.ads.rate : d.rate;
+  if (d.rateMax && !ads) rate = d.rate + (d.rateMax - d.rate) * Math.min(1, vs.spinT / 0.5);
+  if (ads && d.ads.burst){
+    // 點放：一串內用 burstRate，打完一串的冷卻讓整體符合每秒幾串（wiki）
+    G.burstLeft = queued ? G.burstLeft - 1 : d.ads.burst - 1;
+    p.cool = G.burstLeft > 0 ? 1/d.ads.burstRate : Math.max(0.05, 1/d.ads.rate - (d.ads.burst - 1)/d.ads.burstRate);
+  } else p.cool = 1/rate;
+  vs.spinT = G.t - vs.last < 0.3 ? vs.spinT + p.cool : 0;
+
+  // 子彈方向：滑鼠視角 + 目前累積的後座 + 散布圓內隨機一點（開鏡時準心已經含後座，算出來是同一個方向）
+  const spr = valSpread(alt);
+  const pel = A ? A.pellets : d.pellets || 1;
+  const h0 = eyeH();
+  if (G.spray.pts.length < 60) G.spray.pts.push([-(yaw - G.spray.yaw0) + vs.x*DEG, (pitch - G.spray.pitch0) + vs.y*DEG]);
+  for (let i=0;i<pel;i++){
+    const r = spr * DEG * Math.sqrt(Math.random()), th = Math.random()*Math.PI*2;
+    const by = yaw - vs.x*DEG + Math.cos(th)*r;
+    const pit = pitch + vs.y*DEG + Math.sin(th)*r;
+    const a = Math.atan2(-Math.cos(by), -Math.sin(by));
+    const ch = Math.cos(pit), sh = Math.sin(pit);
+    G.bullets.push({
+      x:p.x + Math.cos(a)*8, y:p.y + Math.sin(a)*8, h:h0 + 8*S*sh,
+      vx:Math.cos(a)*VAL.bulletSpd*ch, vy:Math.sin(a)*VAL.bulletSpd*ch, vh:VAL.bulletSpd*sh*S,
+      dmg:0, val:d, ox:p.x, oy:p.y, pellet:pel > 1, friendly:true, life:0.12, mesh:null,
+    });
+  }
+  G.shots += pel;
+  G.lastShotT = G.t;
+  // 後座：這一發之後子彈再往上飄一點；prot 發之後開始左右擺
+  const rc = d.rc, n = Math.floor(vs.n);
+  if (!A){
+    vs.y = Math.min(VAL.rcCap, vs.y + valUp(rc, n) * (G.crouching ? 0.85 : 1));
+    if (rc.side && n >= rc.prot){
+      if (G.t - vs.sw > 0.6 && Math.random() < 0.10){ vs.dir = -vs.dir; vs.sw = G.t; }
+      vs.x += vs.dir * rc.side * (0.6 + Math.random()*0.8);
+      if (Math.abs(vs.x) > 2.2){ vs.x = Math.sign(vs.x)*2.2; vs.dir = -vs.dir; vs.sw = G.t; }
+    }
+  }
+  vs.n += 1;
+  vs.n0 = vs.n; vs.y0 = vs.y; vs.x0 = vs.x; vs.last = G.t; vs.gap = p.cool;
+  // 手上的回饋：槍模後座、火光、聲音（滅音槍小聲很多）
+  vm.recoil = Math.min(1.4, vm.recoil + (d.auto ? 0.4 : d.pellets ? 1.3 : 1.0));
+  p.heat = Math.min(1, p.heat + (d.auto ? 0.12 : 0.4));
+  muzzleLight.intensity = d.silenced ? 0.8 : d.auto ? 3.0 : 6;
+  ejectShell(p.x, p.y, eyeH() - 0.42, p.angle);
+  if (d.silenced){ sfx("square", 520, 0.04, 0.025, 180); sfxNoise(0.04, 0.02, 3600); }
+  else if (d.pellets || A){ sfx("square",120,0.22,0.08,40); sfxNoise(0.2,0.085,900); }
+  else if (d.cat === "sniper"){ sfx("square",110,0.3,0.09,38); sfxNoise(0.25,0.09,1100); }
+  else if (d.auto){ sfx("square",300,0.06,0.05,90); sfxNoise(0.05,0.035,2400); }
+  else { sfx("square",180,0.14,0.06,60); sfxNoise(0.12,0.05,1600); }
+  return true;
+}
+// 刀：前方 2m、左右約 30 度內最近的一隻；從背後出手傷害加倍（wiki）
+function valKnife(alt){
+  const p = G.player, d = gun().val;
+  if (p.cool > 0) return false;
+  p.cool = alt ? d.melee.altGap : 1/d.rate;
+  vm.recoil = 1.2; vm.swing = alt ? 1.6 : (vm.swing > 0 ? -1 : 1);
+  sfxNoise(0.08, 0.03, 2600); sfx("triangle", 300, 0.06, 0.02, 160);
+  let best = null, bd = VAL.knifeRange;
+  for (const b of G.bots){
+    if (b.hp <= 0) continue;
+    const dx = b.x - p.x, dy = b.y - p.y, dist = Math.hypot(dx, dy) - b.rad, ang = Math.atan2(dy, dx);
+    if (dist > bd || Math.abs(Math.atan2(Math.sin(ang - p.angle), Math.cos(ang - p.angle))) > 0.55) continue;
+    if (!hasLOS(p.x, p.y, b.x, b.y)) continue;
+    best = b; bd = dist;
+  }
+  if (!best) return true;
+  const from = Math.atan2(p.y - best.y, p.x - best.x);
+  const back = Math.abs(Math.atan2(Math.sin(from - best.angle), Math.cos(from - best.angle))) > Math.PI/2;
+  valApplyHit(best, (back ? d.melee.back : d.melee.front)[alt ? 1 : 0], "torso", {x:best.x, y:best.y, h:1.3}, false);
+  return true;
+}
+// 護甲吸收：輕甲、重甲吸 66%，再生護盾吸 100%，吸收量用完就破。回傳實際打掉多少
+function valArmorHit(t, raw){
+  const hp0 = Math.max(0, t.hp);
+  const absorb = Math.min(t.armor || 0, raw * (t.armorAbs || 0));
+  if (absorb > 0) t.armor -= absorb;
+  const toHp = raw - absorb;
+  t.hp -= toHp;
+  return {real:Math.round(absorb + Math.min(hp0, toHp)), armor:absorb > 0, broke:absorb > 0 && t.armor <= 0.01};
+}
+// 命中一隻敵人或假人：扣血與護甲、訓練場統計、中彈減速、受擊動畫與命中回饋
+function valApplyHit(b, raw, zone, at, farPellet){
+  const r = valArmorHit(b, raw);
+  if (r.broke){ b.armor = 0; G.breakMark = 1; G.breakColor = "#8FD3FF"; sfx("triangle", 1500, 0.14, 0.045, 600); }
+  if (b.dummy){
+    if (b.firstHit < 0) b.firstHit = G.t;
+    b.lastHit = G.t;
+    const rs = G.rs;
+    if (G.t - rs.last > 1.5){ rs.bStart = G.t; rs.bDmg = 0; }
+    rs.bDmg += r.real; rs.dmg += r.real; rs.last = G.t;
+    if (zone === "head") rs.heads++;
+  }
+  b.tagT = VAL.tagT; b.tagAmt = farPellet ? VAL.tagFar : VAL.tag;
+  b.flash = 0.1; b.hitT = 0.25;
+  b.hitAngle = Math.atan2(b.y - G.player.y, b.x - G.player.x);
+  b.hitForce = Math.min(0.52, 0.08 + raw/200);
+  if (zone === "head"){ b.headT = 0.14; b.headForce = Math.min(0.62, 0.22 + raw/300); }
+  if (b.hp <= 0) b.deathAngle = b.hitAngle;
+  G.hits++;
+  spawnSpark(at.x, at.y, zone === "head" ? 0xFFFFFF : 0xFF6A5A, zone === "head" ? 10 : 6);
+  G.pops.push({x:at.x, y:at.y, h:at.h + 0.25, text:String(r.real), life:0.9, max:0.9, blocked:false, zone,
+               color:r.armor ? "#8FD3FF" : null, kill:b.hp <= 0});
+  G.hitMark = 1;
+  if (zone === "head"){ G.headMark = 1; sfx("square",900,0.07,0.055,420); }
+  else if (zone === "leg") sfx("square",380,0.05,0.03,240);
+  else sfx("square",540,0.05,0.04,300);
+}
+function valReloadDone(){
+  const p = G.player, g = gun(), inf = G.practice && RANGE.infinite;
+  const take = inf ? g.mag - p.mags[g.key] : Math.min(g.mag - p.mags[g.key], p.reserve[g.key] || 0);
+  p.mags[g.key] += take;
+  if (!inf) p.reserve[g.key] -= take;
+}
+function valSlot(s){
+  const key = s === "melee" ? "v_knife" : G.player.slots[s];
+  if (key) swapGun(key);
+}
+// 右鍵：步槍開鏡（切換）、Classic 三發散射、刀的重擊、Operator 兩段倍率（關 → 2.5 倍 → 5 倍 → 關）
+function valAlt(){
+  const d = gun().val;
+  if (d.melee){ valKnife(true); return; }
+  if (d.alt){ valFire(true); return; }
+  if (!d.ads) return;
+  if (d.ads.zoom2){
+    if (!G.adsOn){ G.adsOn = true; G.zoom2 = false; }
+    else if (!G.zoom2) G.zoom2 = true;
+    else { G.adsOn = false; G.zoom2 = false; }
+    return;
+  }
+  G.adsOn = !G.adsOn;
+}
+// 再生護盾：受傷 2 秒後開始從回復池補回去（自調）
+function valRegen(dt){
+  const p = G.player, cap = VAL_ARMOR.regen.cap;
+  if (p.armorKind !== "regen" || p.regenPool <= 0 || p.armor >= cap || G.t - p.lastHurt < VAL.regenDelay) return;
+  const add = Math.min(VAL.regenRate*dt, p.regenPool, cap - p.armor);
+  p.armor += add; p.regenPool -= add;
+}
+// 生存模式清完一波 = 贏一回合：+3000、血補滿、身上的槍彈藥補滿，接著是 15 秒購買階段
+function valRoundWon(){
+  const p = G.player;
+  G.credits = Math.min(9000, G.credits + 3000);
+  p.hp = VAL.hp;
+  for (const k of [p.slots.primary, p.slots.secondary]) if (k){ p.mags[k] = GUNS[k].mag; p.reserve[k] = GUNS[k].val.res; }
+  banner("購買階段", "按 " + bindLabel("buy") + " 買槍 · +3000");
+}
+// 敵人的傷害：拿 BOT_VAL 那把槍，依距離查表；爆頭 12%、打腿 15%（自調：機器人的槍法）
+function valBotDamage(b, dist){
+  const d = VAL_GUNS[BOT_VAL[b.type] || "vandal"], m = dist * S;
+  const band = d.dmg.find(r => m <= r[0]) || d.dmg[d.dmg.length - 1];
+  const r = Math.random();
+  return r < 0.12 ? band[1] : r < 0.27 ? band[3] : band[2];
+}
+// 生存模式的敵人：人人 100 血，第 3 波起輕甲、第 5 波起重甲
+function valBotStats(b){
+  b.hp = b.maxHp = VAL.hp; b.shield = b.maxShield = 0;
+  b.armor = b.armorMax = G.round >= 5 ? 50 : G.round >= 3 ? 25 : 0; b.armorAbs = 0.66;
+}
+// 訓練場假人的護甲：沿用護盾選單的 0～4，對應 無 / 輕甲 / 再生護盾 / 重甲 / 重甲
+function valDummySetup(b){
+  const kind = [null, "light", "regen", "heavy", "heavy"][RANGE.shield] || null, a = kind && VAL_ARMOR[kind];
+  b.shield = b.maxShield = 0;
+  b.armor = b.armorMax = a ? a.cap : 0; b.armorAbs = a ? a.abs : 0;
+  b.hp = b.maxHp;
+}
+
+// 購買選單（B）：訓練場全部免費；生存模式只有波與波之間的購買階段能買
+const overBuy = document.getElementById("overBuy"), buyGrid = document.getElementById("buyGrid");
+function canBuy(){ return !!(G && G.val && G.mode !== "dead" && (G.practice || G.mode === "break")); }
+function openBuy(){
+  if (!canBuy()){ banner("現在不能買", "波與波之間的購買階段才能買"); return; }
+  renderBuy(); overBuy.hidden = false;
+  document.exitPointerLock?.();
+}
+function closeBuy(){
+  overBuy.hidden = true;
+  requestLock();          // 按 B 關掉是一次按鍵操作，瀏覽器允許直接把滑鼠鎖回去（ESC 不算，會跳暫停畫面）
+}
+function renderBuy(){
+  const p = G.player, free = G.practice;
+  document.getElementById("buyCredits").textContent = free ? "訓練場 · 全部免費" : "¤ " + G.credits;
+  const cols = [["sidearm"], ["smg", "shotgun"], ["rifle"], ["sniper", "heavy"], ["armor"]];
+  let html = "";
+  for (const col of cols){
+    html += '<div class="buyCol">';
+    for (const cat of col){
+      if (cat === "armor"){
+        html += "<h4>護甲</h4>";
+        for (const [k, a] of Object.entries(VAL_ARMOR)){
+          const own = p.armorKind === k && p.armor >= a.cap - 0.01;
+          html += '<button type="button" class="buyItem' + (own ? " own" : "") + (!free && G.credits < a.cost ? " poor" : "") +
+            '" data-armor="' + k + '">' + a.name + '<span class="c">' + a.cost + '</span><span class="s">' + a.cap +
+            " · 吸收 " + Math.round(a.abs*100) + "%" + (a.pool ? " · 回復池 " + a.pool : "") + "</span></button>";
+        }
+        continue;
+      }
+      html += "<h4>" + VAL_CATS.find(c => c[0] === cat)[1] + "</h4>";
+      for (const [id, d] of Object.entries(VAL_GUNS)){
+        if (d.cat !== cat) continue;
+        const key = "v_" + id, own = p.slots.primary === key || p.slots.secondary === key, b0 = d.dmg[0];
+        html += '<button type="button" class="buyItem' + (own ? " own" : "") + (!free && G.credits < d.cost ? " poor" : "") +
+          '" data-gun="' + key + '">' + d.name + '<span class="c">' + (d.cost || "免費") + '</span><span class="s">頭 ' + b0[1] +
+          " · 身 " + b0[2] + " · 腿 " + b0[3] + (d.pellets ? " ×" + d.pellets : "") + " · " + d.rate + "/s · " + d.mag + " 發</span></button>";
+      }
+    }
+    html += "</div>";
+  }
+  buyGrid.innerHTML = html;
+}
+buyGrid.addEventListener("click", ev => {
+  ev.stopPropagation();
+  const b = ev.target.closest(".buyItem");
+  if (!b || !G || !G.val) return;
+  if (b.dataset.gun) valBuyGun(b.dataset.gun); else valBuyArmor(b.dataset.armor);
+  renderBuy();
+});
+// 買槍：手槍放副武器欄、其他放主武器欄；已經有同一把就只是拿出來
+function valBuyGun(key){
+  const p = G.player, d = GUNS[key].val, slot = d.cat === "sidearm" ? "secondary" : "primary";
+  if (p.slots[slot] !== key){
+    if (!G.practice){
+      if (G.credits < d.cost){ sfx("square", 140, 0.12, 0.04, 90); return; }
+      G.credits -= d.cost;
+    }
+    p.slots[slot] = key;
+    p.mags[key] = GUNS[key].mag; p.reserve[key] = d.res;
+  }
+  swapGun(key);
+  sfx("sine", 700, 0.08, 0.04, 900);
+}
+function valBuyArmor(k){
+  const p = G.player, a = VAL_ARMOR[k];
+  if (p.armorKind === k && p.armor >= a.cap - 0.01) return;
+  if (!G.practice){
+    if (G.credits < a.cost){ sfx("square", 140, 0.12, 0.04, 90); return; }
+    G.credits -= a.cost;
+  }
+  p.armorKind = k; p.armor = a.cap; p.armorAbs = a.abs; p.regenPool = a.pool || 0;
+  sfx("triangle", 880, 0.1, 0.04, 1100);
 }
 function botShoot(b){
   const p = G.player, T = TYPES[b.type];
@@ -6046,7 +6621,7 @@ function botShoot(b){
     x:b.x+Math.cos(a)*off, y:b.y+Math.sin(a)*off, h:bh,
     vx:Math.cos(a)*T.bulletSpd, vy:Math.sin(a)*T.bulletSpd,
     vh,
-    dmg:T.dmg, friendly:false, life:1.6, srcX:b.x, srcY:b.y, mesh:null,
+    dmg:G.val ? valBotDamage(b, dist) : T.dmg, friendly:false, life:1.6, srcX:b.x, srcY:b.y, mesh:null,
   });
   b.flash = 0.07;
   b.muzzle = 0.05;
@@ -6461,8 +7036,9 @@ function update(dt){
   G.aimVX += (aimAcc / Math.max(dt, 1e-3) - G.aimVX) * Math.min(1, dt*10);
   aimAcc = 0;
   G.smoothT = Math.max(0, G.smoothT - dt);
-  // 停火後才開始回正，所以連射時槍口會一路往上爬
-  if (rcHold > 0) rcHold -= dt;
+  // 停火後才開始回正，所以連射時槍口會一路往上爬（Valorant 另外算，見 valRecover）
+  if (G.val) valRecover();
+  else if (rcHold > 0) rcHold -= dt;
   else {
     const back = Math.pow(0.0025, dt * (GUNS[G.player.gun].rcBack / 6));
     rcPitch *= back; rcYaw *= back;
@@ -6527,11 +7103,11 @@ function update(dt){
     const slideJumpOk = G.sliding &&
       (G.slideT >= SLIDE.jumpDelay || Math.hypot(p.vx, p.vy) <= SLIDE.jumpSpeed);
     G.coyoteT = Math.max(0, G.coyoteT - dt);
-    if (G.jumpPress && !onWall && !onZip && (p.grounded || G.coyoteT > 0) && (!G.crouching || slideJumpOk) && G.mode !== "dead"){
-      tookOff(p, jumpVz());               // 落地後太快再跳會吃跳躍疲勞（見 WT.fatigue*）
+    if (G.jumpPress && !onWall && !onZip && (p.grounded || G.coyoteT > 0) && (G.val || !G.crouching || slideJumpOk) && G.mode !== "dead"){
+      tookOff(p, G.val ? VAL.jumpV : jumpVz());   // 落地後太快再跳會吃跳躍疲勞（見 WT.fatigue*；Valorant 沒有）
       if (G.sliding){ endSlide(); lessonEvent("slideJump"); }   // 滑鏟跳保留滑行的水平速度，這正是它的用途
       // 連跳懲罰：落地 1 秒內又起跳，超過衝刺速度的部分最多扣 100hu/s
-      if (G.t - G.landT < SLIDE.hopWindow){
+      if (!G.val && G.t - G.landT < SLIDE.hopWindow){
         const jsp = Math.hypot(p.vx, p.vy);
         const ns = Math.max(Math.min(jsp, SPRINT_SPD), jsp - SLIDE.hopPenalty);
         if (jsp > 0){ p.vx *= ns/jsp; p.vy *= ns/jsp; }
@@ -6539,7 +7115,7 @@ function update(dt){
       sfxNoise(0.05, 0.02, 380);
     }
     if (!p.grounded && !onWall && !onZip){
-      p.vz -= P.gravity*dt;
+      p.vz -= (G.val ? VAL.gravity : P.gravity)*dt;
       p.z  += p.vz*dt;
       G.airTop = Math.max(G.airTop, p.z);
       // 撞到樓板底：頭停在樓板下面，往上的速度歸零
@@ -6557,13 +7133,13 @@ function update(dt){
         if (G.takeoffKind === "jump" && G.takeoffSp > P.speed*0.8 && Math.hypot(p.vx, p.vy) >= G.takeoffSp*1.05) lessonEvent("airStrafe");
         // Apex 落地不扣水平速度，只有落差 7.6m 以上會摔出硬直（見 P.stunFrom）
         const fall = G.airTop - gz;
-        if (fall > P.stunFrom) G.stunT = Math.min(1, (fall - P.stunFrom) / (P.stunTo - P.stunFrom));
+        if (!G.val && fall > P.stunFrom) G.stunT = Math.min(1, (fall - P.stunFrom) / (P.stunTo - P.stunFrom));
         G.landDip = Math.min(0.20, impact*0.025);
         if (impact > 3){ sfxNoise(0.09, 0.035 + impact*0.004, 300); sfx("sine", 55, 0.10, 0.03, 38); }
         else sfxNoise(0.05, 0.016, 420);
         // 壓著蹲落地、速度又夠快，就直接接滑鏟（Apex 的空中滑鏟）。
         // 加速冷卻通常還沒好，所以是保留速度滑出去，不會再加速
-        if (held("crouch") && Math.hypot(p.vx, p.vy) > SLIDE.enter) startSlide(p);
+        if (!G.val && held("crouch") && Math.hypot(p.vx, p.vy) > SLIDE.enter) startSlide(p);
       }
       // 在空中槍口會散開，跳起來亂射不划算
       p.bloom = Math.min(0.16, p.bloom + dt*0.55);
@@ -6573,7 +7149,7 @@ function update(dt){
     // 滑鏟：衝刺中（速度超過門檻）按下蹲就滑出去；放開蹲或離地就結束
     const crouchKey = held("crouch");
     const crouchEdge = crouchKey && !G.crouchPrev;
-    if (crouchKey && !G.crouchPrev && p.grounded && !G.sliding && G.mode !== "dead" &&
+    if (!G.val && crouchKey && !G.crouchPrev && p.grounded && !G.sliding && G.mode !== "dead" &&
         Math.hypot(p.vx, p.vy) > SLIDE.enter) startSlide(p);
     G.crouchPrev = crouchKey;
     if (G.sliding && (!crouchKey || !p.grounded)) endSlide();
@@ -6596,10 +7172,11 @@ function update(dt){
     // 衝刺：Apex 只能往前方左右各 45 度內衝刺（W 加 A/D 斜走剛好 45 度），地面、非瞄準、沒有摔落硬直
     // 按下衝刺會直接退出瞄準（Apex）。原本衝刺要等「沒在瞄準」、退出瞄準又要等「在衝刺」，互相卡住，開鏡後按 Shift 沒反應
     const sprintKey = held("sprint");
-    if (sprintKey && !G.sprintPrev && mf > 0) G.adsOn = false;
+    G.walking = !!G.val && sprintKey;          // Valorant：同一顆鍵是靜步
+    if (!G.val && sprintKey && !G.sprintPrev && mf > 0) G.adsOn = false;
     G.sprintPrev = sprintKey;
     // Apex 換彈時可以衝刺（換彈照常進行），所以不看 reloading
-    const sprint = sprintKey && mf > 0 &&
+    const sprint = !G.val && sprintKey && mf > 0 &&
                    !G.crouching && p.grounded && G.adsT < 0.2 && G.stunT <= 0 && !G.heal;
     G.sprinting = sprint;
     if (sprint) p.bloom = Math.min(0.14, p.bloom + dt*0.5);
@@ -6611,6 +7188,7 @@ function update(dt){
     if (G.stunT > 0) maxSpd *= P.stunMul;
     if (G.heal) maxSpd *= 0.5;                  // 打補品時走得慢（Apex 的倍率 wiki 沒有，自訂一半）
     maxSpd *= 1 - (1 - P.adsMul) * G.adsT;      // 瞄準時移動變慢
+    if (G.val) maxSpd = valMaxSpeed();
 
     // 想走的方向（單位向量）
     let wx = fwdX*mf + rgtX*mr, wy = fwdY*mf + rgtY*mr;
@@ -6621,18 +7199,20 @@ function update(dt){
     if (G.mantle) updateMantle(p, dt, wx, wy, wl);
     else if (G.climb) updateClimb(p, dt, rgtX, rgtY);
     else if (G.zip) updateZip(p, dt, wx, wy, wl, crouchEdge);
-    else if (G.usePress) tryZip(p);
+    else if (G.usePress && !G.val) tryZip(p);
     G.usePress = false;
     // Superglide：翻越跳的「下一幀」剛好按下蹲（同一幀或先按蹲都不算）
-    if (crouchEdge && G.sgFrame === G.frameNo - 1 && !p.grounded) superglide(p, wx, wy, wl);
+    if (!G.val && crouchEdge && G.sgFrame === G.frameNo - 1 && !p.grounded) superglide(p, wx, wy, wl);
     // Lurch：空中按下新的方向鍵（滾輪綁的前進也算，一格就是一次按下）
     const dirNow = (held("forward")?1:0) | (held("back")?2:0) | (held("left")?4:0) | (held("right")?8:0);
-    if (!p.grounded && !G.mantle && !G.climb && !G.zip && wl && (dirNow & ~G.dirPrev)) lurch(p, wx, wy);
+    if (!G.val && !p.grounded && !G.mantle && !G.climb && !G.zip && wl && (dirNow & ~G.dirPrev)) lurch(p, wx, wy);
     G.dirPrev = dirNow;
 
     // 地面摩擦（Source 式，見 P.friction）：有沒有按鍵都一樣，放開後從衝刺約 0.49 秒停下
     if (G.mantle || G.climb || G.zip){
       // 牆上、滑索上，上面已經處理過
+    } else if (G.val){
+      valMove(p, dt, wx, wy, wl, maxSpd);
     } else if (G.sliding){
       // 滑鏟：不吃一般的摩擦與加速，改成慢慢衰減的滑行
       G.slideT += dt;
@@ -6668,8 +7248,8 @@ function update(dt){
       }
     }
     // 加速：只補到目標速度為止，起步因此有一段加速過程
-    if (G.sliding || G.mantle || G.climb || G.zip){
-      // 滑行中、牆上的方向與速度上面已經處理過
+    if (G.val || G.sliding || G.mantle || G.climb || G.zip){
+      // 滑行中、牆上的方向與速度上面已經處理過（Valorant 在 valMove 裡）
     } else if (wl && p.grounded){
       const cur = p.vx*wx + p.vy*wy;
       const add = maxSpd - cur;
@@ -6713,14 +7293,14 @@ function update(dt){
       p.x = Math.max(p.rad, Math.min(W - p.rad, p.x));
       p.y = Math.max(p.rad, Math.min(H - p.rad, p.y));
       // 空中碰到牆：翻越或攀牆
-      if (!p.grounded && G.mode !== "dead") tryWallStart(p, wx, wy, wl, preVx, preVy);
+      if (!G.val && !p.grounded && G.mode !== "dead") tryWallStart(p, wx, wy, wl, preVx, preVy);
     }
     G.jumpPress = false;
 
     // 實際位移（撞牆時會小於預期），拿來驅動頭部晃動與腳步聲
     G.moved = Math.hypot(p.x-bx, p.y-by);
     G.moving = G.moved > P.speed*dt*0.18;
-    if (!G.sliding) vm.stepDist += G.moved;    // 滑行沒有腳步聲
+    if (!G.sliding && !(G.val && (G.walking || G.crouching))) vm.stepDist += G.moved;    // 滑行、Valorant 的靜步與蹲走沒有腳步聲
     if (vm.stepDist > 62){
       vm.stepDist = 0;
       sfxNoise(0.07, 0.022, 520);
@@ -6728,6 +7308,12 @@ function update(dt){
     }
 
     p.cool    = Math.max(0, p.cool - dt);
+    if (G.val){
+      G.tagT = Math.max(0, G.tagT - dt);
+      valRegen(dt);
+      // 購買階段結束時選單還開著：收起來，點一下畫面回到遊戲
+      if (!overBuy.hidden && !canBuy()){ overBuy.hidden = true; overPause.hidden = false; }
+    }
     p.sonarCd = Math.max(0, p.sonarCd - dt);
     p.echoCd  = Math.max(0, p.echoCd - dt);
     p.iframe  = Math.max(0, p.iframe - dt);
@@ -6735,7 +7321,7 @@ function update(dt){
     p.heat    = Math.max(0, p.heat - dt*0.42);
     if (p.reloading > 0){
       p.reloading -= dt;
-      if (p.reloading <= 0){ p.mags[p.gun] = gun().mag; sfx("sine",320,0.08,0.045,460); }
+      if (p.reloading <= 0){ if (G.val) valReloadDone(); else p.mags[p.gun] = gun().mag; sfx("sine",320,0.08,0.045,460); }
     }
     if (G.practice && held("fire") && G.mode === "fight"){
       const on = aimOnDummy(p);
@@ -6755,8 +7341,10 @@ function update(dt){
       if (sp.smoothN >= 10) lessonEvent("smooth");
       if (n >= 15 && sp.adad >= 3) lessonEvent("adad");
     }
-    if (held("fire") && locked && G.mode === "fight" && !onWall && !G.heal && (gun().auto || !p.firedThisPress)){
-      if (playerShoot()) p.firedThisPress = true;
+    // Valorant 開鏡點放（Stinger、Bulldog）：一串的後面幾發自動補上
+    if (G.val && G.burstLeft > 0){ if (p.cool <= 0 && G.mode === "fight") valFire(false, true); }
+    else if (held("fire") && locked && G.mode === "fight" && !onWall && !G.heal && ((G.val ? valAuto() : gun().auto) || !p.firedThisPress)){
+      if (G.val ? valFire(false) : playerShoot()) p.firedThisPress = true;
     }
 
     p.trail.push({x:p.x,y:p.y,z:p.z,vz:p.vz,grounded:p.grounded,hp:p.hp,t:G.t});
@@ -6767,6 +7355,7 @@ function update(dt){
       b.revealed = Math.max(0, b.revealed - dt);
       b.flash    = Math.max(0, b.flash - dt);
       b.cool     = Math.max(0, b.cool - dt);
+      if (b.tagT > 0) b.tagT = Math.max(0, b.tagT - dt);
       if (b.dummy){ updateDummy(b, dt); continue; }
 
       const d = Math.hypot(p.x-b.x, p.y-b.y);
@@ -6822,7 +7411,7 @@ function update(dt){
         if (b.stuck > 0.95){ b.stuck = 0; b.strafe *= -1; }
       }
       b.px = b.x; b.py = b.y;
-      const spd = T.speed * ENEMY_SPEED_K;
+      const spd = T.speed * ENEMY_SPEED_K * (b.tagT > 0 ? 1 - b.tagAmt * b.tagT / VAL.tagT : 1);   // 中彈減速（Valorant）
       const bhit = moveWithCollision(b, ax*spd*dt, ay*spd*dt);
       b.hitX = bhit.x; b.hitY = bhit.y;
       const bmoved = Math.hypot(b.x-b.px, b.y-b.py);
@@ -6894,7 +7483,7 @@ function update(dt){
     const bl = G.bullets[i];
     bl.life -= dt;
     let dead = bl.life <= 0;
-    bl.vh -= BULLET_G * dt;                       // 彈道下墜
+    if (!bl.val) bl.vh -= BULLET_G * dt;          // 彈道下墜（Valorant 的子彈不下墜）
     // 速度越快分段越多，否則高速彈會直接穿過敵人
     const travel = Math.hypot(bl.vx, bl.vy) * dt;
     const STEP = Math.max(3, Math.ceil(travel / 7));
@@ -6925,6 +7514,13 @@ function update(dt){
           if (Math.hypot(bl.x-b.x, bl.y-b.y) < reach){
             const TT = TYPES[b.type];
             const zone = isHead ? "head" : (bl.h > z.legTop ? "torso" : "leg");
+            if (bl.val){
+              // Valorant：依飛了幾公尺查傷害表，頭 / 身 / 腿各有自己的數字
+              const distM = Math.hypot(bl.x - bl.ox, bl.y - bl.oy) * S;
+              const band = bl.val.dmg.find(r => distM <= r[0]) || bl.val.dmg[bl.val.dmg.length - 1];
+              valApplyHit(b, zone === "head" ? band[1] : zone === "leg" ? band[3] : band[2], zone, bl, bl.pellet && distM > 10);
+              dead = true; break;
+            }
             let dealt = Math.round(bl.dmg * ZONE[zone]);
             let blocked = false;
             if (TT.frontArmor && zone !== "head"){
@@ -6977,9 +7573,16 @@ function update(dt){
         const topH = eyeH() + 0.16;
         if (p2.iframe <= 0 && bl.h > p2.z + 0.05 && bl.h < topH &&
             Math.hypot(bl.x-p2.x, bl.y-p2.y) < p2.rad){
-          const toSh = Math.min(p2.shield, bl.dmg);
-          p2.shield -= toSh; p2.hp -= bl.dmg - toSh;
-          if (toSh > 0 && p2.shield <= 0){ sfx("triangle", 1100, 0.2, 0.06, 300); sfxNoise(0.15, 0.06, 4200); }
+          if (G.val){
+            // Valorant：護甲吸收 66%（再生護盾 100%），中彈會被減速
+            const r = valArmorHit(p2, bl.dmg);
+            if (r.broke){ p2.armor = 0; sfx("triangle", 1100, 0.2, 0.06, 300); sfxNoise(0.15, 0.06, 4200); }
+            p2.lastHurt = G.t; G.tagT = VAL.tagT; G.tagAmt = VAL.tag;
+          } else {
+            const toSh = Math.min(p2.shield, bl.dmg);
+            p2.shield -= toSh; p2.hp -= bl.dmg - toSh;
+            if (toSh > 0 && p2.shield <= 0){ sfx("triangle", 1100, 0.2, 0.06, 300); sfxNoise(0.15, 0.06, 4200); }
+          }
           G.vignette = 1; G.kick = Math.min(0.12, G.kick+0.05); G.tookDamage = true;
           G.dmgArcs.push({
             angle: Math.atan2((bl.srcY ?? bl.y)-p2.y, (bl.srcX ?? bl.x)-p2.x),
@@ -7026,6 +7629,7 @@ function update(dt){
         continue;
       }
       G.kills++;
+      if (G.val) G.credits = Math.min(9000, G.credits + 200);   // Valorant：每殺一個 +200
       // 三秒內接著再殺會疊加，最多三倍
       G.streakT = 3.0;
       G.streak = Math.min(8, G.streak + 1);
@@ -7040,11 +7644,14 @@ function update(dt){
   }
   if (G.mode === "fight" && G.bots.length === 0 && !G.practice){
     G.score += 200 + (G.tookDamage ? 0 : 300);
-    if (!G.tookDamage) banner("FLAWLESS  +300");
-    G.player.hp = Math.min(P.maxHp, G.player.hp + 45);
-    G.player.mags = {vector:GUNS.vector.mag, lance:GUNS.lance.mag, breach:GUNS.breach.mag};
+    if (G.val) valRoundWon();
+    else {
+      if (!G.tookDamage) banner("FLAWLESS  +300");
+      G.player.hp = Math.min(P.maxHp, G.player.hp + 45);
+      G.player.mags = {vector:GUNS.vector.mag, lance:GUNS.lance.mag, breach:GUNS.breach.mag};
+    }
     G.player.reloading = 0;
-    G.mode = "break"; G.timer = 2.6;
+    G.mode = "break"; G.timer = G.val ? 15 : 2.6;
   }
   if (G.player.hp <= 0 && G.mode !== "dead"){
     G.mode = "dead";
@@ -7316,6 +7923,8 @@ function sync(dtLast){
     if (!bl.mesh){
       bl.mesh = bulletPool.pop() || new THREE.Mesh(bulletGeo, bulletMatFriend);
       bl.mesh.material = bl.friendly ? bulletMatFriend : bulletMatFoe;
+      // Valorant 的子彈飛得快，拉長變細當成曳光
+      if (bl.val) bl.mesh.scale.set(0.3, 0.3, 7); else bl.mesh.scale.set(1, 1, 1);
       bulletLayer.add(bl.mesh);
     }
     bl.mesh.position.set(bl.x*S, bl.h, bl.y*S);
@@ -7325,7 +7934,7 @@ function sync(dtLast){
     const ddx = bl.mesh.position.x - camera.position.x;
     const ddy = bl.mesh.position.y - camera.position.y;
     const ddz = bl.mesh.position.z - camera.position.z;
-    bl.mesh.visible = (ddx*ddx + ddy*ddy + ddz*ddz) > 1.6*1.6;
+    bl.mesh.visible = (ddx*ddx + ddy*ddy + ddz*ddz) > (bl.val ? 25 : 1.6*1.6);
     if (!bl.mesh.visible) continue;
     // 彈道有垂直分量，曳光彈要跟著傾斜，否則斜射時是橫的
     bl.mesh.rotation.set(0, yawOf(Math.atan2(bl.vy, bl.vx)), 0);
@@ -7400,11 +8009,12 @@ function drawUI(){
     // 準心：瞄準時淡出，倍率鏡直接不畫。
     // 開口大小直接對應當下的散布錐（含瞄準內插與 bloom），
     // 玩家才看得出「這把槍腰射不準、要開鏡」
+    if (G.val) drawValCrosshair(cx, cy, h);
     const curSpread = gAim.spread + (gAim.adsSpread - gAim.spread) * G.adsT
                     + p.bloom * (1 - G.adsT*0.75);
     const sp = 6 + curSpread * 420;
     const chA = gAim.scope ? (1 - Math.min(1, G.adsT*2.2)) : 1;
-    if (chA > 0.02){
+    if (chA > 0.02 && !G.val){
       uctx.globalAlpha = chA;
       uctx.strokeStyle = G.hitMark>0 ? "#FF4D5E" : "rgba(242,236,255,.9)";
       uctx.lineWidth = 1.8;
@@ -7464,91 +8074,7 @@ function drawUI(){
   }
 
   uctx.textBaseline = "middle";
-  // 血量
-  const hp = Math.max(0,p.hp);
-  uctx.textAlign = "left";
-  uctx.fillStyle = "rgba(0,0,0,.45)"; uctx.fillRect(28,h-52,220,11);
-  uctx.fillStyle = hp>35 ? "#FF8A2B" : "#FF4D5E";
-  uctx.fillRect(28,h-52,220*(hp/P.maxHp),11);
-  uctx.strokeStyle = "rgba(242,236,255,.18)"; uctx.lineWidth = 1;
-  uctx.strokeRect(28.5,h-52.5,219,12);
-  uctx.fillStyle = "#F2ECFF";
-  uctx.font = '600 22px "IBM Plex Mono", ui-monospace, monospace';
-  uctx.fillText(String(Math.ceil(hp)).padStart(3," "), 28, h-84);
-  uctx.fillStyle = "#9184B4";
-  uctx.font = '600 10px "Chakra Petch", system-ui';
-  uctx.fillText("INTEGRITY", 80, h-83);
-
-  // Evo 護盾：血條上方一排分段的護盾格（一格 25），顏色是目前等級；下面一條細線是升級進度
-  const tierNow = SHIELD_TIERS[p.evoTier], nSeg = tierNow.cap / 25, segW = (220 - (nSeg-1)*3) / nSeg;
-  for (let i=0;i<nSeg;i++){
-    const f = Math.max(0, Math.min(1, (p.shield - i*25) / 25));
-    uctx.fillStyle = "rgba(0,0,0,.45)"; uctx.fillRect(28 + i*(segW+3), h-66, segW, 8);
-    uctx.fillStyle = tierNow.color;     uctx.fillRect(28 + i*(segW+3), h-66, segW*f, 8);
-  }
-  if (p.evoTier < 4){
-    uctx.fillStyle = "rgba(0,0,0,.4)"; uctx.fillRect(28, h-37, 220, 2);
-    uctx.fillStyle = SHIELD_TIERS[p.evoTier + 1].color;
-    uctx.fillRect(28, h-37, 220 * Math.min(1, p.evo / EVO_NEXT[p.evoTier]), 2);
-  }
-  // 技能
-  drawAbility(uctx, 292, h-46, bindLabel("sonar"), p.sonarCd, P.sonarCd, "#7CE0FF");
-  drawAbility(uctx, 348, h-46, bindLabel("echo"),  p.echoCd,  P.echoCd,  "#A277FF");
-  // 補品欄：按鍵、名稱、數量；使用中的那格亮起來
-  let ix = 392;
-  for (const k of Object.keys(HEALS)){
-    const H2 = HEALS[k], on = G.heal && G.heal.kind === k, n = G.inv[k];
-    uctx.fillStyle = on ? "rgba(63,169,255,.35)" : "rgba(8,6,20,.62)"; uctx.fillRect(ix, h-66, 62, 38);
-    uctx.strokeStyle = n ? "rgba(242,236,255,.25)" : "rgba(242,236,255,.08)"; uctx.strokeRect(ix + .5, h-65.5, 61, 37);
-    uctx.textAlign = "left"; uctx.fillStyle = "#9184B4"; uctx.font = '700 10px "IBM Plex Mono", ui-monospace, monospace';
-    uctx.fillText(bindLabel(H2.act), ix + 5, h-57);
-    uctx.fillStyle = n ? (H2.shield ? "#3FA9FF" : "#F2ECFF") : "rgba(145,132,180,.4)";
-    uctx.font = '600 11px "Chakra Petch", system-ui'; uctx.fillText(H2.name, ix + 5, h-40);
-    uctx.textAlign = "right"; uctx.font = '700 12px "IBM Plex Mono", ui-monospace, monospace';
-    uctx.fillText("×" + n, ix + 58, h-57);
-    ix += 66;
-  }
-  // 使用進度：準心外一圈，跑完就生效
-  if (G.heal){
-    const H2 = HEALS[G.heal.kind], f = G.heal.t / H2.t;
-    uctx.strokeStyle = "rgba(0,0,0,.35)"; uctx.lineWidth = 4;
-    uctx.beginPath(); uctx.arc(w/2, h/2, 30, 0, Math.PI*2); uctx.stroke();
-    uctx.strokeStyle = H2.shield ? "#3FA9FF" : "#F2ECFF";
-    uctx.beginPath(); uctx.arc(w/2, h/2, 30, -Math.PI/2, -Math.PI/2 + Math.PI*2*f); uctx.stroke();
-    uctx.textAlign = "center"; uctx.fillStyle = "#F2ECFF"; uctx.font = '700 11px "Chakra Petch", system-ui';
-    uctx.fillText(H2.name + "  " + Math.max(0, H2.t - G.heal.t).toFixed(1) + "s", w/2, h/2 + 50);
-  }
-
-  // 武器與彈藥
-  uctx.textAlign = "right";
-  for (let i=0;i<GUN_ORDER.length;i++){
-    const k = GUN_ORDER[i], on = k === g.key;
-    const yy = h - 138 + i*19;
-    uctx.fillStyle = on ? "#FF8A2B" : "rgba(145,132,180,.45)";
-    uctx.font = on ? '700 14px "Chakra Petch", system-ui'
-                   : '600 11px "Chakra Petch", system-ui';
-    uctx.fillText((i+1) + "   " + GUNS[k].name, w-28, yy);
-    if (!on){
-      uctx.fillStyle = "rgba(145,132,180,.32)";
-      uctx.font = '600 10px "IBM Plex Mono", ui-monospace, monospace';
-      uctx.fillText(p.mags[k] + "/" + GUNS[k].mag, w-104, yy);
-    }
-  }
-  uctx.fillStyle = p.reloading>0 ? "#9184B4" : "#F2ECFF";
-  uctx.font = '600 30px "IBM Plex Mono", ui-monospace, monospace';
-  uctx.fillText(String(p.mags[g.key]), w-76, h-56);
-  uctx.fillStyle = "#9184B4";
-  uctx.font = '600 15px "IBM Plex Mono", ui-monospace, monospace';
-  uctx.fillText("/ " + g.mag, w-28, h-52);
-  if (p.reloading > 0){
-    const f = 1 - p.reloading/g.reload;
-    uctx.fillStyle = "rgba(0,0,0,.45)"; uctx.fillRect(w-156,h-34,128,4);
-    uctx.fillStyle = "#FF8A2B"; uctx.fillRect(w-156,h-34,128*f,4);
-  } else if (p.mags[g.key] === 0){
-    uctx.fillStyle = "#FF4D5E";
-    uctx.font = '700 11px "Chakra Petch", system-ui';
-    uctx.fillText("PRESS  " + bindLabel("reload"), w-28, h-30);
-  }
+  if (G.val) drawValHud(w, h, cx); else drawApexHud(w, h, p, g);
 
   // 回合與分數；訓練場改成統計面板
   if (G.practice) drawRangeHud(w, h, cx);
@@ -7693,6 +8219,183 @@ function drawUI(){
 }
 
 // 訓練場的 HUD：左側統計面板，每隻假人頭上的距離與護盾/血條（Apex 式的分段護盾格，一格 25）
+// Apex 的血條、Evo 護盾、技能、補品欄、武器欄
+function drawApexHud(w, h, p, g){
+  // 血量
+  const hp = Math.max(0,p.hp);
+  uctx.textAlign = "left";
+  uctx.fillStyle = "rgba(0,0,0,.45)"; uctx.fillRect(28,h-52,220,11);
+  uctx.fillStyle = hp>35 ? "#FF8A2B" : "#FF4D5E";
+  uctx.fillRect(28,h-52,220*(hp/P.maxHp),11);
+  uctx.strokeStyle = "rgba(242,236,255,.18)"; uctx.lineWidth = 1;
+  uctx.strokeRect(28.5,h-52.5,219,12);
+  uctx.fillStyle = "#F2ECFF";
+  uctx.font = '600 22px "IBM Plex Mono", ui-monospace, monospace';
+  uctx.fillText(String(Math.ceil(hp)).padStart(3," "), 28, h-84);
+  uctx.fillStyle = "#9184B4";
+  uctx.font = '600 10px "Chakra Petch", system-ui';
+  uctx.fillText("INTEGRITY", 80, h-83);
+
+  // Evo 護盾：血條上方一排分段的護盾格（一格 25），顏色是目前等級；下面一條細線是升級進度
+  const tierNow = SHIELD_TIERS[p.evoTier], nSeg = tierNow.cap / 25, segW = (220 - (nSeg-1)*3) / nSeg;
+  for (let i=0;i<nSeg;i++){
+    const f = Math.max(0, Math.min(1, (p.shield - i*25) / 25));
+    uctx.fillStyle = "rgba(0,0,0,.45)"; uctx.fillRect(28 + i*(segW+3), h-66, segW, 8);
+    uctx.fillStyle = tierNow.color;     uctx.fillRect(28 + i*(segW+3), h-66, segW*f, 8);
+  }
+  if (p.evoTier < 4){
+    uctx.fillStyle = "rgba(0,0,0,.4)"; uctx.fillRect(28, h-37, 220, 2);
+    uctx.fillStyle = SHIELD_TIERS[p.evoTier + 1].color;
+    uctx.fillRect(28, h-37, 220 * Math.min(1, p.evo / EVO_NEXT[p.evoTier]), 2);
+  }
+  // 技能
+  drawAbility(uctx, 292, h-46, bindLabel("sonar"), p.sonarCd, P.sonarCd, "#7CE0FF");
+  drawAbility(uctx, 348, h-46, bindLabel("echo"),  p.echoCd,  P.echoCd,  "#A277FF");
+  // 補品欄：按鍵、名稱、數量；使用中的那格亮起來
+  let ix = 392;
+  for (const k of Object.keys(HEALS)){
+    const H2 = HEALS[k], on = G.heal && G.heal.kind === k, n = G.inv[k];
+    uctx.fillStyle = on ? "rgba(63,169,255,.35)" : "rgba(8,6,20,.62)"; uctx.fillRect(ix, h-66, 62, 38);
+    uctx.strokeStyle = n ? "rgba(242,236,255,.25)" : "rgba(242,236,255,.08)"; uctx.strokeRect(ix + .5, h-65.5, 61, 37);
+    uctx.textAlign = "left"; uctx.fillStyle = "#9184B4"; uctx.font = '700 10px "IBM Plex Mono", ui-monospace, monospace';
+    uctx.fillText(bindLabel(H2.act), ix + 5, h-57);
+    uctx.fillStyle = n ? (H2.shield ? "#3FA9FF" : "#F2ECFF") : "rgba(145,132,180,.4)";
+    uctx.font = '600 11px "Chakra Petch", system-ui'; uctx.fillText(H2.name, ix + 5, h-40);
+    uctx.textAlign = "right"; uctx.font = '700 12px "IBM Plex Mono", ui-monospace, monospace';
+    uctx.fillText("×" + n, ix + 58, h-57);
+    ix += 66;
+  }
+  // 使用進度：準心外一圈，跑完就生效
+  if (G.heal){
+    const H2 = HEALS[G.heal.kind], f = G.heal.t / H2.t;
+    uctx.strokeStyle = "rgba(0,0,0,.35)"; uctx.lineWidth = 4;
+    uctx.beginPath(); uctx.arc(w/2, h/2, 30, 0, Math.PI*2); uctx.stroke();
+    uctx.strokeStyle = H2.shield ? "#3FA9FF" : "#F2ECFF";
+    uctx.beginPath(); uctx.arc(w/2, h/2, 30, -Math.PI/2, -Math.PI/2 + Math.PI*2*f); uctx.stroke();
+    uctx.textAlign = "center"; uctx.fillStyle = "#F2ECFF"; uctx.font = '700 11px "Chakra Petch", system-ui';
+    uctx.fillText(H2.name + "  " + Math.max(0, H2.t - G.heal.t).toFixed(1) + "s", w/2, h/2 + 50);
+  }
+
+  // 武器與彈藥
+  uctx.textAlign = "right";
+  for (let i=0;i<GUN_ORDER.length;i++){
+    const k = GUN_ORDER[i], on = k === g.key;
+    const yy = h - 138 + i*19;
+    uctx.fillStyle = on ? "#FF8A2B" : "rgba(145,132,180,.45)";
+    uctx.font = on ? '700 14px "Chakra Petch", system-ui'
+                   : '600 11px "Chakra Petch", system-ui';
+    uctx.fillText((i+1) + "   " + GUNS[k].name, w-28, yy);
+    if (!on){
+      uctx.fillStyle = "rgba(145,132,180,.32)";
+      uctx.font = '600 10px "IBM Plex Mono", ui-monospace, monospace';
+      uctx.fillText(p.mags[k] + "/" + GUNS[k].mag, w-104, yy);
+    }
+  }
+  uctx.fillStyle = p.reloading>0 ? "#9184B4" : "#F2ECFF";
+  uctx.font = '600 30px "IBM Plex Mono", ui-monospace, monospace';
+  uctx.fillText(String(p.mags[g.key]), w-76, h-56);
+  uctx.fillStyle = "#9184B4";
+  uctx.font = '600 15px "IBM Plex Mono", ui-monospace, monospace';
+  uctx.fillText("/ " + g.mag, w-28, h-52);
+  if (p.reloading > 0){
+    const f = 1 - p.reloading/g.reload;
+    uctx.fillStyle = "rgba(0,0,0,.45)"; uctx.fillRect(w-156,h-34,128,4);
+    uctx.fillStyle = "#FF8A2B"; uctx.fillRect(w-156,h-34,128*f,4);
+  } else if (p.mags[g.key] === 0){
+    uctx.fillStyle = "#FF4D5E";
+    uctx.font = '700 11px "Chakra Petch", system-ui';
+    uctx.fillText("PRESS  " + bindLabel("reload"), w-28, h-30);
+  }
+}
+// Valorant 的準心：四條白線加黑框（遊戲預設是線長 4、粗 2、離中心 3）。
+// 線會跟著當下的散布往外推，等於打開 Valorant 設定裡的「射擊誤差」「移動誤差」：一眼看出現在開槍會多散
+function drawValCrosshair(cx, cy, h){
+  const g = gun(), d = g.val;
+  if (g.scope && G.adsT > 0.3) return;               // 倍率鏡有自己的分劃板
+  const deg = valSpread(false);
+  const focal = (h/2) / Math.tan(camera.fov * DEG / 2);
+  const off = 3 + Math.tan(deg * DEG) * focal, L = 5;
+  const col = G.hitMark > 0 ? "#FF4655" : "#FFFFFF";
+  for (const [lw, c, ext] of [[4, "rgba(0,0,0,.6)", 1], [2, col, 0]]){
+    uctx.strokeStyle = c; uctx.lineWidth = lw;
+    uctx.beginPath();
+    for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]){
+      uctx.moveTo(cx + dx*(off - ext), cy + dy*(off - ext));
+      uctx.lineTo(cx + dx*(off + L + ext), cy + dy*(off + L + ext));
+    }
+    uctx.stroke();
+  }
+  if (d.melee){ uctx.fillStyle = "#FFFFFF"; uctx.fillRect(cx - 1, cy - 1, 2, 2); }
+}
+// Valorant 的 HUD：下方中央是護甲、血量、彈藥，右側是三個武器欄，左下是錢
+function drawValHud(w, h, cx){
+  const p = G.player, g = gun(), d = g.val, y0 = h - 50;
+  uctx.textBaseline = "middle";
+  uctx.fillStyle = "rgba(8,10,16,.5)";
+  uctx.fillRect(cx - 230, y0 - 24, 460, 48);
+  // 護甲：盾形小圖示 + 數字
+  const ax = cx - 196;
+  uctx.fillStyle = p.armor > 0.5 ? "#BFE6FF" : "rgba(242,236,255,.25)";
+  uctx.beginPath();
+  uctx.moveTo(ax, y0 - 9); uctx.lineTo(ax + 8, y0 - 12); uctx.lineTo(ax + 16, y0 - 9);
+  uctx.lineTo(ax + 14, y0 + 4); uctx.lineTo(ax + 8, y0 + 10); uctx.lineTo(ax + 2, y0 + 4);
+  uctx.closePath(); uctx.fill();
+  uctx.textAlign = "left"; uctx.font = '600 18px "IBM Plex Mono", ui-monospace, monospace';
+  uctx.fillText(String(Math.ceil(p.armor || 0)), ax + 22, y0);
+  // 血量：大數字加一條細血條，30 以下轉紅
+  const hp = Math.max(0, Math.ceil(p.hp)), low = hp <= 30;
+  uctx.textAlign = "right"; uctx.fillStyle = low ? "#FF4655" : "#F2F4F8";
+  uctx.font = '600 32px "IBM Plex Mono", ui-monospace, monospace';
+  uctx.fillText(String(hp), cx - 34, y0 - 2);
+  uctx.fillStyle = "rgba(255,255,255,.14)"; uctx.fillRect(cx - 124, y0 + 16, 90, 3);
+  uctx.fillStyle = low ? "#FF4655" : "#F2F4F8"; uctx.fillRect(cx - 124, y0 + 16, 90*Math.min(1, hp/VAL.hp), 3);
+  // 彈藥：彈匣 / 備彈（訓練場開無限彈藥時是 ∞）
+  uctx.textAlign = "left";
+  if (d.melee){
+    uctx.fillStyle = "#F2F4F8"; uctx.font = '700 15px "Chakra Petch", system-ui';
+    uctx.fillText("MELEE", cx + 34, y0);
+  } else {
+    const mag = p.mags[g.key], inf = G.practice && RANGE.infinite;
+    uctx.fillStyle = mag === 0 ? "#FF4655" : p.reloading > 0 ? "rgba(242,244,248,.5)" : "#F2F4F8";
+    uctx.font = '600 32px "IBM Plex Mono", ui-monospace, monospace';
+    uctx.fillText(String(mag), cx + 34, y0 - 2);
+    const mw = uctx.measureText(String(mag)).width;
+    uctx.fillStyle = "rgba(242,236,255,.55)"; uctx.font = '600 15px "IBM Plex Mono", ui-monospace, monospace';
+    uctx.fillText("/ " + (inf ? "∞" : p.reserve[g.key]), cx + 40 + mw, y0 + 5);
+    if (p.reloading > 0){
+      uctx.fillStyle = "rgba(255,255,255,.14)"; uctx.fillRect(cx + 34, y0 + 16, 150, 3);
+      uctx.fillStyle = "#F2F4F8"; uctx.fillRect(cx + 34, y0 + 16, 150*(1 - p.reloading/g.reload), 3);
+    } else if (mag === 0){
+      uctx.fillStyle = "#FF4655"; uctx.font = '700 11px "Chakra Petch", system-ui';
+      uctx.fillText(inf || p.reserve[g.key] > 0 ? "按 " + bindLabel("reload") + " 換彈" : "沒子彈了", cx + 34, y0 + 18);
+    }
+  }
+  // 武器欄：主武器、手槍、刀，拿在手上的那一格亮起來
+  uctx.textAlign = "right";
+  let yy = h - 164;
+  for (const [n, key] of [[bindLabel("gun1"), p.slots.primary], [bindLabel("gun2"), p.slots.secondary], [bindLabel("gun3"), "v_knife"]]){
+    const on = key && key === g.key;
+    uctx.fillStyle = on ? "#F2F4F8" : "rgba(242,236,255,.35)";
+    uctx.font = on ? '700 15px "Chakra Petch", system-ui' : '600 12px "Chakra Petch", system-ui';
+    uctx.fillText(key ? GUNS[key].name : "—", w - 52, yy);
+    uctx.font = '600 11px "IBM Plex Mono", ui-monospace, monospace';
+    uctx.fillText(n, w - 26, yy);
+    yy += 24;
+  }
+  // 錢與購買階段
+  uctx.textAlign = "left";
+  if (!G.practice){
+    uctx.fillStyle = "#FFD27A"; uctx.font = '600 14px "IBM Plex Mono", ui-monospace, monospace';
+    uctx.fillText("¤ " + G.credits, 28, h - 40);
+    if (G.mode === "break" && G.timer < 100){
+      uctx.textAlign = "center"; uctx.fillStyle = "#F2F4F8"; uctx.font = '700 13px "Chakra Petch", system-ui';
+      uctx.fillText("購買階段 " + Math.ceil(G.timer) + " 秒 · 按 " + bindLabel("buy") + " 買槍", cx, h*0.26);
+    }
+  } else {
+    uctx.fillStyle = "rgba(242,236,255,.55)"; uctx.font = '600 11px "Chakra Petch", system-ui';
+    uctx.fillText(bindLabel("buy") + " 買槍（訓練場免費）", 28, h - 40);
+  }
+}
 function drawRangeHud(w, h, cx){
   const p = G.player, rs = G.rs;
   uctx.textAlign = "center";
@@ -7724,7 +8427,7 @@ function drawRangeHud(w, h, cx){
     uctx.font = '600 10px "Chakra Petch", system-ui';
   }
   uctx.textAlign = "left"; uctx.fillStyle = "rgba(145,132,180,.7)";
-  uctx.fillText(bindLabel("deploy") + " 佈置 · " + bindLabel("resetStats") + " 歸零 · " + bindLabel("lessonNext") + " 教學", x0 + 10, y0 + rows.length*19 + 20);
+  uctx.fillText(bindLabel("deploy") + " 佈置 · " + bindLabel("resetStats") + " 歸零" + (G.val ? "" : " · " + bindLabel("lessonNext") + " 教學"), x0 + 10, y0 + rows.length*19 + 20);
   if (G.lessonOn) drawLesson(w);
   drawSprayChart(x0, y0 + rows.length*19 + 46, 150);
   // 平滑射擊觸發中：準心下方一行提示，練的時候才知道自己有沒有做到
@@ -7755,6 +8458,10 @@ function drawRangeHud(w, h, cx){
         uctx.fillStyle = "rgba(0,0,0,.5)"; uctx.fillRect(bx + i*(sw+gap), sp.y - 4, sw, 4);
         uctx.fillStyle = tier.color;       uctx.fillRect(bx + i*(sw+gap), sp.y - 4, sw*f, 4);
       }
+    }
+    if (b.armorMax > 0){
+      uctx.fillStyle = "rgba(0,0,0,.5)"; uctx.fillRect(bx, sp.y - 4, bw, 4);
+      uctx.fillStyle = "#8FD3FF";        uctx.fillRect(bx, sp.y - 4, bw*Math.max(0, b.armor)/b.armorMax, 4);
     }
     uctx.fillStyle = "rgba(0,0,0,.5)"; uctx.fillRect(bx, sp.y + 2, bw, 3);
     uctx.fillStyle = "#F2ECFF";        uctx.fillRect(bx, sp.y + 2, bw*Math.max(0, b.hp)/b.maxHp, 3);
@@ -7788,6 +8495,12 @@ function drawSprayChart(x0, y0, size){
   const ref = [[0, 0]];
   let rx = 0, ry = 0;
   for (let n=0; n<g.mag - 1; n++){
+    if (g.val){
+      // Valorant：只畫往上飄的部分（左右擺是隨機的，每一串不一樣）
+      ry = Math.min(VAL.rcCap, ry/DEG + valUp(g.val.rc, n)) * DEG;
+      ref.push([0, cm(ry)]);
+      continue;
+    }
     const [kx, ky] = recoilStep(g, n);
     rx += g.rcH*kx*rcK; ry += g.rcV*ky*rcK;
     ref.push([cm(rx), cm(ry)]);
@@ -7984,6 +8697,7 @@ function startGame(){
   G = newGame();
   // 訓練場直接進入交戰狀態（射擊、開鏡都要這個狀態），但不會生成敵人波次
   if (G.practice){ G.mode = "fight"; deployDummies(true); }
+  else if (G.val){ G.timer = 15; banner("購買階段", "按 " + bindLabel("buy") + " 買槍 · 開局 800"); }
   rangeSet.hidden = !G.practice;
   overStart.hidden = true; overDead.hidden = true; overPause.hidden = true;
   audioOn();
@@ -8026,24 +8740,26 @@ function inputDown(code){
   for (const id of actionsOf(code)){
     if (id === "jump") G.jumpPress = true;
     else if (id === "fire"){ G.player.firedThisPress = false; cancelHeal(); }
-    else if (id === "ads") G.adsOn = !G.adsOn;
+    else if (id === "ads"){ if (G.val) valAlt(); else G.adsOn = !G.adsOn; }
     else if (id === "reload") startReload();
     else if (id === "inspect"){ if (canInspect()) vm.inspect = 1; }
-    else if (id === "sonar") useSonar();
-    else if (id === "echo") useEcho();
+    else if (id === "sonar"){ if (!G.val) useSonar(); }
+    else if (id === "echo"){ if (!G.val) useEcho(); }
     else if (id === "interact") G.usePress = true;
     else if (id === "ping") placePing();
     else if (id === "useCell") startHeal("cell");
     else if (id === "useBattery") startHeal("battery");
     else if (id === "useSyringe") startHeal("syringe");
     else if (id === "useMedkit") startHeal("medkit");
-    else if (id === "gun1") swapGun("vector");
-    else if (id === "gun2") swapGun("lance");
-    else if (id === "gun3") swapGun("breach");
+    else if (id === "gun1"){ if (G.val) valSlot("primary"); else swapGun("vector"); }
+    else if (id === "gun2"){ if (G.val) valSlot("secondary"); else swapGun("lance"); }
+    else if (id === "gun3"){ if (G.val) valSlot("melee"); else swapGun("breach"); }
     else if (id === "nextGun" || id === "prevGun"){
-      const i = GUN_ORDER.indexOf(G.player.gun), step = id === "nextGun" ? 1 : -1;
-      swapGun(GUN_ORDER[(i + step + GUN_ORDER.length) % GUN_ORDER.length]);
+      const list = G.val ? [G.player.slots.primary, G.player.slots.secondary, "v_knife"].filter(Boolean) : GUN_ORDER;
+      const i = list.indexOf(G.player.gun), step = id === "nextGun" ? 1 : -1;
+      swapGun(list[(i + step + list.length) % list.length]);
     }
+    else if (id === "buy"){ if (G.val) openBuy(); }
     else if (id === "deploy"){ if (G.practice) deployDummies(); }
     else if (id === "resetStats"){ if (G.practice) resetRangeStats(); }
     else if (id === "lessonNext") lessonStep(1);
@@ -8053,6 +8769,8 @@ function inputDown(code){
 addEventListener("keydown", ev => {
   if (bindWait){ captureKey(ev); return; }
   if (!overKeys.hidden && ev.code === "Escape"){ closeKeys(); return; }
+  // 購買選單開著（滑鼠沒鎖定）：按購買鍵或 ESC 關掉
+  if (!overBuy.hidden && (BINDS.buy.includes(ev.code) || ev.code === "Escape")){ ev.preventDefault(); closeBuy(); return; }
   if (actionsOf(ev.code).length) ev.preventDefault();
   if (ev.repeat) return;
   keys.add(ev.code);
@@ -8137,7 +8855,7 @@ document.addEventListener("pointerlockchange", () => {
   locked = document.pointerLockElement === glCanvas;
   if (!locked){
     keys.clear(); wheelTap.clear();
-    if (G && G.mode !== "dead" && overStart.hidden && overDead.hidden) overPause.hidden = false;
+    if (G && G.mode !== "dead" && overStart.hidden && overDead.hidden && overBuy.hidden) overPause.hidden = false;
   } else {
     overPause.hidden = true;
   }
@@ -8163,7 +8881,7 @@ addEventListener("mousemove", ev => {
   pitch = Math.max(-lim, Math.min(lim, pitch));
 });
 frame.addEventListener("click", (ev) => {
-  if (ev.target.closest(".settings") || ev.target.closest(".fsbtn")) return;   // 在調設定，不要把滑鼠鎖回去
+  if (ev.target.closest(".settings") || ev.target.closest(".fsbtn") || ev.target.closest("#overBuy")) return;   // 在調設定、在買東西，不要把滑鼠鎖回去
   if (!overKeys.hidden) return;                                                 // 按鍵設定畫面開著
   if (!locked && G && G.mode !== "dead" && overStart.hidden && overDead.hidden){
     enterGameInput();
@@ -8294,7 +9012,7 @@ for (const [key, id] of Object.entries(RANGE_EL)){
     try { localStorage.setItem("echo3d.range", JSON.stringify(RANGE)); } catch(e){}
     // 護盾等級改了就套到場上所有假人，並且補滿
     if (key === "shield" && G) for (const b of G.bots) if (b.dummy){
-      b.maxShield = b.shield = SHIELD_TIERS[RANGE.shield].cap;
+      if (G.val) valDummySetup(b); else b.maxShield = b.shield = SHIELD_TIERS[RANGE.shield].cap;
     }
   });
 }
@@ -8366,6 +9084,39 @@ mapSelect.addEventListener("change", () => {
   G = newGame();
   G.mode = "break"; G.timer = 9e9;
 });
+
+// ── 玩法切換：主選單最上面的 APEX / VALORANT ──
+// 兩邊的移動、槍、HUD 都不一樣，是比地圖和模式更上層的選擇：切換後說明、按鍵提示、模式名稱與訓練場選項一起換，
+// 選擇記在瀏覽器本機
+const MODE_TEXT = {
+  apex:    {survival:"生存 · 一波一波的敵人", range:"訓練場 · 假人不會開槍"},
+  valorant:{survival:"死鬥 · 一波一波的敵人，波與波之間買槍", range:"訓練場 · 買槍免費、假人 100 血加護甲"},
+};
+const RG_TEXT = {
+  apex:    {shield:["無", "白 · 50", "藍 · 75", "紫 · 100", "紅 · 125"],
+            speed:{slow:"慢 · 2.0 m/s（蹲走）", mid:"中 · 4.4 m/s（走路）", fast:"快 · 6.6 m/s（衝刺）"}},
+  valorant:{shield:["無", "輕型護甲 · 25", "再生護盾 · 25", "重型護甲 · 50", "重型護甲 · 50"],
+            speed:{slow:"慢 · 2.4 m/s（蹲走）", mid:"中 · 3.0 m/s（靜步）", fast:"快 · 5.4 m/s（拿步槍跑）"}},
+};
+function applyRulesUI(){
+  for (const b of document.querySelectorAll(".rules button")) b.setAttribute("aria-checked", String(b.dataset.rules === RULES));
+  for (const el of document.querySelectorAll("[data-for]")) el.hidden = el.dataset.for !== RULES;
+  for (const o of modeSelect.options) if (MODE_TEXT[RULES][o.value]) o.textContent = MODE_TEXT[RULES][o.value];
+  const T2 = RG_TEXT[RULES];
+  for (const o of document.getElementById("rgShield").options) o.textContent = T2.shield[+o.value];
+  for (const o of document.getElementById("rgSpeed").options) if (T2.speed[o.value]) o.textContent = T2.speed[o.value];
+}
+for (const b of document.querySelectorAll(".rules button")){
+  b.addEventListener("click", ev => {
+    ev.stopPropagation();
+    if (RULES === b.dataset.rules) return;
+    RULES = b.dataset.rules;
+    try { localStorage.setItem("echo3d.rules", RULES); } catch(e){}
+    applyRulesUI();
+    clearScene(); G = newGame(); G.mode = "break"; G.timer = 9e9;
+  });
+}
+applyRulesUI();
 document.getElementById("btnStart").addEventListener("click", startGame);
 document.getElementById("btnRetry").addEventListener("click", startGame);
 document.getElementById("btnMenuDead").addEventListener("click", backToMenu);
@@ -8450,7 +9201,7 @@ function loop(now){
     renderer.compile(scene, camera);
     renderer.compile(vmScene, vmCamera);
     // 三把槍的模型也要先建好並編譯
-    for (const k of GUN_ORDER){ selectGun(k); renderer.compile(vmScene, vmCamera); }
+    for (const k of GUN_ORDER.concat(["pistol", "knife"])){ selectGun(k); renderer.compile(vmScene, vmCamera); }
     selectGun("vector");
   } catch(e){ /* 預熱失敗不影響遊戲，只是第一次會卡一下 */ }
   for (const o of warm) botLayer.remove(o);

@@ -111,6 +111,10 @@ Playwright MCP 開的是背景分頁，會被降頻到約 1fps，推不動遊戲
 - `inputDown` 與射擊要求 `locked`，測試要 `setLocked(true)`；每 0.1 秒把 `overPause.hidden = true`（沒滑鼠鎖定會跳暫停）
 - 要在「某個狀態發生的那一幀」做事（例如翻越剩 0.1 秒時按跳），在頁面裡掛 requestAnimationFrame 的條件觸發
 - 改地圖配置後一定要跑敵人模擬：生存模式第 6 波，每 0.5 秒記位置與 `see`，找「4 秒沒動又看不到玩家」的敵人
+- **量數值用固定步長**：測試副本掛 `step:(n,dt)=>{ for(...) update(dt) }`，把 `overPause.hidden = false`
+  讓 rAF 迴圈停止推進，再用 `step` 以 1/120 秒一步手動推進。依賴真實時間的測試在 GPU 被占用時會全面失準
+  （2026-09-24 Leo 同時在玩 Apex，GPU 100%，headless 每幀半秒，所有數值都偏低，差點誤判成 bug）
+- 測試副本要把 `SET.autoFs = 0`，否則開始時自動全螢幕，尺寸變動會一直解除鎖定
 - headless 的幀率不能拿來判斷效能；聲音測不到
 
 手感、聲音、平衡一律要 Leo 自己測。不要宣稱驗證過沒驗證過的東西。

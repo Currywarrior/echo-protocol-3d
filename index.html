@@ -3264,7 +3264,7 @@ addDoorFrames();
 // RIDGE TOWN 一幀原本要 1000 多個 draw call，細節一加就卡；陰影要每幀更新（人物才有陰影）也要靠這個。
 // 分區而不是整張圖合成一個，是為了保留視錐裁切。
 // 不合併：InstancedMesh（本身就一次畫完）、透明材質與 ShaderMaterial（要排序或用到物件座標）、材質陣列
-function mergeGeometries(list){
+function mergeGeometries(list, local){
   let nv = 0, ni = 0;
   for (const m of list){ const g = m.geometry; nv += g.attributes.position.count; ni += g.index ? g.index.count : g.attributes.position.count; }
   const pos = new Float32Array(nv*3), nor = new Float32Array(nv*3), uv = new Float32Array(nv*2);
@@ -3273,15 +3273,16 @@ function mergeGeometries(list){
   let vo = 0, io = 0;
   for (const m of list){
     const g = m.geometry, P = g.attributes.position, N = g.attributes.normal, U = g.attributes.uv;
-    nm.getNormalMatrix(m.matrixWorld);
+    const M4 = local ? m.matrix : m.matrixWorld;
+    nm.getNormalMatrix(M4);
     for (let i=0;i<P.count;i++){
-      v.fromBufferAttribute(P, i).applyMatrix4(m.matrixWorld);
+      v.fromBufferAttribute(P, i).applyMatrix4(M4);
       pos[(vo+i)*3] = v.x; pos[(vo+i)*3+1] = v.y; pos[(vo+i)*3+2] = v.z;
       if (N){ v.fromBufferAttribute(N, i).applyMatrix3(nm).normalize(); nor[(vo+i)*3] = v.x; nor[(vo+i)*3+1] = v.y; nor[(vo+i)*3+2] = v.z; }
       if (U){ uv[(vo+i)*2] = U.getX(i); uv[(vo+i)*2+1] = U.getY(i); }
     }
     // 負縮放（鏡像）會讓三角形的繞行方向反過來，要翻回去，否則背面剔除會把正面剔掉
-    const flip = m.matrixWorld.determinant() < 0;
+    const flip = M4.determinant() < 0;
     const n = g.index ? g.index.count : P.count, at = k => g.index ? g.index.getX(k) : k;
     for (let k=0;k<n;k+=3){
       idx[io+k] = at(k) + vo;
@@ -3316,6 +3317,7 @@ function mergeLines(list){
   geo.computeBoundingSphere();
   return geo;
 }
+const SHADOW_PROXY_MAT = new THREE.MeshBasicMaterial({colorWrite:false, depthWrite:false});
 function batchStatic(root){
   root.updateMatrixWorld(true);
   const CELL = 16, meshes = new Map(), lines = new Map(), c = new THREE.Vector3();
@@ -3347,6 +3349,22 @@ function batchStatic(root){
   for (const [m, list] of merged){
     for (const o of list) o.parent.remove(o);
     root.add(m);
+  }
+  // 陰影專用的代理網格：陰影貼圖只寫深度、不管材質，所以把每一區所有投影的靜態網格（不分材質）再合成一個，
+  // 只負責投影、畫面上不寫任何東西（colorWrite / depthWrite 都關）。
+  // 人物在場時陰影每幀重算，這一步讓陰影那一趟從上百個 draw call 降到每區一個
+  const casters = new Map();
+  root.traverse(o => {
+    if (!o.isMesh || o.isInstancedMesh || !o.castShadow || Array.isArray(o.material) || o.material.transparent) return;
+    const k = keyOf(o).split("|")[1];
+    (casters.get(k) || casters.set(k, []).get(k)).push(o);
+  });
+  root.updateMatrixWorld(true);
+  for (const list of casters.values()){
+    const proxy = new THREE.Mesh(mergeGeometries(list), SHADOW_PROXY_MAT);
+    proxy.castShadow = true; proxy.receiveShadow = false;
+    for (const o of list) o.castShadow = false;
+    root.add(proxy);
   }
   // 清掉合併後變空的群組
   const empty = [];
@@ -4060,7 +4078,37 @@ function makeBotObject(type){
   ghost.renderOrder = 999;
   root.add(ghost);
   root.userData.ghost = ghost;
+  root.userData.blob = shadow;
+  // 露天地圖有太陽的即時陰影，腳下的圓形假影子就不需要了（室內圖沒有太陽，保留）
+  shadow.visible = !activeMap.outdoor;
+  mergeRigid(root, new Set([ghost, shadow]));
+  // 大零件投射太陽陰影（身體、四肢、頭盔、背包、槍身）；眼睛、鼻子這類小東西不投影，輪廓看不出差別，省 draw call。
+  // 全部零件都接收陰影：站進建築物的影子裡會跟著變暗
+  root.traverse(o => {
+    if (!o.isMesh || o === ghost || o === shadow || o.material.transparent) return;
+    o.receiveShadow = true;
+    if (!o.geometry.boundingSphere) o.geometry.computeBoundingSphere();
+    o.castShadow = o.geometry.boundingSphere.radius > 0.06;
+  });
   return root;
+}
+// 同一個關節底下、同一種材質、本身沒有再掛東西的零件合併成一個網格（在關節自己的座標系裡合併，關節動畫照常）。
+// 一隻敵人原本由約 65 個小網格組成，七隻就是四百多個 draw call
+function mergeRigid(node, skip){
+  const groups = new Map();
+  for (const ch of node.children){
+    if (ch.isMesh && !ch.isInstancedMesh && !ch.children.length && !skip.has(ch) && !Array.isArray(ch.material)){
+      (groups.get(ch.material) || groups.set(ch.material, []).get(ch.material)).push(ch);
+    }
+  }
+  for (const [mat, list] of groups){
+    if (list.length < 2) continue;
+    for (const ch of list) ch.updateMatrix();
+    const m = new THREE.Mesh(mergeGeometries(list, true), mat);
+    for (const ch of list) node.remove(ch);
+    node.add(m);
+  }
+  for (const ch of node.children.slice()) if (!ch.isMesh && ch.children.length) mergeRigid(ch, skip);
 }
 
 // ── 子彈、火光、特效的物件池 ──
@@ -8221,6 +8269,7 @@ document.getElementById("btnMenuPause").addEventListener("click", backToMenu);
 // ── 主迴圈 ──
 let last = performance.now();
 let cineT = 0;
+let shadowWasDyn = false;
 function loop(now){
   const dt = Math.min(0.05, (now-last)/1000);
   last = now;
@@ -8266,6 +8315,11 @@ function loop(now){
       (G.mode !== "dead" && G.player.hp < 38 && G.player.hp > 0)
         ? (1 - G.player.hp/38) * (0.10 + 0.14*(0.5+0.5*Math.sin(G.t*7.5)))
         : 0;
+    // 人物的太陽陰影：地圖的陰影本來只算一次；露天圖上有敵人、假人或屍體時每幀重算（靜態合批後負擔得起）。
+    // 最後一個人物消失後再算一次，地上才不會留著殘影
+    const dynShadow = !!activeMap.outdoor && (G.bots.length > 0 || G.corpses.length > 0);
+    if (dynShadow || shadowWasDyn) renderer.shadowMap.needsUpdate = true;
+    shadowWasDyn = dynShadow;
     renderPosted();
     drawUI();
   }

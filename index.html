@@ -351,6 +351,12 @@
         <label class="opt" for="rgInfinite">彈匣
           <select id="rgInfinite"><option value="1">不消耗</option><option value="0">照常消耗、要換彈</option></select>
         </label>
+        <label class="opt" for="rgBoard" data-for="valorant">靶板距離
+          <select id="rgBoard">
+            <option value="5">5 m</option><option value="10">10 m</option><option value="20">20 m</option>
+            <option value="30">30 m</option><option value="50">50 m</option>
+          </select>
+        </label>
       </div>
       </div>
       <button type="button" class="ghost" id="btnMenuPause">返回主選單</button>
@@ -558,6 +564,52 @@ const MAPS = {
       {x:64,y:316,w:1152,h:88,kind:"channel"},
       {x:220,y:54,w:150,h:64,kind:"pad"},
       {x:910,y:584,w:150,h:64,kind:"pad"},
+    ],
+  },
+  // THE RANGE：Valorant 訓練場專用（仿官方 Range）。北邊主靶道給假人與射擊測驗，射擊線是一道 1.05m 的矮櫃台（x=250），
+  // 地上每 10m 一條距離線到 50m；南邊隔牆是靶板道，靶板距離 5～50m 可調。兩條道在出生區那端相通。
+  // 距離從射擊線量：x = 250 + 公尺 × 33.3
+  range: {
+    name:"THE RANGE",
+    size:{w:2100, h:1080},
+    outdoor:true,
+    theme:{
+      neutral:true,
+      walls:[0xB8BEBC, 0xB0B6B4, 0xC0C4C0], edge:0x6E7470,
+      trim:0xD4D6D0, panel:0xA8AEAA, strip:0x5FC8C0,
+      floor:0xA8ACA4, ceiling:0x000000, light:0xFFFFFF,
+      glow:0xFFFFFF, cold:0x98A09C, pipe:0x7E8480, terrain:0x8E948E,
+      propMetal:0x7E8480, propDark:0x4A4E4C,
+      ashlar:false, bags:0xA8946C, stone:0x9CA29E, stoneDark:0x7E8480,
+      topGrime:false,
+    },
+    atmo:{
+      bg:0xE4E8EA, fog:0.002, hemiSky:0xB8D0EC, hemiGround:0x9A9A90, hemi:0.8,
+      sensor:0, bloom:0.06, threshold:0.95, vignette:0.15, grade:0.3, exposure:0.95,
+      sunColor:0xFFF0DC, sunI:1.9, sunDir:[0.35,0.75,0.3],
+      skyTop:0x4E8AD6, skyHorizon:0xE0E6EA,
+      aberr:0, scan:0, noise:0, sharp:0.5, ao:1, env:true,
+    },
+    walls:[
+      {x:0,y:0,w:2100,h:24},{x:0,y:1056,w:2100,h:24},
+      {x:0,y:0,w:24,h:1080},{x:2076,y:0,w:24,h:1080},
+      // 主靶道與靶板道之間的隔牆，出生區那端（x < 300）留空可以走過去
+      {x:300,y:700,w:1776,h:24},
+      // 射擊線的矮櫃台：兩端留通道，想走進靶道也可以
+      {x:250,y:100,w:16,h:520,ht:1.05},
+    ],
+    spawns:[{x:1900,y:360},{x:1900,y:200},{x:1900,y:520}],
+    player:{x:228,y:360,angle:0},
+    lights:[],
+    terrain:[
+      // 距離線：主靶道 10～50m，靶板道 5、10、20、30、50m
+      ...[10,20,30,40,50].map(m => ({x:250 + m*100/3 - 5, y:24, w:10, h:676, kind:"line"})),
+      ...[5,10,20,30,50].map(m => ({x:250 + m*100/3 - 5, y:724, w:10, h:332, kind:"line"})),
+    ],
+    // 立在牆邊的距離牌（純裝飾）
+    signs:[
+      ...[10,20,30,40,50].map(m => ({x:250 + m*100/3, y:44, text:m + "m"})),
+      ...[5,10,20,30,50].map(m => ({x:250 + m*100/3, y:1036, text:m + "m"})),
     ],
   },
   plaza: {
@@ -2375,7 +2427,7 @@ const spillMat = new THREE.MeshBasicMaterial({
     });
   }
   // 石板鋪面：比廣場地面小一號、顏色深一階的石板，界定大道與廣場的範圍
-  let pavingMat = null;
+  let pavingMat = null, lineMat = null;
   if ((activeMap.terrain || []).some(t => t.kind === "paving")){
     const ps = paveSurf();
     pavingMat = new THREE.MeshStandardMaterial({
@@ -2390,6 +2442,13 @@ const spillMat = new THREE.MeshBasicMaterial({
       const slab = new THREE.Mesh(geo, pavingMat);
       slab.position.set((t.x+t.w/2)*S, 0.0, (t.y+t.h/2)*S);
       mapLayer.add(slab);
+      continue;
+    }
+    if (t.kind === "line"){
+      // 地上的油漆線（THE RANGE 的距離線）：頂面 3cm，高過 2cm 那層鋪滿整張地圖的地面細節疊層，否則會被蓋住
+      const ln = new THREE.Mesh(new THREE.BoxGeometry(t.w*S, 0.02, t.h*S), lineMat || (lineMat = new THREE.MeshStandardMaterial({color:0x2E3A3C, roughness:0.85})));   // 地面在日光下接近白色，線用深色才看得到
+      ln.position.set((t.x+t.w/2)*S, 0.02, (t.y+t.h/2)*S);
+      mapLayer.add(ln);
       continue;
     }
     const slab = new THREE.Mesh(
@@ -3234,6 +3293,9 @@ addDoorFrames();
   for (const w of WALLS){
     const long = Math.max(w.w, w.h);
     if (long < 170 || w.w >= W || w.h >= H) continue;
+    // 管線裝在 2.6～2.9m：牆面要涵蓋這段高度才裝。矮牆（櫃台）、樓板、屋頂（懸空，底在 2.8m 以上）
+    // 沒有那個高度的牆面，裝了會浮在半空中
+    if ((w.ht ?? WALL_H) < 3 || (w.base || 0) > 2.6) continue;
     if (R2() < 0.35) continue;
     const horiz = w.w >= w.h, side = R2() < 0.5 ? -1 : 1;
     const cx = (w.x+w.w/2)*S, cz = (w.y+w.h/2)*S;
@@ -3428,6 +3490,22 @@ addDoorFrames();
                                                                          flatShading:true, side:THREE.DoubleSide}));
       mapLayer.add(ridge);
     }
+  }
+
+  // 距離牌（THE RANGE）：柱子頂著一塊寫距離的牌子，牌面朝射擊線（-x）
+  for (const sg of activeMap.signs || []){
+    const c = document.createElement("canvas"); c.width = 256; c.height = 128;
+    const cx2 = c.getContext("2d");
+    cx2.fillStyle = "#2E3432"; cx2.fillRect(0, 0, 256, 128);
+    cx2.fillStyle = "#F2F2EC"; cx2.font = "bold 80px sans-serif"; cx2.textAlign = "center"; cx2.textBaseline = "middle";
+    cx2.fillText(sg.text, 128, 68);
+    const tex = new THREE.CanvasTexture(c); tex.anisotropy = 4;
+    const panel = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 0.4), new THREE.MeshStandardMaterial({map:tex, roughness:0.8}));
+    panel.rotation.y = -Math.PI/2; panel.position.set(sg.x*S - 0.04, 1.55, sg.y*S);
+    mapLayer.add(panel);
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.06, 1.35, 0.06), new THREE.MeshStandardMaterial({color:theme.propDark ?? 0x4A4E4C, roughness:0.7}));
+    post.position.set(sg.x*S, 0.675, sg.y*S);
+    mapLayer.add(post);
   }
 
   // 露天地圖：場景裡不透明的物件都投影、也接收陰影
@@ -5810,7 +5888,7 @@ const CROUCH_DROP = 0.28;       // 蹲下時骨盆降多少（模型尺度，乘
 const LANE = [8, 15, 22, 30];
 const LANE_SIDE = [-1.8, 1.8, -1.2, 1.2];
 
-const RANGE = {move:"strafe", speed:"mid", stance:"stand", random:1, shield:2, infinite:1, jump:0};
+const RANGE = {move:"strafe", speed:"mid", stance:"stand", random:1, shield:2, infinite:1, jump:0, board:10};
 try {
   const raw = localStorage.getItem("echo3d.range");
   if (raw) Object.assign(RANGE, JSON.parse(raw));
@@ -5897,6 +5975,85 @@ function deployDummies(auto){
   else if (placed < LANE.length) banner("RANGE · " + placed + " TARGETS", "有些距離被擋住了，換個更開闊的方向按 " + kT + " 可以放滿四隻");
   else banner("RANGE · " + placed + " TARGETS", kT + " 在面前重新佈置 · " + kX + " 統計歸零 · ESC 調整假人");
   sfx("sine", 520, 0.12, 0.04, 780);
+}
+// ── 精準度靶板（THE RANGE 南邊的靶板道，仿官方 Target Practice）──
+// 靶面 1.6m x 2.0m，中心在站姿視線高度，所以平視瞄準中心、首發會打在中心附近。
+// 彈孔依射擊順序編號；停火超過 1 秒再打就是新的一串，舊的彈孔變淡，只留最近三串。
+// 格線每 10cm 一條、每 50cm 一條粗線，用來看彈道圖形
+const BOARD_W = 1.6, BOARD_H = 2.0, BOARD_HC = EYE, BOARD_LANE_Y = 890, BOARD_PX = 320;
+const BOARD = {on:false, x:0, y:BOARD_LANE_Y, holes:[], spray:0, lastT:-9, obj:null, ctx:null, tex:null};
+function boardObject(){
+  const c = document.createElement("canvas"); c.width = BOARD_W*BOARD_PX; c.height = BOARD_H*BOARD_PX;
+  BOARD.ctx = c.getContext("2d");
+  BOARD.tex = new THREE.CanvasTexture(c); BOARD.tex.anisotropy = 8;
+  const g = new THREE.Group();
+  const face = new THREE.Mesh(new THREE.PlaneGeometry(BOARD_W, BOARD_H), new THREE.MeshStandardMaterial({map:BOARD.tex, roughness:0.9}));
+  face.rotation.y = -Math.PI/2; face.position.y = BOARD_HC;
+  g.add(face);
+  const legM = new THREE.MeshStandardMaterial({color:0x4A4E4C, roughness:0.7});
+  for (const z of [-BOARD_W/2 + 0.1, BOARD_W/2 - 0.1]){
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.06, BOARD_HC - BOARD_H/2, 0.06), legM);
+    leg.position.set(0.05, (BOARD_HC - BOARD_H/2)/2, z);
+    g.add(leg);
+  }
+  // 背板：靶面後面一塊深色板，從側面看才有厚度
+  const back = new THREE.Mesh(new THREE.BoxGeometry(0.04, BOARD_H + 0.04, BOARD_W + 0.04), legM);
+  back.position.set(0.03, BOARD_HC, 0);       // 和靶面隔 1cm，太貼會 z-fighting
+  g.add(back);
+  g.traverse(o => { if (o.isMesh) o.castShadow = o.receiveShadow = true; });
+  scene.add(g);
+  return g;
+}
+function drawBoard(){
+  const x = BOARD.ctx, w = BOARD_W*BOARD_PX, h = BOARD_H*BOARD_PX;
+  x.fillStyle = "#E6E4DC"; x.fillRect(0, 0, w, h);
+  // 格線：以靶心為原點往外畫，10cm 細線、50cm 粗線
+  const cx = w/2, cy = h/2, step = BOARD_PX/10;
+  for (let k = -20; k <= 20; k++){
+    x.strokeStyle = k % 5 === 0 ? "rgba(40,48,46,0.45)" : "rgba(40,48,46,0.16)";
+    x.lineWidth = k % 5 === 0 ? 2 : 1;
+    x.beginPath(); x.moveTo(cx + k*step, 0); x.lineTo(cx + k*step, h); x.stroke();
+    x.beginPath(); x.moveTo(0, cy + k*step); x.lineTo(w, cy + k*step); x.stroke();
+  }
+  // 靶心：頭部大小的圓（直徑約 20cm）與十字
+  x.strokeStyle = "#1F5E5A"; x.lineWidth = 3;
+  x.beginPath(); x.arc(cx, cy, BOARD_PX*0.1, 0, Math.PI*2); x.stroke();
+  x.beginPath(); x.moveTo(cx - 14, cy); x.lineTo(cx + 14, cy); x.moveTo(cx, cy - 14); x.lineTo(cx, cy + 14); x.stroke();
+  // 距離
+  x.fillStyle = "rgba(40,48,46,0.7)"; x.font = "bold 28px sans-serif"; x.textAlign = "left"; x.textBaseline = "top";
+  x.fillText(RANGE.board + "m", 12, 10);
+  // 彈孔：這一串是黑色加編號，之前的變淡
+  x.textAlign = "left"; x.textBaseline = "middle"; x.font = "bold 15px sans-serif";
+  for (const hl of BOARD.holes){
+    const px = cx + hl.u*BOARD_PX, py = cy - hl.v*BOARD_PX, cur = hl.spray === BOARD.spray;
+    x.fillStyle = cur ? "#101412" : "rgba(16,20,18,0.25)";
+    x.beginPath(); x.arc(px, py, 4, 0, Math.PI*2); x.fill();
+    if (cur){ x.fillStyle = "#1F5E5A"; x.fillText(String(hl.n), px + 6, py - 7); }
+  }
+  BOARD.tex.needsUpdate = true;
+}
+// 靶板只在 Valorant 訓練場、THE RANGE 上出現
+function placeBoard(){
+  BOARD.on = !!(G && G.val && G.practice && activeMap === MAPS.range);
+  if (!BOARD.on){ if (BOARD.obj) BOARD.obj.visible = false; return; }
+  if (!BOARD.obj) BOARD.obj = boardObject();
+  BOARD.x = 250 + RANGE.board*PXM;
+  BOARD.obj.position.set(BOARD.x*S, 0, BOARD.y*S);
+  BOARD.obj.visible = true;
+  clearBoard();
+}
+function clearBoard(){
+  BOARD.holes.length = 0; BOARD.spray = 0; BOARD.lastT = -9;
+  if (BOARD.ctx) drawBoard();
+}
+// u：往右幾公尺，v：往上幾公尺（相對靶心）
+function boardHit(u, v){
+  if (G.t - BOARD.lastT > 1.0) BOARD.spray++;
+  BOARD.lastT = G.t;
+  const n = BOARD.holes.filter(hl => hl.spray === BOARD.spray).length + 1;
+  BOARD.holes.push({u, v, n, spray:BOARD.spray});
+  while (BOARD.holes.length && BOARD.holes[0].spray < BOARD.spray - 2) BOARD.holes.shift();
+  drawBoard();
 }
 // ── 玩家護盾與補品（Apex）──
 // 補品的回復量與時間照 Apex（wiki）；攜帶上限取 Apex 沒有背包時的數量（小電池 6、大電池 2、針筒 4、醫療包 2）
@@ -6057,6 +6214,7 @@ function lessonEvent(ev){
 function resetRangeStats(){
   G.rs = freshRangeStats();
   G.shots = 0; G.hits = 0;
+  if (BOARD.on) clearBoard();
   banner("STATS RESET");
 }
 function updateDummy(b, dt){
@@ -7503,6 +7661,17 @@ function update(dt){
     for (let s=0;s<STEP && !dead;s++){
       bl.x += bl.vx*dt/STEP; bl.y += bl.vy*dt/STEP;
       bl.h += bl.vh*dt/STEP;
+      // 靶板：這一小段穿過靶面那個 x 的話，內插出穿過時的位置記成彈孔
+      if (BOARD.on && bl.friendly && bl.vx > 0 && bl.x >= BOARD.x && bl.x - bl.vx*dt/STEP < BOARD.x){
+        const back = (bl.x - BOARD.x) / (bl.vx*dt/STEP);
+        const yy = bl.y - bl.vy*dt/STEP*back, hh = bl.h - bl.vh*dt/STEP*back;
+        const u = (yy - BOARD.y)*S, v = hh - BOARD_HC;
+        if (Math.abs(u) < BOARD_W/2 && Math.abs(v) < BOARD_H/2){
+          boardHit(u, v);
+          spawnSpark(BOARD.x, yy, 0x9B6BE8, 2);
+          dead = true; break;
+        }
+      }
       // 打到地板或天花板
       // 露天地圖沒有天花板，子彈可以飛過牆頂，飛得夠高才消失
       if (bl.h <= 0.02 || bl.h >= (activeMap.outdoor ? 40 : WALL_H-0.02)){
@@ -8707,11 +8876,15 @@ function enterGameInput(){
 }
 function startGame(){
   clearScene();
+  // Valorant 的訓練場固定在 THE RANGE（仿官方），其他情況用選單選的地圖
+  const want = RULES === "valorant" && modeSelect.value === "range" ? "range" : mapSelect.value;
+  if (activeMap !== MAPS[want]) useMap(want);
   G = newGame();
   // 訓練場直接進入交戰狀態（射擊、開鏡都要這個狀態），但不會生成敵人波次
   if (G.practice){ G.mode = "fight"; deployDummies(true); }
   else if (G.val){ G.timer = 15; banner("購買階段", "按 " + bindLabel("buy") + " 買槍 · 開局 800"); }
   rangeSet.hidden = !G.practice;
+  placeBoard();
   overStart.hidden = true; overDead.hidden = true; overPause.hidden = true;
   audioOn();
   enterGameInput();
@@ -9016,7 +9189,7 @@ refreshKeyHints();
 
 // 訓練場設定：和其他設定一樣存在瀏覽器本機
 const rangeSet = document.getElementById("rangeSet");
-const RANGE_EL = {move:"rgMove", speed:"rgSpeed", stance:"rgStance", random:"rgRandom", shield:"rgShield", infinite:"rgInfinite", jump:"rgJump"};
+const RANGE_EL = {move:"rgMove", speed:"rgSpeed", stance:"rgStance", random:"rgRandom", shield:"rgShield", infinite:"rgInfinite", jump:"rgJump", board:"rgBoard"};
 for (const [key, id] of Object.entries(RANGE_EL)){
   const el = document.getElementById(id);
   el.value = String(RANGE[key]);
@@ -9027,6 +9200,7 @@ for (const [key, id] of Object.entries(RANGE_EL)){
     if (key === "shield" && G) for (const b of G.bots) if (b.dummy){
       if (G.val) valDummySetup(b); else b.maxShield = b.shield = SHIELD_TIERS[RANGE.shield].cap;
     }
+    if (key === "board") placeBoard();
   });
 }
 loadStoredTrack();
@@ -9096,6 +9270,7 @@ mapSelect.addEventListener("change", () => {
   clearScene();
   G = newGame();
   G.mode = "break"; G.timer = 9e9;
+  placeBoard();
 });
 
 // ── 玩法切換：主選單最上面的 APEX / VALORANT ──
@@ -9103,7 +9278,7 @@ mapSelect.addEventListener("change", () => {
 // 選擇記在瀏覽器本機
 const MODE_TEXT = {
   apex:    {survival:"生存 · 一波一波的敵人", range:"訓練場 · 假人不會開槍"},
-  valorant:{survival:"死鬥 · 一波一波的敵人，波與波之間買槍", range:"訓練場 · 買槍免費、假人 100 血加護甲"},
+  valorant:{survival:"死鬥 · 一波一波的敵人，波與波之間買槍", range:"訓練場 · THE RANGE 靶道與靶板，買槍免費"},
 };
 const RG_TEXT = {
   apex:    {shield:["無", "白 · 50", "藍 · 75", "紫 · 100", "紅 · 125"],
@@ -9127,6 +9302,7 @@ for (const b of document.querySelectorAll(".rules button")){
     try { localStorage.setItem("echo3d.rules", RULES); } catch(e){}
     applyRulesUI();
     clearScene(); G = newGame(); G.mode = "break"; G.timer = 9e9;
+    placeBoard();
   });
 }
 applyRulesUI();

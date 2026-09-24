@@ -214,7 +214,7 @@
       <button id="btnStart">開始部署</button>
       <button type="button" class="ghost keysbtn">按鍵設定</button>
       <button type="button" class="ghost fsbtn">全螢幕</button>
-      <p class="hint">點擊畫面會鎖定滑鼠，按 ESC 解除</p>
+      <p class="hint">開始後會自動進全螢幕並鎖定滑鼠，按 ESC 解除。全螢幕時 Ctrl 加數字不會切走分頁</p>
     </div>
 
     <div class="overlay" id="overDead" hidden>
@@ -247,6 +247,9 @@
         <label for="setMusic">音樂音量
           <input type="range" id="setMusic" min="0" max="1" step="0.05">
           <b id="valMusic">0.35</b>
+        </label>
+        <label class="opt" for="setAutoFs">開始時自動全螢幕
+          <select id="setAutoFs"><option value="1">開（建議）</option><option value="0">關</option></select>
         </label>
         <div class="trackrow">
           <span>配樂曲目</span>
@@ -6331,7 +6334,11 @@ function update(dt){
     // 蹲下：視線壓低，而且槍口更穩（空中不能蹲）。滑鏟也是蹲姿，但槍不會比較穩
     // 頭頂空間不夠站（窗台上、樓梯下）就自動蹲著，和 Apex 一樣。在空中也算：
     // 從窗台往屋內走下去的那一刻如果恢復站姿，頭會卡進窗楣，被碰撞推回窗外
-    const lowCeil = ceilingAt(p.x, p.y, p.z, p.rad) - p.z < BODY_H;
+    // 兩段判斷：頭頂正上方（半個身寬）太低才被迫蹲下；一旦蹲下，要整個碰撞圓都離開低處才站得起來。
+    // 只用整個碰撞圓：貼著外牆跑會掃到門窗的窗楣，被強制蹲下、不能衝刺；
+    // 只用半個身寬：從窗台往屋內走下去時中心先離開窗楣就站起來，頭撞窗楣被推回窗外
+    const lowCeil = ceilingAt(p.x, p.y, p.z, G.ceilCrouch ? p.rad : p.rad*0.5) - p.z < BODY_H;
+    G.ceilCrouch = lowCeil;
     G.crouching = ((crouchKey && p.grounded) || lowCeil) && G.mode !== "dead";
     G.crouchT += ((G.crouching ? 1 : 0) - G.crouchT) * Math.min(1, dt*(G.sliding ? 16 : 11));
     if (G.crouching && !G.sliding) p.bloom = Math.max(0, p.bloom - dt*0.25);
@@ -6340,7 +6347,12 @@ function update(dt){
     const bx = p.x, by = p.y;
 
     // 衝刺：Apex 只能往前方左右各 45 度內衝刺（W 加 A/D 斜走剛好 45 度），地面、非瞄準、沒有摔落硬直
-    const sprint = held("sprint") && mf > 0 && p.reloading <= 0 &&
+    // 按下衝刺會直接退出瞄準（Apex）。原本衝刺要等「沒在瞄準」、退出瞄準又要等「在衝刺」，互相卡住，開鏡後按 Shift 沒反應
+    const sprintKey = held("sprint");
+    if (sprintKey && !G.sprintPrev && mf > 0) G.adsOn = false;
+    G.sprintPrev = sprintKey;
+    // Apex 換彈時可以衝刺（換彈照常進行），所以不看 reloading
+    const sprint = sprintKey && mf > 0 &&
                    !G.crouching && p.grounded && G.adsT < 0.2 && G.stunT <= 0 && !G.heal;
     G.sprinting = sprint;
     if (sprint) p.bloom = Math.min(0.14, p.bloom + dt*0.5);
@@ -7705,6 +7717,17 @@ function endGame(){
   document.exitPointerLock?.();
   setTimeout(()=>{ overDead.hidden = false; }, 800);
 }
+// 進入遊戲（開始、從暫停回來）：開了自動全螢幕就先進全螢幕，等轉換完成、尺寸穩定再鎖滑鼠。
+// 原因（Leo 的鎖定紀錄證實）：視窗模式下蹲（Ctrl）加數字鍵換槍、打補品，會變成 Chrome 的「Ctrl+數字 切換分頁」，
+// 遊戲分頁被切走、滑鼠鎖定被強制中斷，游標被關在 Chrome 裡好幾秒。這些快捷鍵網頁攔不下來，
+// 只有全螢幕時的 Keyboard Lock 能把按鍵借過來（見 lockGameKeys）
+let fsPendingLock = false;
+function enterGameInput(){
+  if (SET.autoFs && !document.fullscreenElement && document.documentElement.requestFullscreen){
+    fsPendingLock = true;
+    toggleFullscreen();
+  } else requestLock();
+}
 function startGame(){
   clearScene();
   G = newGame();
@@ -7713,7 +7736,7 @@ function startGame(){
   rangeSet.hidden = !G.practice;
   overStart.hidden = true; overDead.hidden = true; overPause.hidden = true;
   audioOn();
-  requestLock();
+  enterGameInput();
 }
 
 // 回到開場的簡報畫面。中途離開不算一局結束，所以不更新最高分
@@ -7818,7 +7841,11 @@ function lockLog(ev){
   } catch(e){}
 }
 window.echoLockLog = () => { try { console.log(JSON.parse(localStorage.getItem("echoLockLog") || "[]").join("\n")); } catch(e){} };
-document.addEventListener("pointerlockerror", () => { lockPending = false; lockLog("lockerror"); });
+document.addEventListener("pointerlockerror", () => {
+  lockPending = false; lockLog("lockerror");
+  // 鎖定失敗（例如全螢幕轉換後瀏覽器不認這次請求）：跳出暫停畫面，點一下就能鎖
+  if (G && G.mode !== "dead" && overStart.hidden && overDead.hidden) overPause.hidden = false;
+});
 addEventListener("focus", () => lockLog("focus"));
 // 鎖定中視窗尺寸改變（切全螢幕、拖到另一個縮放比例不同的螢幕）就先解鎖：
 // Chrome 用 ClipCursor 實作鎖定，範圍在尺寸變動時可能沒跟著更新，會把游標關在舊的矩形裡
@@ -7829,7 +7856,7 @@ document.addEventListener("visibilitychange", () => { lockLog("visibility hidden
 glCanvas.addEventListener("mousedown", ev => {
   ev.preventDefault();
   audioOn();
-  if (!locked){ requestLock(); return; }  // 第一下只負責鎖定，不會誤射
+  if (!locked){ enterGameInput(); return; }  // 第一下只負責鎖定，不會誤射
   keys.add("Mouse" + ev.button);
   inputDown("Mouse" + ev.button);
 });
@@ -7888,12 +7915,12 @@ frame.addEventListener("click", (ev) => {
   if (ev.target.closest(".settings") || ev.target.closest(".fsbtn")) return;   // 在調設定，不要把滑鼠鎖回去
   if (!overKeys.hidden) return;                                                 // 按鍵設定畫面開著
   if (!locked && G && G.mode !== "dead" && overStart.hidden && overDead.hidden){
-    requestLock();
+    enterGameInput();
   }
 });
 
 // ── 設定：存在瀏覽器本機，下次開還在 ──
-const SET = {sens:1, fov:78, music:0.35};
+const SET = {sens:1, fov:78, music:0.35, autoFs:1};
 try {
   const raw = localStorage.getItem("echo3d.set");
   if (raw) Object.assign(SET, JSON.parse(raw));
@@ -7928,6 +7955,9 @@ elTrack.addEventListener("change", () => {
   audioOn();
 });
 document.getElementById("btnClearTrack").addEventListener("click", clearTrack);
+const elAutoFs = document.getElementById("setAutoFs");
+elAutoFs.value = String(SET.autoFs);
+elAutoFs.addEventListener("change", () => { SET.autoFs = parseInt(elAutoFs.value, 10); saveSettings(); });
 
 // ── 按鍵設定畫面 ──
 // 點一個欄位就進入等待（bindWait），下一個按鍵、滑鼠按鍵或滾輪就是新的綁定
@@ -8046,9 +8076,15 @@ for (const b of document.querySelectorAll(".fsbtn")){
 // Escape 刻意不借：借了之後 Esc 要長按才能離開全螢幕與解除滑鼠鎖定
 function lockGameKeys(){
   if (!document.fullscreenElement || !navigator.keyboard || !navigator.keyboard.lock) return;
-  const codes = new Set(["KeyW", "KeyT", "KeyN", "Tab"]);
+  // 蹲是 Ctrl，所以 Ctrl 加任何遊戲鍵都可能撞到 Chrome 快捷鍵：Ctrl+1～9 切分頁、W 關分頁、T/N 開新分頁與視窗、
+  // R 重新整理、E/L/D/F/S/H/J/P/O/U 各種對話框。這些一律借過來。
+  // 不借 Tab、Alt、Esc：借了之後 Alt+Tab 切不出去、Esc 離不開全螢幕
+  const codes = new Set(["KeyW", "KeyT", "KeyN", "KeyR", "KeyE", "KeyL", "KeyD", "KeyF", "KeyS", "KeyH", "KeyJ",
+                         "KeyP", "KeyO", "KeyU", "KeyG", "KeyK", "KeyQ", "KeyZ", "KeyX", "KeyC", "KeyV", "KeyB",
+                         "Digit1", "Digit2", "Digit3", "Digit4", "Digit5", "Digit6", "Digit7", "Digit8", "Digit9", "Digit0"]);
   for (const a of ACTIONS) for (const c of BINDS[a.id]){
-    if (c && c !== "Escape" && !c.startsWith("Mouse") && !c.startsWith("Wheel")) codes.add(c);
+    if (c && c !== "Escape" && c !== "Tab" && !c.startsWith("Alt") && !c.startsWith("Meta") &&
+        !c.startsWith("Mouse") && !c.startsWith("Wheel")) codes.add(c);
   }
   navigator.keyboard.lock([...codes]).catch(() => {});
 }
@@ -8060,6 +8096,11 @@ document.addEventListener("fullscreenchange", () => {
   updateFsLabel();
   lockGameKeys();
   layout();
+  // 自動全螢幕：等尺寸穩定（layout 在 120ms 後會再算一次）才鎖滑鼠，鎖定範圍才會是全螢幕的大小
+  if (fsPendingLock){
+    fsPendingLock = false;
+    if (document.fullscreenElement) setTimeout(requestLock, 220);
+  }
   // 尺寸在轉場結束後才穩定，再補算一次
   setTimeout(layout, 120);
   // 不在這裡自動重新鎖定：轉場期間尺寸還在變，Chrome 算出的鎖定範圍可能是錯的。

@@ -1068,15 +1068,27 @@ const VAL_GUNS = {
     melee:{front:[50,75], back:[100,150], altGap:1.0}, dmg:[[2,50,50,50]], spr:[0,0,0,0], mv:[0,0,0,0], rc:{up:[0], rec:0.2, grow:1}},
 };
 const VAL_CATS = [["sidearm","手槍"],["smg","衝鋒槍"],["shotgun","霰彈槍"],["rifle","步槍"],["sniper","狙擊槍"],["heavy","機槍"]];
-// 第一人稱模型：依類別借用現有的槍模，手槍與刀是新做的
-const VAL_VM = {sidearm:"pistol", smg:"vector", rifle:"vector", heavy:"vector", shotgun:"breach", sniper:"lance", melee:"knife"};
+// 第一人稱模型依槍種各自成形，刀沿用既有的 Apex 戰術刀。
+const VAL_VM = {
+  classic:"val_classic", shorty:"val_shorty", frenzy:"val_frenzy", ghost:"val_ghost", bandit:"val_bandit", sheriff:"val_sheriff",
+  stinger:"val_stinger", spectre:"val_spectre", bucky:"val_bucky", judge:"val_judge",
+  bulldog:"val_bulldog", guardian:"val_guardian", phantom:"val_phantom", vandal:"val_vandal",
+  marshal:"val_marshal", outlaw:"val_outlaw", operator:"val_operator", ares:"val_ares", odin:"val_odin", knife:"knife"
+};
+// 動作借用既有槍族；只有泵動與逐發裝填的槍不掉彈匣。
+const VAL_RELOAD = {
+  val_classic:"pistol", val_shorty:"breach", val_frenzy:"pistol", val_ghost:"pistol", val_bandit:"pistol", val_sheriff:"pistol",
+  val_stinger:"vector", val_spectre:"vector", val_bucky:"breach", val_judge:"vector",
+  val_bulldog:"vector", val_guardian:"vector", val_phantom:"vector", val_vandal:"vector",
+  val_marshal:"lance", val_outlaw:"lance", val_operator:"lance", val_ares:"vector", val_odin:"vector"
+};
 // 生存模式的敵人拿什麼槍
 const BOT_VAL = {grunt:"vandal", stalker:"spectre", lancer:"marshal", warden:"odin"};
 // 放大倍率換成視野角：看到的東西放大幾倍，就是 tan(半視角) 縮小幾倍
 function zoomFov(fov, zoom){ return 2*Math.atan(Math.tan(fov*DEG/2) / zoom) / DEG; }
 // 登記進 GUNS（鍵名加 v_ 前綴），換彈、槍模、HUD 的共用部分就能直接用
 for (const [id, d] of Object.entries(VAL_GUNS)){
-  GUNS["v_" + id] = {key:"v_" + id, id, name:d.name, val:d, vm:VAL_VM[d.cat],
+  GUNS["v_" + id] = {key:"v_" + id, id, name:d.name, val:d, vm:VAL_VM[id],
     dmg:0, fireGap:1/d.rate, mag:d.mag, spread:0, adsSpread:0, bloomRate:0, bloomMax:0,
     reload:d.rel, spd:VAL.bulletSpd, auto:!!d.auto, scope:!!(d.ads && d.ads.zoom >= 2.5),
     rcV:0, rcH:0, rcBack:6,
@@ -5098,7 +5110,300 @@ function buildGun(kind){
   const charge = new THREE.Group();  g.add(charge);
   const panel = makeAmmoPanel();
 
-  if (kind === "vector"){
+  if (kind === "val_classic"){
+    // 短方滑套與厚聚合物握把保留 Classic 的直角比例。
+    mk(charge, 0.050,0.052,0.245, dark, 0,0.038,-0.055);
+    mk(charge, 0.010,0.014,0.018, steel, 0,0.070,-0.165);
+    mk(g, 0.045,0.038,0.205, body, 0,-0.006,-0.055);
+    mk(g, 0.015,0.025,0.035, steel, 0,0.061,-0.145);
+    mk(g, 0.015,0.025,0.035, steel, 0,0.061,0.040);
+    mk(g, 0.044,0.132,0.060, grip, 0,-0.075,0.035).rotation.x = -0.18;
+    mk(mag, 0.035,0.102,0.047, dark, 0,-0.128,0.055);
+    mk(g, 0.010,0.042,0.050, steel, 0,-0.038,-0.040);
+    vm.muzzleZ = -0.20;
+  } else if (kind === "val_shorty"){
+    // 兩根並列的粗短槍管是 Shorty 的主要辨識輪廓。
+    mk(g, 0.084,0.085,0.17, body, 0,0.005,-0.005);
+    cyl(g,0.025,0.025,0.28,dark,-0.026,0.012,-0.205);
+    cyl(g,0.025,0.025,0.28,dark, 0.026,0.012,-0.205);
+    cyl(g,0.028,0.028,0.035,steel,-0.026,0.012,-0.355);
+    cyl(g,0.028,0.028,0.035,steel, 0.026,0.012,-0.355);
+    mk(g,0.105,0.025,0.045, steel,0,0.053,-0.15);
+    mk(g,0.014,0.034,0.024,steel,0,0.078,-0.19);
+    mk(g,0.012,0.026,0.022,steel,0,0.074,0.04);
+    mk(g,0.042,0.128,0.058, grip,0,-0.075,0.070).rotation.x=-0.18;
+    mk(g,0.012,0.034,0.045,steel,0,-0.038,0.005);
+    vm.muzzleZ=-0.38;
+  } else if (kind === "val_frenzy"){
+    // 方塊機匣配伸出握把底部的長彈匣，比例比一般手槍更密實。
+    mk(charge,0.052,0.050,0.245,dark,0,0.040,-0.06);
+    mk(g,0.054,0.064,0.17,body,0,-0.002,-0.005);
+    cyl(g,0.014,0.014,0.16,steel,0,0.006,-0.205);
+    cyl(g,0.021,0.021,0.045,steel,0,0.006,-0.30);
+    mk(g,0.049,0.128,0.061,grip,0,-0.072,0.060).rotation.x=-0.12;
+    mk(mag,0.039,0.18,0.05,dark,0,-0.167,0.075);
+    mk(g,0.012,0.032,0.052,steel,0,-0.036,-0.015);
+    mk(g,0.014,0.020,0.026,steel,0,0.070,-0.14);
+    mk(g,0.012,0.026,0.022,steel,0,0.072,0.035);
+    vm.muzzleZ=-0.33;
+  } else if (kind === "val_ghost"){
+    // Ghost 的一體式滅音管延伸在短滑套前方，避免和一般手槍混淆。
+    mk(charge,0.049,0.050,0.22,dark,0,0.038,-0.035);
+    mk(g,0.044,0.037,0.18,body,0,-0.006,-0.04);
+    cyl(g,0.023,0.023,0.36,dark,0,0.012,-0.29);
+    cyl(g,0.027,0.024,0.045,steel,0,0.012,-0.49);
+    mk(g,0.012,0.024,0.032,steel,0,0.063,-0.11);
+    mk(g,0.012,0.024,0.032,steel,0,0.063,0.035);
+    mk(g,0.012,0.024,0.028,steel,0,0.064,0.00);
+    mk(g,0.044,0.132,0.058,grip,0,-0.075,0.038).rotation.x=-0.18;
+    mk(mag,0.035,0.12,0.046,dark,0,-0.136,0.055);
+    vm.muzzleZ=-0.52;
+  } else if (kind === "val_bandit"){
+    // Bandit 滑套較長且厚，長準星距離與重型套筒形成半自動手槍輪廓。
+    mk(charge,0.054,0.058,0.30,dark,0,0.040,-0.075);
+    mk(g,0.048,0.040,0.24,body,0,-0.006,-0.055);
+    cyl(g,0.017,0.017,0.10,steel,0,0.008,-0.27);
+    mk(g,0.016,0.026,0.038,steel,0,0.074,-0.20);
+    mk(g,0.016,0.026,0.038,steel,0,0.074,0.04);
+    mk(g,0.050,0.14,0.064,grip,0,-0.078,0.035).rotation.x=-0.17;
+    mk(mag,0.039,0.115,0.05,dark,0,-0.14,0.06);
+    mk(g,0.012,0.036,0.052,steel,0,-0.039,-0.04);
+    vm.muzzleZ=-0.34;
+  } else if (kind === "val_sheriff"){
+    // 橫置轉輪、長槍管肋條與外露擊錘呈現左輪結構。
+    mk(g,0.052,0.078,0.16,body,0,0.003,-0.045);
+    cyl(g,0.034,0.034,0.07,steel,0,0.004,0.055);
+    for(let i=0;i<6;i++){ const a=i*Math.PI/3; cyl(g,0.007,0.007,0.074,dark,Math.sin(a)*0.024,0.004+Math.cos(a)*0.024,0.055); }
+    cyl(g,0.018,0.018,0.29,dark,0,0.016,-0.265);
+    cyl(g,0.022,0.022,0.04,steel,0,0.016,-0.425);
+    for(let i=0;i<5;i++) mk(g,0.010,0.012,0.17,steel,0,0.039+i*0.014,-0.255);
+    mk(g,0.015,0.045,0.06,steel,0,0.075,-0.02);
+    mk(g,0.014,0.028,0.022,steel,0,0.083,-0.35);
+    mk(g,0.012,0.024,0.022,steel,0,0.077,0.01);
+    mk(g,0.044,0.132,0.06,grip,0,-0.074,0.055).rotation.x=-0.30;
+    mk(g,0.01,0.036,0.046,steel,0,-0.035,-0.06);
+    vm.muzzleZ=-0.45;
+  } else if (kind === "val_stinger"){
+    // 小機匣、直彈匣、折疊槍托與短管構成緊湊衝鋒槍。
+    mk(g,0.075,0.085,0.30,body,0,0,-0.045);
+    cyl(g,0.016,0.016,0.21,dark,0,0.012,-0.29);
+    cyl(g,0.023,0.023,0.04,steel,0,0.012,-0.405);
+    mk(mag,0.054,0.20,0.063,dark,0,-0.13,0.005);
+    mk(g,0.052,0.135,0.06,grip,0,-0.105,0.135);
+    mk(g,0.055,0.018,0.11,steel,0,-0.052,0.105);
+    mk(g,0.014,0.03,0.022,steel,0,0.081,-0.22);
+    mk(g,0.012,0.025,0.022,steel,0,0.078,0.02);
+    mk(g,0.022,0.018,0.27,steel,0,-0.002,0.25);
+    mk(g,0.06,0.018,0.045,steel,0,-0.002,0.39);
+    mk(charge,0.014,0.018,0.09,steel,0.05,0.036,0.00);
+    rail(-0.24,0.12,0.055,0.024);
+    vm.muzzleZ=-0.43;
+  } else if (kind === "val_spectre"){
+    // 細長一體消音管配前傾彈匣，輪廓與短小 Stinger 分開。
+    mk(g,0.073,0.078,0.34,body,0,0.002,-0.015);
+    cyl(g,0.023,0.023,0.47,dark,0,0.018,-0.405);
+    cyl(g,0.028,0.024,0.05,steel,0,0.018,-0.665);
+    mk(mag,0.05,0.21,0.062,dark,0,-0.122,0.12).rotation.x=0.22;
+    mk(g,0.050,0.137,0.061,grip,0,-0.105,0.14);
+    mk(g,0.056,0.017,0.11,steel,0,-0.052,0.10);
+    mk(g,0.058,0.022,0.18,body,0,-0.034,-0.30);
+    mk(g,0.014,0.03,0.022,steel,0,0.082,-0.31);
+    mk(g,0.012,0.025,0.022,steel,0,0.078,0.015);
+    mk(charge,0.014,0.018,0.10,steel,0.052,0.042,0.06);
+    rail(-0.26,0.12,0.057,0.026);
+    vm.muzzleZ=-0.69;
+  } else if (kind === "val_bucky"){
+    // 長槍管與下方管狀彈倉配合獨立泵動護木，左手隨 charge 滑動。
+    mk(g,0.086,0.094,0.28,body,0,0,-0.005);
+    cyl(g,0.022,0.022,0.58,dark,0,0.020,-0.405);
+    cyl(g,0.028,0.028,0.055,steel,0,0.020,-0.72);
+    cyl(g,0.018,0.018,0.48,steel,0,-0.052,-0.37);
+    cyl(g,0.023,0.023,0.035,dark,0,-0.052,-0.63);
+    mk(charge,0.091,0.068,0.22,body,0,-0.01,-0.26);
+    for(let i=0;i<4;i++) mk(charge,0.096,0.009,0.014,steel,0,-0.01,-0.33+i*0.04);
+    mk(g,0.056,0.14,0.066,grip,0,-0.108,0.125);
+    mk(g,0.06,0.095,0.30,body,0,-0.005,0.31);
+    mk(g,0.014,0.03,0.022,steel,0,0.082,-0.20);
+    mk(g,0.012,0.025,0.022,steel,0,0.078,0.035);
+    mk(g,0.02,0.022,0.10,steel,0,0.075,-0.15);
+    vm.muzzleZ=-0.76;
+  } else if (kind === "val_judge"){
+    // 粗短機匣與大容量方彈匣，外型對應自動霰彈槍。
+    mk(g,0.105,0.12,0.30,body,0,0,-0.015);
+    cyl(g,0.035,0.035,0.39,dark,0,0.015,-0.365);
+    cyl(g,0.042,0.04,0.055,steel,0,0.015,-0.59);
+    heats.push(mk(g,0.067,0.067,0.30,heat,0,0.015,-0.36));
+    vents(-0.25,4,0.063,0.07);
+    mk(mag,0.086,0.23,0.095,dark,0,-0.17,0.02);
+    mk(g,0.06,0.14,0.07,grip,0,-0.108,0.145);
+    mk(g,0.085,0.024,0.16,body,0,-0.033,-0.27);
+    mk(g,0.06,0.10,0.28,body,0,0,0.32);
+    mk(charge,0.018,0.025,0.11,steel,0.06,0.025,0.02);
+    mk(g,0.014,0.03,0.022,steel,0,0.084,-0.19);
+    mk(g,0.012,0.025,0.022,steel,0,0.08,0.035);
+    vm.muzzleZ=-0.63;
+  } else if (kind === "val_bulldog"){
+    // 厚護木、護罩槍管與直彈匣讓 Bulldog 比標準步槍更方厚。
+    mk(g,0.09,0.10,0.31,body,0,0,-0.005);
+    mk(g,0.098,0.085,0.34,dark,0,-0.008,-0.34);
+    cyl(g,0.021,0.021,0.55,steel,0,0.016,-0.43);
+    cyl(g,0.027,0.025,0.05,dark,0,0.016,-0.735);
+    for(let i=0;i<5;i++) mk(g,0.105,0.008,0.018,steel,0,-0.036-i*0.016,-0.31);
+    mk(mag,0.058,0.22,0.07,dark,0,-0.15,0.005);
+    mk(g,0.058,0.14,0.066,grip,0,-0.108,0.145);
+    mk(g,0.07,0.025,0.13,steel,0,-0.05,0.09);
+    mk(g,0.07,0.04,0.12,body,0,0.065,0.06);
+    mk(g,0.014,0.03,0.022,steel,0,0.085,-0.20);
+    mk(g,0.012,0.025,0.022,steel,0,0.08,0.035);
+    mk(charge,0.016,0.02,0.12,steel,0.054,0.043,0.045);
+    vm.muzzleZ=-0.77;
+  } else if (kind === "val_guardian"){
+    // 長細槍管與拇指孔槍托留下精確射手步槍的空心後段輪廓。
+    mk(g,0.074,0.083,0.31,body,0,0,-0.035);
+    cyl(g,0.016,0.016,0.64,dark,0,0.016,-0.49);
+    cyl(g,0.023,0.021,0.06,steel,0,0.016,-0.84);
+    mk(mag,0.05,0.19,0.062,dark,0,-0.132,0.005);
+    mk(g,0.056,0.14,0.064,grip,0,-0.11,0.14);
+    mk(g,0.066,0.11,0.22,body,0,-0.005,0.31);
+    mk(g,0.018,0.11,0.045,dark,0,0.005,0.40);
+    mk(g,0.018,0.07,0.045,dark,0,-0.055,0.40);
+    mk(g,0.055,0.022,0.17,steel,0,0.07,-0.12);
+    mk(g,0.014,0.024,0.032,steel,0,0.092,-0.18);
+    mk(g,0.014,0.024,0.032,steel,0,0.092,0.01);
+    mk(charge,0.014,0.018,0.11,steel,0.052,0.034,0.01);
+    vm.muzzleZ=-0.88;
+  } else if (kind === "val_phantom"){
+    // 平頂機匣、直彈匣與長一體消音器刻意做成流線步槍。
+    mk(g,0.078,0.085,0.33,body,0,0,-0.025);
+    cyl(g,0.022,0.022,0.55,dark,0,0.018,-0.44);
+    cyl(g,0.027,0.024,0.055,steel,0,0.018,-0.745);
+    mk(g,0.058,0.055,0.43,body,0,-0.006,-0.39);
+    mk(mag,0.052,0.23,0.064,dark,0,-0.15,0.005);
+    mk(g,0.057,0.14,0.066,grip,0,-0.108,0.145);
+    mk(g,0.06,0.016,0.12,steel,0,0.064,-0.12);
+    mk(g,0.014,0.024,0.034,steel,0,0.082,-0.2);
+    mk(g,0.014,0.024,0.034,steel,0,0.082,0.005);
+    mk(charge,0.014,0.02,0.12,steel,0.052,0.038,0.02);
+    rail(-0.25,0.12,0.052,0.025);
+    vm.muzzleZ=-0.78;
+  } else if (kind === "val_vandal"){
+    // 彎曲彈匣分段下垂，頂部導氣管和低彩度木色護木辨識 AK 式預設外型。
+    const wood=vmStd({color:0x302a22,roughness:0.86,metalness:0.02,normalMap:tx.fabricN});
+    mk(g,0.078,0.086,0.32,body,0,0,-0.02);
+    cyl(g,0.019,0.019,0.55,dark,0,0.014,-0.43);
+    cyl(g,0.024,0.022,0.055,steel,0,0.014,-0.74);
+    cyl(g,0.012,0.012,0.40,steel,0,0.048,-0.32);
+    mk(g,0.074,0.056,0.28,wood,0,-0.012,-0.31);
+    for(let i=0;i<5;i++) mk(g,0.078,0.008,0.018,dark,0,-0.028-i*0.012,-0.30);
+    const curve=[[-0.13,0.005],[-0.191,0.018],[-0.252,0.043],[-0.313,0.078],[-0.374,0.118]];
+    for(const [y,z] of curve) mk(mag,0.058,0.058,0.09,dark,0,y,z);
+    mk(g,0.058,0.14,0.066,grip,0,-0.108,0.145);
+    mk(g,0.066,0.105,0.28,wood,0,-0.004,0.33);
+    mk(g,0.018,0.018,0.11,steel,0.045,0.016,0.02);
+    mk(g,0.014,0.03,0.022,steel,0,0.083,-0.20);
+    mk(g,0.012,0.025,0.022,steel,0,0.079,0.035);
+    mk(charge,0.016,0.02,0.12,steel,0.055,0.025,0.035);
+    vm.muzzleZ=-0.77;
+  } else if (kind === "val_marshal"){
+    // 細長槍身、小型瞄準鏡與側置槍機拉柄表現輕型栓動狙擊槍。
+    mk(g,0.068,0.075,0.34,body,0,0,-0.02);
+    cyl(g,0.014,0.014,0.78,dark,0,0.014,-0.55);
+    cyl(g,0.021,0.020,0.055,steel,0,0.014,-0.98);
+    cyl(g,0.026,0.026,0.25,dark,0,0.118,-0.16);
+    cyl(g,0.032,0.03,0.045,steel,0,0.118,-0.31);
+    cyl(g,0.032,0.03,0.045,steel,0,0.118,-0.01);
+    cyl(g,0.024,0.024,0.012,lens,0,0.118,-0.34);
+    mk(g,0.05,0.055,0.035,steel,0,0.066,-0.235);
+    mk(g,0.05,0.055,0.035,steel,0,0.066,-0.035);
+    mk(mag,0.044,0.17,0.055,dark,0,-0.126,0.005);
+    mk(g,0.054,0.14,0.062,grip,0,-0.108,0.145);
+    mk(g,0.058,0.09,0.27,body,0,-0.006,0.33);
+    mk(charge,0.018,0.022,0.11,steel,0.05,0.022,0.04);
+    mk(charge,0.025,0.024,0.045,steel,0.08,0.022,0.06);
+    mk(g,0.014,0.021,0.035,steel,0,0.081,-0.2);
+    mk(g,0.014,0.021,0.035,steel,0,0.081,0.005);
+    vm.muzzleZ=-1.00;
+  } else if (kind === "val_outlaw"){
+    // 上下雙管與折開式機匣接縫清楚標出 Outlaw 的雙發結構。
+    mk(g,0.084,0.095,0.30,body,0,0,-0.015);
+    cyl(g,0.017,0.017,0.72,dark,0,0.042,-0.48);
+    cyl(g,0.017,0.017,0.72,dark,0,0.002,-0.48);
+    cyl(g,0.022,0.021,0.045,steel,0,0.042,-0.87);
+    cyl(g,0.022,0.021,0.045,steel,0,0.002,-0.87);
+    cyl(g,0.034,0.034,0.29,dark,0,0.125,-0.15);
+    cyl(g,0.041,0.039,0.045,steel,0,0.125,-0.32);
+    cyl(g,0.041,0.039,0.045,steel,0,0.125,0.02);
+    cyl(g,0.03,0.03,0.012,lens,0,0.125,-0.35);
+    mk(g,0.05,0.055,0.035,steel,0,0.065,-0.255);
+    mk(g,0.05,0.055,0.035,steel,0,0.065,-0.045);
+    mk(mag,0.046,0.16,0.06,dark,0,-0.13,0.01);
+    mk(g,0.056,0.14,0.064,grip,0,-0.105,0.14);
+    mk(g,0.06,0.09,0.28,body,0,-0.004,0.32);
+    mk(charge,0.018,0.022,0.12,steel,0.052,0.035,0.035);
+    mk(g,0.014,0.02,0.035,steel,0,0.075,-0.23);
+    mk(g,0.014,0.02,0.035,steel,0,0.075,0.015);
+    vm.muzzleZ=-0.89;
+  } else if (kind === "val_operator"){
+    // 粗大型光學鏡、雙腳架與厚槍托給予 Operator 明顯的重型狙擊比例。
+    mk(g,0.09,0.10,0.36,body,0,0,-0.025);
+    cyl(g,0.022,0.022,0.88,dark,0,0.018,-0.61);
+    cyl(g,0.034,0.032,0.09,steel,0,0.018,-1.10);
+    cyl(g,0.046,0.044,0.36,dark,0,0.105,-0.23);
+    cyl(g,0.057,0.054,0.06,steel,0,0.105,-0.45);
+    cyl(g,0.057,0.054,0.06,steel,0,0.105,-0.01);
+    cyl(g,0.041,0.041,0.014,lens,0,0.105,-0.49);
+    cyl(g,0.03,0.03,0.014,lens,0,0.105,0.01);
+    mk(g,0.055,0.036,0.04,steel,0,0.061,-0.23);
+    mk(g,0.055,0.036,0.04,steel,0,0.061,-0.02);
+    mk(mag,0.052,0.18,0.067,dark,0,-0.136,0.005);
+    mk(g,0.058,0.145,0.066,grip,0,-0.11,0.15);
+    mk(g,0.074,0.11,0.32,body,0,-0.008,0.34);
+    mk(g,0.012,0.17,0.018,steel,-0.04,-0.045,-0.33).rotation.z=-0.25;
+    mk(g,0.012,0.17,0.018,steel,0.04,-0.045,-0.33).rotation.z=0.25;
+    mk(charge,0.018,0.024,0.13,steel,0.06,0.035,0.045);
+    mk(charge,0.025,0.026,0.05,steel,0.09,0.035,0.07);
+    vm.muzzleZ=-1.15;
+  } else if (kind === "val_ares"){
+    // 側掛彈箱和頂部提把把 Ares 的 LMG 形狀與步槍分開。
+    mk(g,0.09,0.10,0.38,body,0,0,-0.015);
+    cyl(g,0.027,0.027,0.62,dark,0,0.018,-0.48);
+    cyl(g,0.034,0.03,0.06,steel,0,0.018,-0.82);
+    mk(mag,0.105,0.15,0.12,dark,0.075,-0.105,-0.015);
+    mk(mag,0.085,0.03,0.105,steel,0.075,-0.015,-0.015);
+    mk(g,0.06,0.14,0.066,grip,0,-0.108,0.15);
+    mk(g,0.032,0.016,0.25,steel,0,0.086,-0.06);
+    mk(g,0.016,0.09,0.018,steel,-0.012,0.048,-0.06);
+    mk(g,0.016,0.09,0.018,steel,0.012,0.048,-0.06);
+    mk(g,0.014,0.032,0.022,steel,0,0.102,-0.20);
+    mk(g,0.012,0.026,0.022,steel,0,0.098,0.035);
+    mk(g,0.09,0.018,0.15,body,0,-0.045,-0.38);
+    mk(g,0.012,0.15,0.016,steel,-0.04,-0.105,-0.34).rotation.z=-0.22;
+    mk(g,0.012,0.15,0.016,steel,0.04,-0.105,-0.34).rotation.z=0.22;
+    mk(charge,0.018,0.024,0.14,steel,0.06,0.035,0.02);
+    vm.muzzleZ=-0.86;
+  } else if (kind === "val_odin"){
+    // 粗槍管護罩、密集散熱孔和大型側箱呈現 Odin 的重機槍量感。
+    mk(g,0.11,0.12,0.40,body,0,0,-0.015);
+    cyl(g,0.035,0.035,0.75,dark,0,0.02,-0.49);
+    cyl(g,0.043,0.04,0.065,steel,0,0.02,-0.91);
+    mk(g,0.09,0.09,0.46,dark,0,0.02,-0.46);
+    heats.push(mk(g,0.076,0.076,0.42,heat,0,0.02,-0.46));
+    vents(-0.67,9,0.068,0.09);
+    mk(mag,0.13,0.22,0.18,dark,0.10,-0.12,-0.015);
+    mk(mag,0.11,0.03,0.16,steel,0.10,0.008,-0.015);
+    mk(g,0.064,0.15,0.073,grip,0,-0.11,0.16);
+    mk(g,0.035,0.016,0.28,steel,0,0.10,-0.05);
+    mk(g,0.018,0.085,0.018,steel,-0.014,0.06,-0.05);
+    mk(g,0.018,0.085,0.018,steel,0.014,0.06,-0.05);
+    for(let i=0;i<5;i++) mk(g,0.012,0.012,0.018,steel,0.058,0.02-i*0.026,-0.31);
+    mk(g,0.014,0.034,0.022,steel,0,0.105,-0.23);
+    mk(g,0.012,0.026,0.022,steel,0,0.10,0.035);
+    mk(g,0.09,0.10,0.30,body,0,-0.002,0.36);
+    mk(g,0.014,0.15,0.018,steel,-0.045,-0.10,-0.34).rotation.z=-0.23;
+    mk(g,0.014,0.15,0.018,steel,0.045,-0.10,-0.34).rotation.z=0.23;
+    mk(charge,0.02,0.026,0.15,steel,0.065,0.038,0.025);
+    vm.muzzleZ=-0.95;
+  } else if (kind === "vector"){
     mk(g, 0.080,0.108,0.36, body,  0, 0, -0.01);
     mk(g, 0.072,0.070,0.20, steel, 0,-0.055, 0.02);
     cyl(g, 0.020,0.020,0.30, dark,  0, 0.012, -0.32);
@@ -5188,9 +5493,14 @@ function buildGun(kind){
     new THREE.PlaneGeometry(0.105, 0.052),
     new THREE.MeshBasicMaterial({map:panel.tex, transparent:true}));
   disp.rotation.y = -Math.PI/2;
-  disp.position.set(kind === "pistol" ? -0.024 : -0.042, kind === "pistol" ? -0.004 : 0.012,
-                    kind === "lance" ? 0.06 : kind === "pistol" ? -0.06 : 0.02);
-  if (kind === "pistol") disp.scale.setScalar(0.45);
+  const valDispX = {val_classic:-0.027,val_shorty:-0.044,val_frenzy:-0.029,val_ghost:-0.024,val_bandit:-0.026,val_sheriff:-0.029,
+    val_stinger:-0.040,val_spectre:-0.039,val_bucky:-0.045,val_judge:-0.056,val_bulldog:-0.047,val_guardian:-0.039,
+    val_phantom:-0.041,val_vandal:-0.041,val_marshal:-0.036,val_outlaw:-0.044,val_operator:-0.047,val_ares:-0.052,val_odin:-0.058};
+  const valVm = kind.startsWith("val_");
+  disp.position.set(valVm ? valDispX[kind] : kind === "pistol" ? -0.024 : -0.042,
+                    valVm ? -0.012 : kind === "pistol" ? -0.004 : 0.012,
+                    valVm ? 0.015 : kind === "lance" ? 0.06 : kind === "pistol" ? -0.06 : 0.02);
+  if (kind === "pistol" || ["val_classic","val_frenzy","val_ghost","val_bandit","val_sheriff","val_shorty"].includes(kind)) disp.scale.setScalar(0.45);
   disp.visible = kind !== "knife";
   g.add(disp);
 
@@ -5258,8 +5568,16 @@ function addVmHands(g, kind, charge){
     along(parent, 0.046, 0.060, cuffEnd.clone().addScaledVector(dir.clone().normalize(), -0.01), elbow, sleeve);
   };
 
-  const R = {vector:{y:-0.108, z:0.125}, breach:{y:-0.110, z:0.125}, lance:{y:-0.108, z:0.145},
-             pistol:{y:-0.070, z:0.045}, knife:{y:-0.030, z:0.060}}[kind];
+  const R = ({
+    vector:{y:-0.108,z:0.125}, breach:{y:-0.110,z:0.125}, lance:{y:-0.108,z:0.145},
+    pistol:{y:-0.070,z:0.045}, knife:{y:-0.030,z:0.060},
+    val_classic:{y:-0.075,z:0.035}, val_shorty:{y:-0.075,z:0.070}, val_frenzy:{y:-0.072,z:0.060},
+    val_ghost:{y:-0.075,z:0.038}, val_bandit:{y:-0.078,z:0.035}, val_sheriff:{y:-0.074,z:0.055},
+    val_stinger:{y:-0.105,z:0.135}, val_spectre:{y:-0.105,z:0.140}, val_bucky:{y:-0.108,z:0.125},
+    val_judge:{y:-0.108,z:0.145}, val_bulldog:{y:-0.108,z:0.145}, val_guardian:{y:-0.110,z:0.140},
+    val_phantom:{y:-0.108,z:0.145}, val_vandal:{y:-0.108,z:0.145}, val_marshal:{y:-0.108,z:0.145},
+    val_outlaw:{y:-0.105,z:0.140}, val_operator:{y:-0.110,z:0.150}, val_ares:{y:-0.108,z:0.150}, val_odin:{y:-0.110,z:0.160}
+  })[kind];
   // ── 右手：握把 ──
   const rh = new THREE.Group();
   rh.position.set(0, R.y, R.z);
@@ -5281,10 +5599,20 @@ function addVmHands(g, kind, charge){
   forearm(rh, V(0.045, 0.030, 0.080), V(0.18, -0.20, 0.55));
 
   // ── 左手：護木下方 ──
-  const L = {vector:{p:g, y:-0.060, z:-0.170, r:0.050},
-             breach:{p:charge, y:-0.052, z:-0.250, r:0.052},
-             lance: {p:g, y:-0.062, z:-0.200, r:0.046},
-             pistol:{p:g, y:-0.100, z:0.010, r:0.036}}[kind];
+  const L = ({
+    vector:{p:g,y:-0.060,z:-0.170,r:0.050}, breach:{p:charge,y:-0.052,z:-0.250,r:0.052},
+    lance:{p:g,y:-0.062,z:-0.200,r:0.046}, pistol:{p:g,y:-0.100,z:0.010,r:0.036},
+    val_classic:{p:g,y:-0.095,z:-0.055,r:0.034}, val_shorty:{p:g,y:-0.045,z:-0.17,r:0.046},
+    val_frenzy:{p:g,y:-0.095,z:-0.065,r:0.034}, val_ghost:{p:g,y:-0.095,z:-0.12,r:0.034},
+    val_bandit:{p:g,y:-0.095,z:-0.09,r:0.035}, val_sheriff:{p:g,y:-0.082,z:-0.11,r:0.036},
+    val_stinger:{p:g,y:-0.055,z:-0.20,r:0.046}, val_spectre:{p:g,y:-0.052,z:-0.28,r:0.048},
+    val_bucky:{p:charge,y:-0.038,z:-0.26,r:0.05}, val_judge:{p:g,y:-0.055,z:-0.24,r:0.05},
+    val_bulldog:{p:g,y:-0.058,z:-0.31,r:0.048}, val_guardian:{p:g,y:-0.052,z:-0.28,r:0.046},
+    val_phantom:{p:g,y:-0.050,z:-0.29,r:0.047}, val_vandal:{p:g,y:-0.052,z:-0.28,r:0.047},
+    val_marshal:{p:g,y:-0.055,z:-0.34,r:0.044}, val_outlaw:{p:g,y:-0.05,z:-0.29,r:0.046},
+    val_operator:{p:g,y:-0.06,z:-0.37,r:0.05}, val_ares:{p:g,y:-0.055,z:-0.34,r:0.05},
+    val_odin:{p:g,y:-0.055,z:-0.39,r:0.05}
+  })[kind];
   if (!L) return;          // 刀只有右手
   const lh = new THREE.Group();
   lh.position.set(0, L.y, L.z);
@@ -5362,6 +5690,7 @@ function updateDrops(dt){
 // 每把槍的換彈編排。t 是 0..1 的整體進度，
 // 各部件在不同時間區間動作，組合起來就是一套有節奏的動畫
 function reloadPose(kind, t, ud, out){
+  kind = VAL_RELOAD[kind] || kind;
   const mag = ud.mag, ch = ud.charge;
   mag.position.set(0,0,0); mag.rotation.set(0,0,0);
   ch.position.set(0,0,0);  ch.rotation.set(0,0,0);
@@ -5442,6 +5771,25 @@ const VM_BASE = {
   breach:{x:0.180, y:-0.168, z:-0.40, ry:-0.16, rx:0.05},
   pistol:{x:0.150, y:-0.150, z:-0.34, ry:-0.10, rx:0.04},
   knife: {x:0.190, y:-0.190, z:-0.34, ry:-0.40, rx:0.30},
+  val_classic:{x:0.150,y:-0.150,z:-0.34,ry:-0.10,rx:0.04},
+  val_shorty:{x:0.18,y:-0.16,z:-0.39,ry:-0.12,rx:0.045},
+  val_frenzy:{x:0.15,y:-0.15,z:-0.35,ry:-0.10,rx:0.04},
+  val_ghost:{x:0.15,y:-0.15,z:-0.38,ry:-0.10,rx:0.04},
+  val_bandit:{x:0.15,y:-0.15,z:-0.35,ry:-0.10,rx:0.04},
+  val_sheriff:{x:0.16,y:-0.15,z:-0.37,ry:-0.11,rx:0.04},
+  val_stinger:{x:0.18,y:-0.165,z:-0.39,ry:-0.15,rx:0.05},
+  val_spectre:{x:0.18,y:-0.165,z:-0.40,ry:-0.15,rx:0.05},
+  val_bucky:{x:0.18,y:-0.17,z:-0.40,ry:-0.16,rx:0.05},
+  val_judge:{x:0.19,y:-0.17,z:-0.40,ry:-0.16,rx:0.05},
+  val_bulldog:{x:0.18,y:-0.17,z:-0.41,ry:-0.16,rx:0.05},
+  val_guardian:{x:0.16,y:-0.16,z:-0.39,ry:-0.13,rx:0.045},
+  val_phantom:{x:0.18,y:-0.17,z:-0.41,ry:-0.16,rx:0.05},
+  val_vandal:{x:0.18,y:-0.17,z:-0.41,ry:-0.16,rx:0.05},
+  val_marshal:{x:0.145,y:-0.155,z:-0.35,ry:-0.12,rx:0.035},
+  val_outlaw:{x:0.15,y:-0.155,z:-0.36,ry:-0.12,rx:0.035},
+  val_operator:{x:0.14,y:-0.15,z:-0.35,ry:-0.12,rx:0.035},
+  val_ares:{x:0.20,y:-0.18,z:-0.43,ry:-0.17,rx:0.055},
+  val_odin:{x:0.20,y:-0.18,z:-0.44,ry:-0.17,rx:0.055},
 };
 // 舉槍瞄準時的位置：對齊畫面中線，槍身回正
 const VM_ADS = {
@@ -5450,11 +5798,21 @@ const VM_ADS = {
   breach:{x:0.0, y:-0.115, z:-0.48, ry:0, rx:0},
   pistol:{x:0.0, y:-0.100, z:-0.40, ry:0, rx:0},
   knife: {x:0.190, y:-0.190, z:-0.34, ry:-0.40, rx:0.30},
+  val_classic:{x:0,y:-0.076,z:-0.40,ry:0,rx:0}, val_shorty:{x:0,y:-0.076,z:-0.46,ry:0,rx:0},
+  val_frenzy:{x:0,y:-0.074,z:-0.41,ry:0,rx:0}, val_ghost:{x:0,y:-0.064,z:-0.43,ry:0,rx:0},
+  val_bandit:{x:0,y:-0.080,z:-0.41,ry:0,rx:0}, val_sheriff:{x:0,y:-0.080,z:-0.43,ry:0,rx:0},
+  val_stinger:{x:0,y:-0.080,z:-0.48,ry:0,rx:0}, val_spectre:{x:0,y:-0.080,z:-0.49,ry:0,rx:0},
+  val_bucky:{x:0,y:-0.080,z:-0.48,ry:0,rx:0}, val_judge:{x:0,y:-0.082,z:-0.49,ry:0,rx:0},
+  val_bulldog:{x:0,y:-0.082,z:-0.50,ry:0,rx:0}, val_guardian:{x:0,y:-0.092,z:-0.47,ry:0,rx:0},
+  val_phantom:{x:0,y:-0.082,z:-0.50,ry:0,rx:0}, val_vandal:{x:0,y:-0.083,z:-0.50,ry:0,rx:0},
+  val_marshal:{x:0,y:-0.118,z:-0.47,ry:0,rx:0}, val_outlaw:{x:0,y:-0.125,z:-0.48,ry:0,rx:0},
+  val_operator:{x:0,y:-0.105,z:-0.48,ry:0,rx:0}, val_ares:{x:0,y:-0.100,z:-0.51,ry:0,rx:0},
+  val_odin:{x:0,y:-0.102,z:-0.52,ry:0,rx:0},
 };
 const VM_SCALE = 0.46;
 
 function updateViewModel(dt){
-  const p = G.player, g = gun(), kind = g.vm || g.key;   // Valorant 的槍依類別借用槍模（見 VAL_VM）
+  const p = G.player, g = gun(), kind = g.vm || g.key;
   selectGun(kind);
   // 靜止姿勢與瞄準姿勢之間內插
   const b0 = VM_BASE[kind], b1 = VM_ADS[kind], t = G.adsT;
@@ -6407,7 +6765,8 @@ function startReload(){
   sfx("sine",180,0.09,0.04,120);
   sfxNoise(0.05, 0.02, 900);
   // 彈匣式的槍才會掉彈匣，泵動霰彈是逐發壓彈
-  if ((g.vm || g.key) !== "breach"){
+  const reloadKind = VAL_RELOAD[g.vm || g.key] || (g.vm || g.key);
+  if (reloadKind !== "breach"){
     setTimeout(() => {
       if (G && G.player.reloading > 0) dropMag(G.player.x, G.player.y, eyeH()-0.55, G.player.angle);
     }, g.reload*180);
@@ -9390,7 +9749,7 @@ function loop(now){
     renderer.compile(scene, camera);
     renderer.compile(vmScene, vmCamera);
     // 三把槍的模型也要先建好並編譯
-    for (const k of GUN_ORDER.concat(["pistol", "knife"])){ selectGun(k); renderer.compile(vmScene, vmCamera); }
+    for (const k of GUN_ORDER.concat(["pistol", "knife"], Object.values(VAL_VM).filter(k => k !== "knife"))){ selectGun(k); renderer.compile(vmScene, vmCamera); }
     selectGun("vector");
   } catch(e){ /* 預熱失敗不影響遊戲，只是第一次會卡一下 */ }
   for (const o of warm) botLayer.remove(o);

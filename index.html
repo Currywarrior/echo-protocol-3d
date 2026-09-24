@@ -948,7 +948,8 @@ const VAL_ARMOR = {
 // dmg 各距離段 [到幾公尺, 頭, 身, 腿]、spr 散布 [站著首發, 蹲著首發, 站著上限, 蹲著上限]（度）、
 // mv 移動誤差 [蹲走, 走路, 跑步, 空中]（加上去的度數）、ads 右鍵開鏡（zoom 倍率、rate 射速、move 移速倍率、spr 散布、burst 點放發數）。
 // rc 是後座圖形（自調，形狀照社群整理的彈道描述）：up 每發往上飄幾度（前 n[0] 發、到 n[1] 發、之後），
-// side 橫向每發幾度，prot 發之後才開始左右擺，每發 10% 機會換邊、兩次換邊至少隔 0.6 秒（Vandal 的 wiki 數值）；
+// side 橫向每發幾度，prot 發之後才開始左右擺，每發 10% 機會換邊、兩次換邊至少隔 sw 秒（沒寫就是 0.6，PC 版 wiki 數值）；
+// runUp / runSide 跑步或騰空時垂直、橫向後座的倍率（wiki patch 紀錄，沒寫的槍 Riot 沒公開，取 1）；
 // rec 停火後完全回正要幾秒，grow 連射幾發散布長到上限
 const VAL_GUNS = {
   classic: {name:"CLASSIC", cat:"sidearm", cost:0, rate:6.75, mag:12, res:36, rel:1.75, eq:0.75, run:0.85,
@@ -958,7 +959,8 @@ const VAL_GUNS = {
     dmg:[[7,22,11,9],[15,12,6,5],[50,6,3,3]], spr:[4,3,4,3], mv:[0.5,1,2,4], rc:{up:[3], rec:0.4, grow:1}},
   frenzy:  {name:"FRENZY", cat:"sidearm", cost:450, rate:10, mag:15, res:45, rel:1.5, eq:1, run:0.85, auto:true,
     dmg:[[20,78,26,22],[50,63,21,18]], spr:[0.65,0.55,1.7,1.45], mv:[0.5,0.8,2,7],
-    rc:{up:[0.55,0.35,0.15], n:[4,10], side:0.25, prot:4, rec:0.35, grow:6}},
+    // 6.11：散布與後座在第 5 發到頂（wiki），之後垂直不再往上
+    rc:{up:[0.55,0.35,0], n:[4,5], side:0.25, prot:4, rec:0.35, grow:5, runUp:1.5}},
   ghost:   {name:"GHOST", cat:"sidearm", cost:500, rate:6.75, mag:13, res:39, rel:1.5, eq:0.75, run:0.85, silenced:true,
     dmg:[[30,105,30,26],[50,88,25,21]], spr:[0.3,0.23,1.65,1.24], mv:[0.5,1.1,2.3,7], rc:{up:[1.0], rec:0.3, grow:4}},
   bandit:  {name:"BANDIT", cat:"sidearm", cost:600, rate:5.1, mag:8, res:24, rel:1.5, eq:0.75, run:0.85,
@@ -972,7 +974,7 @@ const VAL_GUNS = {
   spectre: {name:"SPECTRE", cat:"smg", cost:1600, rate:13.33, mag:30, res:90, rel:2.25, eq:0.75, run:0.85, auto:true, silenced:true,
     dmg:[[15,78,26,22],[30,66,22,19],[50,60,20,17]], spr:[0.4,0.34,1.4,1.19], mv:[0.15,1,2.5,10],
     ads:{zoom:1.15, move:0.76, rate:12, spr:[0.25,0.21,1.25,1.06]},
-    rc:{up:[0.35,0.2,0.08], n:[6,14], side:0.25, prot:7, rec:0.4, grow:9}},
+    rc:{up:[0.35,0.2,0.08], n:[6,14], side:0.25, prot:5, sw:0.28, rec:0.4, grow:9, runUp:1.8, runSide:1.5}},
   bucky:   {name:"BUCKY", cat:"shotgun", cost:850, rate:1.1, mag:5, res:10, rel:2.5, eq:1, run:0.75, pellets:15,
     dmg:[[8,34,17,14],[12,26,13,11],[50,18,9,8]], spr:[3,2.34,3,2.34], mv:[0.5,1,2,4], rc:{up:[3.5], rec:0.5, grow:1}},
   judge:   {name:"JUDGE", cat:"shotgun", cost:1850, rate:3.5, mag:5, res:15, rel:2.2, eq:1, run:0.75, pellets:12, auto:true,
@@ -980,18 +982,18 @@ const VAL_GUNS = {
   bulldog: {name:"BULLDOG", cat:"rifle", cost:2050, rate:10, mag:24, res:72, rel:2.5, eq:1, run:0.8, auto:true,
     dmg:[[50,116,35,30]], spr:[0.3,0.26,1.25,1.06], mv:[0.8,3,6,10],
     ads:{zoom:1.25, move:0.76, spr:[0.1,0.08,1.5,1.12], burst:3, burstRate:13.333, rate:2.105},
-    rc:{up:[0.5,0.3,0.12], n:[4,10], side:0.3, prot:4, rec:0.4, grow:6}},
+    rc:{up:[0.5,0.3,0.12], n:[4,10], side:0.3, prot:4, rec:0.35, grow:6}},
   guardian:{name:"GUARDIAN", cat:"rifle", cost:2250, rate:5.25, mag:12, res:36, rel:2.5, eq:1, run:0.8,
     dmg:[[50,195,65,49]], spr:[0.1,0.09,1.58,1.34], mv:[0.8,3,6,10],
-    ads:{zoom:1.5, move:0.76, spr:[0,0,1.48,1.25]}, rc:{up:[1.6], rec:0.4, grow:3}},
+    ads:{zoom:1.5, move:0.76, spr:[0,0,1.48,1.25]}, rc:{up:[1.6], rec:0.35, grow:3}},
   phantom: {name:"PHANTOM", cat:"rifle", cost:2900, rate:11, mag:30, res:60, rel:2.5, eq:1, run:0.8, auto:true, silenced:true,
     dmg:[[20,156,39,33],[50,140,35,30]], spr:[0.2,0.17,0.9,0.76], mv:[0.8,3,6,10],
     ads:{zoom:1.25, move:0.76, rate:9.9, spr:[0.11,0.09,0.91,0.78]},
-    rc:{up:[0.45,0.28,0.1], n:[6,14], side:0.28, prot:6, rec:0.375, grow:8}},
+    rc:{up:[0.45,0.28,0.1], n:[6,14], side:0.28, prot:8, rec:0.35, grow:8, runUp:1.8}},
   vandal:  {name:"VANDAL", cat:"rifle", cost:2900, rate:9.75, mag:25, res:50, rel:2.5, eq:1, run:0.8, auto:true,
     dmg:[[50,160,40,34]], spr:[0.25,0.21,1,0.85], mv:[0.8,3,6,10],
     ads:{zoom:1.25, move:0.76, rate:8.775, spr:[0.157,0.13,1.02,0.87]},
-    rc:{up:[0.55,0.32,0.1], n:[6,12], side:0.35, prot:6, rec:0.375, grow:7}},
+    rc:{up:[0.55,0.32,0.1], n:[6,12], side:0.35, prot:6, rec:0.375, grow:7, runUp:1.8}},
   // 狙擊槍：腰射很不準，右鍵開鏡後首發零散布
   marshal: {name:"MARSHAL", cat:"sniper", cost:950, rate:1.5, mag:5, res:15, rel:2.5, eq:1.25, run:0.8,
     dmg:[[50,202,101,86]], spr:[1,0.9,1,0.9], mv:[7.5,10,15,20],
@@ -6307,7 +6309,9 @@ function valUp(rc, n){
 // 開鏡時準心跟著後座走（寫進 rcPitch / rcYaw），腰射時準心不動、只有子彈會飄
 function valRecover(){
   const vs = G.vs, d = gun().val;
-  const since = G.t - vs.last - vs.gap;
+  // 多等一幀才算停火：下一發總是落在某一幀上、比間隔晚一點，沒有這個寬容的話連射中每發都會被回正一點，
+  // 計數落後，橫向擺動會晚好幾發才開始（Phantom 保護 8 發，原本第 11 發才擺）
+  const since = G.t - vs.last - vs.gap - 0.035;
   if (since > 0){
     const k = Math.max(0, 1 - since / d.rc.rec);
     vs.n = vs.n0 * k; vs.y = vs.y0 * k; vs.x = vs.x0 * k;
@@ -6365,11 +6369,15 @@ function valFire(alt, queued){
   // 射速：開鏡用開鏡射速；ODIN 腰射從 12 發/秒爬到 15.6（連射 0.5 秒到頂，自調）
   let rate = A ? A.rate : ads && d.ads.rate ? d.ads.rate : d.rate;
   if (d.rateMax && !ads) rate = d.rate + (d.rateMax - d.rate) * Math.min(1, vs.spinT / 0.5);
+  // 冷卻扣過頭的部分留給下一發：丟掉的話每發都要等到整數幀，60fps 下 Vandal 只剩 8.67 發/秒（官方 9.75）。
+  // 只在連續射擊時接上，停火後重新按下不算
+  const carry = G.t - G.lastShotT < vs.gap + 0.05 ? Math.min(0, p.cool) : 0;
   if (ads && d.ads.burst){
     // 點放：一串內用 burstRate，打完一串的冷卻讓整體符合每秒幾串（wiki）
     G.burstLeft = queued ? G.burstLeft - 1 : d.ads.burst - 1;
     p.cool = G.burstLeft > 0 ? 1/d.ads.burstRate : Math.max(0.05, 1/d.ads.rate - (d.ads.burst - 1)/d.ads.burstRate);
   } else p.cool = 1/rate;
+  p.cool += carry;
   vs.spinT = G.t - vs.last < 0.3 ? vs.spinT + p.cool : 0;
 
   // 子彈方向：滑鼠視角 + 目前累積的後座 + 散布圓內隨機一點（開鏡時準心已經含後座，算出來是同一個方向）
@@ -6394,10 +6402,14 @@ function valFire(alt, queued){
   // 後座：這一發之後子彈再往上飄一點；prot 發之後開始左右擺
   const rc = d.rc, n = Math.floor(vs.n);
   if (!A){
-    vs.y = Math.min(VAL.rcCap, vs.y + valUp(rc, n) * (G.crouching ? 0.85 : 1));
+    // 跑步（超過靜步速度）或騰空：垂直、橫向後座各乘上倍率（wiki）
+    const sp = Math.hypot(p.vx, p.vy), running = !p.grounded || sp > VAL.run * d.run * VAL.walkMul + 1;
+    vs.y = Math.min(VAL.rcCap, vs.y + valUp(rc, n) * (running ? rc.runUp || 1 : 1));
     if (rc.side && n >= rc.prot){
-      if (G.t - vs.sw > 0.6 && Math.random() < 0.10){ vs.dir = -vs.dir; vs.sw = G.t; }
-      vs.x += vs.dir * rc.side * (0.6 + Math.random()*0.8);
+      if (G.t - vs.sw > (rc.sw || 0.6) && Math.random() < 0.10){ vs.dir = -vs.dir; vs.sw = G.t; }
+      // 步槍蹲著不動時橫向後座 -15%（wiki：Vandal 0.50 版修正成和其他步槍一樣）
+      const still = G.crouching && p.grounded && sp < 1 && d.cat === "rifle" ? 0.85 : 1;
+      vs.x += vs.dir * rc.side * (running ? rc.runSide || 1 : 1) * still * (0.6 + Math.random()*0.8);
       if (Math.abs(vs.x) > 2.2){ vs.x = Math.sign(vs.x)*2.2; vs.dir = -vs.dir; vs.sw = G.t; }
     }
   }
@@ -7307,7 +7319,8 @@ function update(dt){
       sfx("sine", 68, 0.07, 0.02, 44);
     }
 
-    p.cool    = Math.max(0, p.cool - dt);
+    // Valorant 留最多一幀的負值，valFire 接上這個餘數，射速才不會被幀率吃掉
+    p.cool    = Math.max(G.val ? -dt : 0, p.cool - dt);
     if (G.val){
       G.tagT = Math.max(0, G.tagT - dt);
       valRegen(dt);

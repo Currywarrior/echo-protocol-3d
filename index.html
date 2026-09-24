@@ -3256,6 +3256,102 @@ addDoorFrames();
       o.castShadow = o.receiveShadow = true;
     });
   }
+  batchStatic(mapLayer);
+}
+
+// ── 靜態合批 ──
+// 地圖建好之後不會再動：同一種材質、落在同一塊 16m 區域裡的網格合併成一個，
+// RIDGE TOWN 一幀原本要 1000 多個 draw call，細節一加就卡；陰影要每幀更新（人物才有陰影）也要靠這個。
+// 分區而不是整張圖合成一個，是為了保留視錐裁切。
+// 不合併：InstancedMesh（本身就一次畫完）、透明材質與 ShaderMaterial（要排序或用到物件座標）、材質陣列
+function mergeGeometries(list){
+  let nv = 0, ni = 0;
+  for (const m of list){ const g = m.geometry; nv += g.attributes.position.count; ni += g.index ? g.index.count : g.attributes.position.count; }
+  const pos = new Float32Array(nv*3), nor = new Float32Array(nv*3), uv = new Float32Array(nv*2);
+  const idx = nv > 65535 ? new Uint32Array(ni) : new Uint16Array(ni);
+  const nm = new THREE.Matrix3(), v = new THREE.Vector3();
+  let vo = 0, io = 0;
+  for (const m of list){
+    const g = m.geometry, P = g.attributes.position, N = g.attributes.normal, U = g.attributes.uv;
+    nm.getNormalMatrix(m.matrixWorld);
+    for (let i=0;i<P.count;i++){
+      v.fromBufferAttribute(P, i).applyMatrix4(m.matrixWorld);
+      pos[(vo+i)*3] = v.x; pos[(vo+i)*3+1] = v.y; pos[(vo+i)*3+2] = v.z;
+      if (N){ v.fromBufferAttribute(N, i).applyMatrix3(nm).normalize(); nor[(vo+i)*3] = v.x; nor[(vo+i)*3+1] = v.y; nor[(vo+i)*3+2] = v.z; }
+      if (U){ uv[(vo+i)*2] = U.getX(i); uv[(vo+i)*2+1] = U.getY(i); }
+    }
+    // 負縮放（鏡像）會讓三角形的繞行方向反過來，要翻回去，否則背面剔除會把正面剔掉
+    const flip = m.matrixWorld.determinant() < 0;
+    const n = g.index ? g.index.count : P.count, at = k => g.index ? g.index.getX(k) : k;
+    for (let k=0;k<n;k+=3){
+      idx[io+k] = at(k) + vo;
+      idx[io+k+1] = at(flip ? k+2 : k+1) + vo;
+      idx[io+k+2] = at(flip ? k+1 : k+2) + vo;
+    }
+    io += n; vo += P.count;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute("normal", new THREE.BufferAttribute(nor, 3));
+  geo.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
+  geo.setIndex(new THREE.BufferAttribute(idx, 1));
+  geo.computeBoundingSphere();
+  return geo;
+}
+function mergeLines(list){
+  let nv = 0;
+  for (const l of list) nv += l.geometry.attributes.position.count;
+  const pos = new Float32Array(nv*3), v = new THREE.Vector3();
+  let vo = 0;
+  for (const l of list){
+    const P = l.geometry.attributes.position;
+    for (let i=0;i<P.count;i++){
+      v.fromBufferAttribute(P, i).applyMatrix4(l.matrixWorld);
+      pos[(vo+i)*3] = v.x; pos[(vo+i)*3+1] = v.y; pos[(vo+i)*3+2] = v.z;
+    }
+    vo += P.count;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  geo.computeBoundingSphere();
+  return geo;
+}
+function batchStatic(root){
+  root.updateMatrixWorld(true);
+  const CELL = 16, meshes = new Map(), lines = new Map(), c = new THREE.Vector3();
+  const keyOf = (o) => {
+    const g = o.geometry;
+    if (!g.boundingSphere) g.computeBoundingSphere();
+    c.copy(g.boundingSphere.center).applyMatrix4(o.matrixWorld);
+    return o.material.uuid + "|" + Math.floor(c.x/CELL) + "," + Math.floor(c.z/CELL);
+  };
+  root.traverse(o => {
+    if (o.isInstancedMesh || !o.visible || !o.geometry || Array.isArray(o.material)) return;
+    if (o.isMesh && !o.material.transparent && !o.material.isShaderMaterial && o.geometry.attributes.position){
+      const k = keyOf(o); (meshes.get(k) || meshes.set(k, []).get(k)).push(o);
+    } else if (o.isLineSegments){
+      const k = keyOf(o); (lines.get(k) || lines.set(k, []).get(k)).push(o);
+    }
+  });
+  const merged = [];
+  for (const list of meshes.values()){
+    if (list.length < 2) continue;
+    const m = new THREE.Mesh(mergeGeometries(list), list[0].material);
+    m.castShadow = list.some(o => o.castShadow); m.receiveShadow = list.some(o => o.receiveShadow);
+    merged.push([m, list]);
+  }
+  for (const list of lines.values()){
+    if (list.length < 2) continue;
+    merged.push([new THREE.LineSegments(mergeLines(list), list[0].material), list]);
+  }
+  for (const [m, list] of merged){
+    for (const o of list) o.parent.remove(o);
+    root.add(m);
+  }
+  // 清掉合併後變空的群組
+  const empty = [];
+  root.traverse(o => { if (o !== root && o.isGroup && !o.children.length) empty.push(o); });
+  for (const g of empty) g.parent && g.parent.remove(g);
 }
 buildMapGeometry();
 

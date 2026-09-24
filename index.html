@@ -602,18 +602,21 @@ const MAPS = {
     theme:{
       neutral:true,
       // 淺灰米、灰藍、灰綠的灰泥牆：環境不用飽和暖色（那是敵人的顏色）
-      walls:[0xD6D0C2, 0xC4CAC8, 0xBCC4B8], edge:0x7E7466,
-      trim:0xE8E2D4, panel:0xB8B0A0, strip:0x5FC8C0,
-      floor:0xC8BCA6, ceiling:0x000000, light:0xFFFFFF,
-      glow:0xFFFFFF, cold:0xA89A86, pipe:0x8E8274, terrain:0xB8AC96,
+      // 牆與地面的反照率壓在 0.6~0.7：再亮的話正午陽光下整片變成白色，看不出材質
+      walls:[0xC9C2B2, 0xB8BEBC, 0xB0B8AC], edge:0x7E7466,
+      trim:0xDCD6C8, panel:0xB8B0A0, strip:0x5FC8C0,
+      floor:0xBAAE98, ceiling:0x000000, light:0xFFFFFF,
+      glow:0xFFFFFF, cold:0xA89A86, pipe:0x8E8274, terrain:0xAA9E88,
       propMetal:0x7E7466, propDark:0x4A4038,
       ashlar:true, bags:0xA8946C, stone:0xA09682, stoneDark:0x847A68,
       topGrime:false,
     },
     atmo:{
-      bg:0xE8E0D2, fog:0.0035, hemiSky:0xB8D0EC, hemiGround:0xB09A7A, hemi:0.85,
-      sensor:0.6, bloom:0.08, threshold:0.95, vignette:0.2, grade:0.35,
-      sunColor:0xFFE2B8, sunI:1.9, sunDir:[0.45,0.7,0.35],
+      // 掛在鏡頭上的橘色感測器光在白天是多餘的：把近處照平、染橘，所以關掉；
+      // 環境光降、太陽升、整體曝光降一點，亮面與陰影的反差才拉得開
+      bg:0xE8E0D2, fog:0.0035, hemiSky:0xB8D0EC, hemiGround:0xB09A7A, hemi:0.72,
+      sensor:0, bloom:0.08, threshold:0.95, vignette:0.2, grade:0.35, exposure:0.95,
+      sunColor:0xFFE2B8, sunI:2.1, sunDir:[0.45,0.7,0.35],
       skyTop:0x4E8AD6, skyHorizon:0xE8DCC8,
       aberr:0, scan:0, noise:0, sharp:0.5, ao:1, env:true, clouds:0.85,
     },
@@ -3480,6 +3483,7 @@ function applyAtmo(){
   compMat.uniforms.uNoise.value = ATMO.noise;
   compMat.uniforms.uSharp.value = ATMO.sharp;
   compMat.uniforms.uAO.value = ATMO.ao;
+  compMat.uniforms.uExpo.value = ATMO.exposure ?? 1.08;
   const out = !!activeMap.outdoor;
   ceil.visible = !out;
   sky.visible = out;
@@ -4574,13 +4578,13 @@ const compMat = new THREE.ShaderMaterial({
     uDamage:{value:0}, uLow:{value:0}, uEcho:{value:0},
     uAberr:{value:1.0}, uGain:{value:1.0}, uVig:{value:0.78}, uGrade:{value:1.0},
     uScan:{value:0.07}, uNoise:{value:0.045}, uSharp:{value:0}, uRes:{value:new THREE.Vector2(1280,720)},
-    uOutline:{value:0.85}, uOutW:{value:2.2},
+    uOutline:{value:0.85}, uOutW:{value:2.2}, uExpo:{value:1.08},
   },
   vertexShader:VERT,
   fragmentShader:`
     uniform sampler2D tScene, tBloom, tAO, tDepth;
     uniform float uAO;
-    uniform float uBloom, uTime, uDamage, uLow, uEcho, uAberr, uGain, uVig, uGrade, uScan, uNoise, uSharp, uOutline, uOutW;
+    uniform float uBloom, uTime, uDamage, uLow, uEcho, uAberr, uGain, uVig, uGrade, uScan, uNoise, uSharp, uOutline, uOutW, uExpo;
     uniform vec2 uRes;
     varying vec2 vUv;
     float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453); }
@@ -4632,7 +4636,7 @@ const compMat = new THREE.ShaderMaterial({
       }
       col += texture2D(tBloom, vUv).rgb * uBloom;
       col = grade(col);
-      col = aces(col * 1.08);
+      col = aces(col * uExpo);
 
       // 人物輪廓外框：自己不是人物、周圍 8 個方向有人物的像素。
       // 顏色看背景：亮的背景（沙色牆、天空）畫深色，暗的背景（室內）畫淺色，兩種環境都分得出輪廓。

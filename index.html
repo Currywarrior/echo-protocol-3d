@@ -4079,6 +4079,13 @@ function makeBotObject(type){
   root.add(ghost);
   root.userData.ghost = ghost;
   root.userData.blob = shadow;
+  // 輪廓外框的標記：人物的不透明材質把 alpha 寫成 0.5（見 markCharacter / compMat 的 uOutline）
+  root.userData.marks = [];
+  root.traverse(o => {
+    if (!o.isMesh || o === ghost || o === shadow || o.material.transparent) return;
+    const u = markCharacter(o.material);
+    if (u && !root.userData.marks.includes(u)) root.userData.marks.push(u);
+  });
   // 露天地圖有太陽的即時陰影，腳下的圓形假影子就不需要了（室內圖沒有太陽，保留）
   shadow.visible = !activeMap.outdoor;
   mergeRigid(root, new Set([ghost, shadow]));
@@ -4091,6 +4098,23 @@ function makeBotObject(type){
     o.castShadow = o.geometry.boundingSphere.radius > 0.06;
   });
   return root;
+}
+// 人物輪廓的標記：在場景緩衝的 alpha 通道寫 0.5（其他東西都是 1），合成時找出「自己沒標記、旁邊有標記」的像素畫外框。
+// 不另外多畫一趟；而且場景本來就有深度測試，被牆擋住的部分不會被標記，外框不會穿牆
+// （熱成像「看不到牆後面」的設定不變）。屍體把 uMark 設成 0，不畫外框
+function markCharacter(m){
+  if (m.userData.mark) return m.userData.mark;
+  const u = m.userData.mark = {value:1};
+  const prev = m.onBeforeCompile;
+  m.onBeforeCompile = (sh, r) => {
+    if (prev) prev(sh, r);
+    sh.uniforms.uMark = u;
+    sh.fragmentShader = sh.fragmentShader
+      .replace("#include <common>", "#include <common>\nuniform float uMark;")
+      .replace(/}\s*$/, "  gl_FragColor.a = mix(gl_FragColor.a, 0.5, uMark);\n}");
+  };
+  m.needsUpdate = true;
+  return u;
 }
 // 同一個關節底下、同一種材質、本身沒有再掛東西的零件合併成一個網格（在關節自己的座標系裡合併，關節動畫照常）。
 // 一隻敵人原本由約 65 個小網格組成，七隻就是四百多個 draw call
@@ -4501,12 +4525,13 @@ const compMat = new THREE.ShaderMaterial({
     uDamage:{value:0}, uLow:{value:0}, uEcho:{value:0},
     uAberr:{value:1.0}, uGain:{value:1.0}, uVig:{value:0.78}, uGrade:{value:1.0},
     uScan:{value:0.07}, uNoise:{value:0.045}, uSharp:{value:0}, uRes:{value:new THREE.Vector2(1280,720)},
+    uOutline:{value:0.85}, uOutW:{value:2.2},
   },
   vertexShader:VERT,
   fragmentShader:`
     uniform sampler2D tScene, tBloom, tAO, tDepth;
     uniform float uAO;
-    uniform float uBloom, uTime, uDamage, uLow, uEcho, uAberr, uGain, uVig, uGrade, uScan, uNoise, uSharp;
+    uniform float uBloom, uTime, uDamage, uLow, uEcho, uAberr, uGain, uVig, uGrade, uScan, uNoise, uSharp, uOutline, uOutW;
     uniform vec2 uRes;
     varying vec2 vUv;
     float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453); }
@@ -4524,6 +4549,8 @@ const compMat = new THREE.ShaderMaterial({
       vec3 hi = vec3(1.10, 0.97, 0.84);
       return c * mix(vec3(1.0), mix(lo, hi, smoothstep(0.0, 0.55, l)), uGrade);
     }
+    // 人物標記：場景緩衝 alpha 0.5 是人物、1 是其他東西（邊緣多重取樣會落在中間）
+    float charAt(vec2 uv){ return clamp((1.0 - texture2D(tScene, uv).a) * 2.0, 0.0, 1.0); }
     void main(){
       vec2 d = vUv - 0.5;
       float r = length(d);
@@ -4557,6 +4584,27 @@ const compMat = new THREE.ShaderMaterial({
       col += texture2D(tBloom, vUv).rgb * uBloom;
       col = grade(col);
       col = aces(col * 1.08);
+
+      // 人物輪廓外框：自己不是人物、周圍 8 個方向有人物的像素。
+      // 顏色看背景：亮的背景（沙色牆、天空）畫深色，暗的背景（室內）畫淺色，兩種環境都分得出輪廓。
+      // 槍模的像素不畫（worldPx）
+      if (uOutline > 0.0 && worldPx > 0.5){
+        float self = charAt(vUv);
+        if (self < 0.5){
+          vec2 px = uOutW / uRes;
+          float nb = 0.0;
+          nb = max(nb, charAt(vUv + vec2( px.x, 0.0)));  nb = max(nb, charAt(vUv + vec2(-px.x, 0.0)));
+          nb = max(nb, charAt(vUv + vec2(0.0,  px.y)));  nb = max(nb, charAt(vUv + vec2(0.0, -px.y)));
+          nb = max(nb, charAt(vUv + px*0.7));            nb = max(nb, charAt(vUv - px*0.7));
+          nb = max(nb, charAt(vUv + vec2(px.x, -px.y)*0.7)); nb = max(nb, charAt(vUv + vec2(-px.x, px.y)*0.7));
+          float edge = clamp(nb - self, 0.0, 1.0);
+          if (edge > 0.0){
+            float bgL = dot(col, vec3(0.2126, 0.7152, 0.0722));
+            vec3 oc = bgL > 0.32 ? vec3(0.04, 0.04, 0.05) : vec3(0.88, 0.9, 0.94);
+            col = mix(col, oc, edge * uOutline * (bgL > 0.32 ? 1.0 : 0.7));
+          }
+        }
+      }
 
       // 感測器的逐行掃描與緩慢捲動的更新帶
       col *= 1.0 - uScan + uScan * sin(vUv.y * uRes.y * 1.6);
@@ -6907,6 +6955,7 @@ function update(dt){
       const fallDelta = fallAngle - b.angle;
       const fallDirX = Math.sin(fallDelta);
       const fallDirZ = -Math.cos(fallDelta);
+      for (const u of b.obj.userData.marks || []) u.value = 0;
       G.corpses.push({obj:b.obj, life:2.6, max:2.6,
                       baseQuat:new THREE.Quaternion().setFromEuler(
                         new THREE.Euler(0, yawOf(b.angle), 0)),

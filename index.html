@@ -6470,6 +6470,15 @@ function botFindCover(b, T, p){
   }
   return best;
 }
+// 前方的搜索點：沿目前面向 ±70°、4～9m 內，直線走得到（NAV 格）的點，試 6 次
+function botAheadGoal(b){
+  for (let k=0;k<6;k++){
+    const a = b.angle + (Math.random()*2 - 1)*1.2, r = 130 + Math.random()*170;
+    const x = Math.max(0, Math.min(W - 1, b.x + Math.cos(a)*r)), y = Math.max(0, Math.min(H - 1, b.y + Math.sin(a)*r));
+    if (!navBlocked(x, y) && lineClear(b.x, b.y, x, y)) return {x, y};
+  }
+  return null;
+}
 // 每幀的戰術目標。回傳 null 表示照原本的追擊／側移；否則回傳 {x, y, still, face}：
 // 要走去的點、是不是要站著不動、不動時面向哪裡
 function botTactics(b, T, p, los, dt){
@@ -6481,7 +6490,13 @@ function botTactics(b, T, p, los, dt){
   if (newLeg){ b.tacGX = b.goalX; b.tacGY = b.goalY; }
   if (!los && (newLeg || (b.tacChase && !b.chase))){
     const gx = b.chase ? b.lastX : b.goalX, gy = b.chase ? b.lastY : b.goalY;
-    if (angDiff(Math.atan2(gy - b.y, gx - b.x), b.angle) > 2.1) b.pauseUntil = G.t + 0.8 + Math.random()*0.7;
+    if (angDiff(Math.atan2(gy - b.y, gx - b.x), b.angle) > 2.1){
+      // 搜索的下一站在背後：先試著改找前方 4～9m、±70° 內走得到的點（像真人一路往前清點），找不到才停一下再轉身。
+      // 停一下再原路折返，兩秒內等於沒前進，看起來還是像卡住
+      const ahead = b.chase ? null : botAheadGoal(b);
+      if (ahead){ b.goalX = b.tacGX = ahead.x; b.goalY = b.tacGY = ahead.y; }
+      else b.pauseUntil = G.t + 0.8 + Math.random()*0.7;
+    }
   }
   b.tacChase = b.chase;
   const pause = !los && G.t < (b.pauseUntil || 0) ? {x:b.x, y:b.y, still:true, face:b.angle} : null;
@@ -6532,6 +6547,10 @@ function botTactics(b, T, p, los, dt){
     // 少了這段，保持距離的敵人會「太近往後退 → 看不到 → 追回去 → 看到又太近往後退」，在視線邊緣來回走
     if (!los){
       if (b.edgeFrom !== b.seenT){ b.edgeFrom = b.seenT; b.edgeUntil = G.t + 1.5 + Math.random()*1.5; }
+      // 被別的敵人擠住超過 1 秒就不架了（對方多半正想從這裡過去）；不能一擠就放棄，
+      // 否則兩隻在同一個牆角會輪流「架、被擠、走開、又架」來回抖
+      b.crowdT = botCrowded(b) ? (b.crowdT || 0) + dt : 0;
+      if (b.crowdT > 1) b.edgeUntil = G.t;
       if (G.t < b.edgeUntil) return {x:b.x, y:b.y, still:true, face:Math.atan2(b.lastY - b.y, b.lastX - b.x)};
     }
     return null;

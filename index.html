@@ -1100,7 +1100,9 @@ const VAL_GUNS = {
     ads:{zoom:3.5, move:0.9, rate:1.2, spr:[0,0,0,0]}, rc:{up:[3], rec:0.6, grow:1}},
   outlaw:  {name:"OUTLAW", cat:"sniper", cost:2400, rate:2.75, mag:2, res:10, rel:3.8, eq:1.25, run:0.8,
     dmg:[[50,238,140,119]], spr:[3.5,3.15,3.5,3.15], mv:[7.5,10,15,20],
-    ads:{zoom:3.5, move:0.8, spr:[0,0,0,0]}, rc:{up:[3.5], rec:0.6, grow:1}},
+    // 唯一開完槍還留在瞄準鏡裡的狙擊槍（見 valFire），每發的上跳在 3.5 倍鏡裡會被放大，3.5° 看起來像整個畫面甩上去；
+    // 降到 1.5°（自調，官方沒公開）
+    ads:{zoom:3.5, move:0.8, spr:[0,0,0,0], stay:true}, rc:{up:[1.5], rec:0.6, grow:1}},
   operator:{name:"OPERATOR", cat:"sniper", cost:4700, rate:0.6, mag:5, res:10, rel:3.7, eq:1.5, run:0.76,
     dmg:[[50,255,150,120]], spr:[5,4.5,5,4.5], mv:[7.5,10,15,15],
     ads:{zoom:2.5, zoom2:5, move:0.72, spr:[0,0,0,0]}, rc:{up:[4], rec:0.8, grow:1}},
@@ -7271,6 +7273,11 @@ function valFire(alt, queued){
     });
   }
   G.shots += pel;
+  // Operator、Marshal 開完一槍會被踢出瞄準鏡，要重新開鏡；Outlaw 例外（ads.stay）。
+  // 來源：Outlaw 攻略 "Unlike the other sniper rifles, the outlaw will not kick you out of ADS after you fire a shot"。
+  // 原本留在鏡裡，開鏡時準心又跟著後座走，Operator 每發上跳 4° 被 2.5～5 倍放大，Leo 反映開完槍畫面突然往上抬
+  const kickedOut = d.cat === "sniper" && ads && !d.ads.stay;
+  if (kickedOut){ G.adsOn = false; G.zoom2 = false; }
   G.lastShotT = G.t;
   // 後座：這一發之後子彈再往上飄一點；prot 發之後開始左右擺
   const rc = d.rc, n = Math.floor(vs.n);
@@ -7288,6 +7295,8 @@ function valFire(alt, queued){
   }
   vs.n += 1;
   vs.n0 = vs.n; vs.y0 = vs.y; vs.x0 = vs.x; vs.last = G.t; vs.gap = p.cool;
+  // 被踢出瞄準鏡的這一槍不加垂直後座：退鏡時開鏡程度是慢慢降的，這段時間鏡頭仍跟著後座，畫面會先往上甩一下
+  if (kickedOut){ vs.y = vs.y0 = 0; }
   // 手上的回饋：槍模後座、火光、聲音（滅音槍小聲很多）
   // 手上的回饋要「一發一發」：原本只有一個累加的後座值，步槍一秒十發加得比退得快，連射時頂在上限，
   // 槍整個卡在後面不動、火光也一直亮成一團，看不出每一發。改成每發一次快速回彈的踢動脈衝（kick），

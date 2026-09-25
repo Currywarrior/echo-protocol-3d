@@ -396,6 +396,9 @@
             <option value="30">30 m</option><option value="50">50 m</option>
           </select>
         </label>
+        <label class="opt" for="rgTestDifficulty" data-for="valorant">射擊測驗難度
+          <select id="rgTestDifficulty"><option value="easy">Easy</option><option value="medium">Medium</option><option value="hard">Hard</option></select>
+        </label>
       </div>
       </div>
       <button type="button" class="ghost" id="btnMenuPause">返回主選單</button>
@@ -6046,6 +6049,7 @@ const ACTIONS = [
   {id:"prevGun",    label:"上一把武器",       def:["", ""]},
   {id:"deploy",     label:"訓練場：佈置假人", def:["KeyT", ""]},
   {id:"resetStats", label:"訓練場：統計歸零", def:["KeyX", ""]},
+  {id:"rangeTest",  label:"訓練場：開始／中止射擊測驗", def:["KeyG", ""]},
   {id:"lessonNext", label:"教學：開始 / 下一課", def:["KeyH", ""]},
   {id:"lessonPrev", label:"教學：上一課",       def:["KeyJ", ""]},
 ];
@@ -6131,7 +6135,7 @@ function newGame(){
     pingMark:null,
     lessonOn:false, lessonI:0, lessonN:0, takeoffSp:0, takeoffKind:"jump", trackHold:{t:0, on:0},
     // 訓練場
-    practice:modeSelect.value === "range", rs:freshRangeStats(), respawns:[],
+    practice:modeSelect.value === "range", rs:freshRangeStats(), respawns:[], rangeTest:null,
     breakMark:0, breakColor:"#FFFFFF",
   };
   if (g0.val) valSetup(g0);
@@ -6329,11 +6333,12 @@ const CROUCH_DROP = 0.28;       // 蹲下時骨盆降多少（模型尺度，乘
 const LANE = [8, 15, 22, 30];
 const LANE_SIDE = [-1.8, 1.8, -1.2, 1.2];
 
-const RANGE = {move:"strafe", speed:"mid", stance:"stand", random:1, shield:2, infinite:1, jump:0, board:10};
+const RANGE = {move:"strafe", speed:"mid", stance:"stand", random:1, shield:2, infinite:1, jump:0, board:10, testDifficulty:"medium"};
 try {
   const raw = localStorage.getItem("echo3d.range");
   if (raw) Object.assign(RANGE, JSON.parse(raw));
 } catch(e){}
+if (!["easy","medium","hard"].includes(RANGE.testDifficulty)) RANGE.testDifficulty = "medium";
 
 // 假人外觀：同一套人形，迷彩換成素色訓練服，和敵人一眼分得出來
 function dummyObject(){
@@ -6416,6 +6421,111 @@ function deployDummies(auto){
   else if (placed < LANE.length) banner("RANGE · " + placed + " TARGETS", "有些距離被擋住了，換個更開闊的方向按 " + kT + " 可以放滿四隻");
   else banner("RANGE · " + placed + " TARGETS", kT + " 在面前重新佈置 · " + kX + " 統計歸零 · ESC 調整假人");
   sfx("sine", 520, 0.12, 0.04, 780);
+}
+// 射擊測驗的出場時間是官方規則未公開的部分，以下三個秒數為自調。
+const RANGE_TEST = {total:30, minDist:8, maxDist:45, margin:1.5, laneX:250};
+const RANGE_TEST_LEVELS = {
+  easy:{time:3.0}, medium:{time:2.0}, hard:{time:1.5},
+};
+function rangeTestAllowed(){ return !!(G && G.val && G.practice && activeMap === MAPS.range); }
+function beginRangeTest(){
+  if (!rangeTestAllowed()) return;
+  if (G.rangeTest){
+    G.rangeTest = null;
+    deployDummies(true);
+    banner("SHOOTING TEST ABORTED", "假人已恢復");
+    return;
+  }
+  clearDummies();
+  G.rangeTest = {
+    difficulty:RANGE.testDifficulty, phase:"countdown", countdown:3,
+    index:0, kills:0, missed:0, headshots:0, reactionTotal:0,
+    shotsStart:0, hitsStart:0, current:null, delay:0,
+  };
+  banner("SHOOTING TEST", "3 秒後開始 · 按 " + bindLabel("rangeTest") + " 中止");
+  sfx("sine", 660, 0.12, 0.04, 880);
+}
+function spawnRangeTestDummy(){
+  const st = G.rangeTest, level = RANGE_TEST_LEVELS[st.difficulty];
+  if (st.index === 0){ st.shotsStart = G.shots; st.hitsStart = G.hits; }
+  st.index++;
+  const minY = 24 + RANGE_TEST.margin*PXM, maxY = 700 - RANGE_TEST.margin*PXM;
+  let spot = null;
+  for (let i=0;i<120;i++){
+    const x = RANGE_TEST.laneX + (RANGE_TEST.minDist + Math.random()*(RANGE_TEST.maxDist-RANGE_TEST.minDist))*PXM;
+    const y = minY + Math.random()*(maxY-minY);
+    if (spotFree(x, y, TYPES.grunt.rad + 4) && hasLOS(RANGE_TEST.laneX, G.player.y, x, y, eyeH(), 1.4)){
+      spot = {x,y}; break;
+    }
+  }
+  if (!spot){
+    for (let j=0;j<24 && !spot;j++){
+      const x = RANGE_TEST.laneX + (RANGE_TEST.minDist + j%6*7)*PXM;
+      const y = minY + (maxY-minY)*(Math.floor(j/6)+0.5)/4;
+      if (spotFree(x, y, TYPES.grunt.rad + 4) && hasLOS(RANGE_TEST.laneX, G.player.y, x, y, eyeH(), 1.4)) spot = {x,y};
+    }
+  }
+  if (!spot){ rangeTestResolve(false); return; }
+  const b = makeDummy(spot.x, spot.y, 0, 1);
+  b.test = true; b.testDifficulty = st.difficulty;
+  b.testRemaining = level.time; b.testBorn = G.t; b.testHeadKill = false;
+  b.crouch = b.crouchT = 0;
+  b.testTurnT = 0.25 + Math.random()*0.9; b.testCrouchT = 0.4 + Math.random()*1.2;
+  b.testCrouching = false; b.testSpeed = st.difficulty === "medium" ? "mid" : "slow";
+  b.testMinY = minY; b.testMaxY = maxY;
+  st.current = b; st.phase = "active";
+  G.bots.push(b);
+}
+function rangeTestResolve(killed, bot){
+  const st = G && G.rangeTest;
+  if (!st) return;
+  if (killed && bot){
+    st.kills++;
+    if (bot.testHeadKill) st.headshots++;
+    st.reactionTotal += Math.max(0, G.t-bot.testBorn);
+  } else st.missed++;
+  st.current = null;
+  if (st.index >= RANGE_TEST.total){ finishRangeTest(); return; }
+  st.phase = "delay"; st.delay = 0.35;
+}
+function finishRangeTest(){
+  const st = G.rangeTest;
+  if (!st) return;
+  const shots = Math.max(0, G.shots-st.shotsStart), hits = Math.max(0, G.hits-st.hitsStart);
+  const accuracy = shots ? Math.round(hits/shots*100) : 0;
+  const avg = st.kills ? st.reactionTotal/st.kills : 0;
+  let records = {};
+  try { records = JSON.parse(localStorage.getItem("echo3d.rangeTestBest") || "{}") || {}; } catch(e){}
+  const oldBest = Number(records[st.difficulty]) || 0;
+  const record = st.kills > oldBest;
+  if (record){
+    records[st.difficulty] = st.kills;
+    try { localStorage.setItem("echo3d.rangeTestBest", JSON.stringify(records)); } catch(e){}
+  }
+  const title = "SHOOTING TEST · " + st.difficulty.toUpperCase() + "　" + st.kills + " / " + RANGE_TEST.total + (record ? " · NEW BEST" : "");
+  const sub = "命中率 " + accuracy + "% · 平均反應 " + avg.toFixed(2) + " 秒 · 爆頭 " + st.headshots + " · 漏掉 " + st.missed;
+  G.rangeTest = null;
+  deployDummies(true);
+  banner(title, sub);
+}
+function updateRangeTest(dt){
+  const st = G.rangeTest;
+  if (!st) return;
+  if (st.phase === "countdown"){
+    st.countdown -= dt;
+    if (st.countdown <= 0) spawnRangeTestDummy();
+  } else if (st.phase === "active"){
+    st.current.testRemaining -= dt;
+    if (st.current.testRemaining <= 0){
+      const b = st.current, i = G.bots.indexOf(b);
+      if (i >= 0) G.bots.splice(i,1);
+      botLayer.remove(b.obj);
+      rangeTestResolve(false);
+    }
+  } else if (st.phase === "delay"){
+    st.delay -= dt;
+    if (st.delay <= 0) spawnRangeTestDummy();
+  }
 }
 // ── 精準度靶板（THE RANGE 南邊的靶板道，仿官方 Target Practice）──
 // 靶面 1.6m x 2.0m，中心在站姿視線高度，所以平視瞄準中心、首發會打在中心附近。
@@ -6658,7 +6768,40 @@ function resetRangeStats(){
   if (BOARD.on) clearBoard();
   banner("STATS RESET");
 }
+function updateRangeTestDummy(b, dt){
+  const p = G.player;
+  b.angle = Math.atan2(p.y-b.y, p.x-b.x);
+  const hard = b.testDifficulty === "hard";
+  if (hard){
+    b.testCrouchT -= dt;
+    if (b.testCrouchT <= 0){
+      b.testCrouching = Math.random() < 0.38;
+      b.testCrouchT = 0.45 + Math.random()*1.35;
+    }
+    b.crouch = b.testCrouching ? 1 : 0;
+  } else b.crouch = 0;
+  b.crouchT += (b.crouch-b.crouchT)*Math.min(1, dt*9);
+
+  const lo = Math.max(b.testMinY, b.homeY-STRAFE_RANGE), hi = Math.min(b.testMaxY, b.homeY+STRAFE_RANGE);
+  const off = b.y-b.homeY, atEdge = off*b.dir >= Math.min(STRAFE_RANGE, (b.dir > 0 ? hi-b.homeY : b.homeY-lo));
+  b.testTurnT -= dt;
+  if (atEdge || (hard && b.testTurnT <= 0)){
+    if (atEdge || Math.random() < 0.75) b.dir = -b.dir;
+    b.testTurnT = 0.3 + Math.random()*0.9;
+    if (hard) b.testSpeed = ["slow","mid","fast"][(Math.random()*3)|0];
+  }
+  const speed = b.testDifficulty === "medium" ? VAL_STRAFE.mid : VAL_STRAFE[b.testSpeed];
+  const target = b.testDifficulty === "easy" ? 0 : b.dir * (b.crouchT > 0.5 ? Math.min(speed, VAL_STRAFE.slow) : speed);
+  const acc = DUMMY_ACCEL*dt;
+  b.vel += Math.max(-acc, Math.min(acc, target-b.vel));
+  b.px = b.x; b.py = b.y;
+  const hit = moveWithCollision(b, 0, b.vel*dt);
+  b.y = Math.max(lo, Math.min(hi, b.y));
+  if (hit.x || hit.y || b.y !== b.py+b.vel*dt){ b.dir = -b.dir; b.vel = 0; }
+  b.moved = Math.hypot(b.x-b.px,b.y-b.py);
+}
 function updateDummy(b, dt){
+  if (b.test){ updateRangeTestDummy(b, dt); return; }
   const p = G.player;
   // 永遠面向玩家，像 Apex 的假人一樣正對靶道
   b.angle = Math.atan2(p.y-b.y, p.x-b.x);
@@ -7070,6 +7213,7 @@ function valArmorHit(t, raw){
 // 命中一隻敵人或假人：扣血與護甲、訓練場統計、中彈減速、受擊動畫與命中回饋
 function valApplyHit(b, raw, zone, at, farPellet){
   const r = valArmorHit(b, raw);
+  if (b.test && zone === "head" && b.hp <= 0) b.testHeadKill = true;
   // 破甲只給聲音，不畫 Apex 那圈擴散的破盾弧線：Valorant 沒有，而且一槍爆頭常同時破甲，看起來像爆頭圓環（Leo 否決過）
   if (r.broke){ b.armor = 0; sfx("triangle", 1500, 0.14, 0.045, 600); }
   if (b.dummy){
@@ -7756,6 +7900,7 @@ function lurch(p, wx, wy){
 // ─────────────────────────────────────────────
 function update(dt){
   G.t += dt;
+  updateRangeTest(dt);
   // 幀率取半秒平均，數字才不會一直跳
   G.fpsAcc += dt; G.fpsN++;
   if (G.fpsAcc >= 0.5){ G.fps = G.fpsN/G.fpsAcc; G.fpsAcc = 0; G.fpsN = 0; }
@@ -8367,6 +8512,13 @@ function update(dt){
       const fallDelta = fallAngle - b.angle;
       const fallDirX = Math.sin(fallDelta);
       const fallDirZ = -Math.cos(fallDelta);
+      if (b.dummy && b.test){
+        for (const u of b.obj.userData.marks || []) u.value = 0;
+        G.bots.splice(i,1);
+        botLayer.remove(b.obj);
+        rangeTestResolve(true, b);
+        continue;
+      }
       for (const u of b.obj.userData.marks || []) u.value = 0;
       G.corpses.push({obj:b.obj, life:2.6, max:2.6,
                       baseQuat:new THREE.Quaternion().setFromEuler(
@@ -9306,11 +9458,30 @@ function drawDmHud(w, h, cx){
   uctx.fillText(bindLabel("buy") + " 買槍（死鬥免費）", 28, h - 40);
 }
 function drawRangeHud(w, h, cx){
-  const p = G.player, rs = G.rs;
+  const p = G.player, rs = G.rs, test = G.rangeTest;
   uctx.textAlign = "center";
   uctx.fillStyle = "#9184B4";
   uctx.font = '600 11px "Chakra Petch", system-ui';
-  if (!G.lessonOn) uctx.fillText("TRAINING RANGE", cx, 50);
+  if (!G.lessonOn && !test) uctx.fillText("TRAINING RANGE", cx, 50);
+  if (test){
+    const pw = Math.min(420,w-24), px = cx-pw/2, py = 25, ph = 51;
+    uctx.fillStyle = "rgba(8,6,20,.78)"; uctx.fillRect(px,py,pw,ph);
+    uctx.strokeStyle = "rgba(145,132,180,.55)"; uctx.lineWidth = 1; uctx.strokeRect(px+.5,py+.5,pw-1,ph-1);
+    uctx.textAlign = "center"; uctx.fillStyle = "#F2ECFF"; uctx.font = '700 12px "Chakra Petch", system-ui';
+    uctx.fillText("SHOOTING TEST · " + test.difficulty.toUpperCase(),cx,py+16);
+    let line = "";
+    if (test.phase === "countdown") line = "準備 " + Math.ceil(test.countdown) + " 秒 · 按 " + bindLabel("rangeTest") + " 中止";
+    else if (test.phase === "active") line = "第 " + test.index + " / 30 隻　擊殺 " + test.kills;
+    else line = "第 " + (test.index+1) + " / 30 隻　擊殺 " + test.kills + " · 下一隻即將出現";
+    if (test.phase === "active") line += " · " + Math.max(0,test.current.testRemaining).toFixed(1) + "s";
+    uctx.font = '600 10px "IBM Plex Mono", ui-monospace, monospace'; uctx.fillStyle = "#D8D0EE";
+    uctx.fillText(line,cx,py+32);
+    if (test.phase === "active"){
+      const level = RANGE_TEST_LEVELS[test.difficulty], bw = pw-28, bx = px+14, by = py+41;
+      uctx.fillStyle = "rgba(0,0,0,.6)"; uctx.fillRect(bx,by,bw,4);
+      uctx.fillStyle = "#FF8A2B"; uctx.fillRect(bx,by,bw*Math.max(0,Math.min(1,test.current.testRemaining/level.time)),4);
+    }
+  }
 
   const burst = rs.last - rs.bStart + gun().fireGap;
   const rows = [
@@ -9335,8 +9506,10 @@ function drawRangeHud(w, h, cx){
     uctx.fillText(rows[i][1], x0 + 140, yy);
     uctx.font = '600 10px "Chakra Petch", system-ui';
   }
-  uctx.textAlign = "left"; uctx.fillStyle = "rgba(145,132,180,.7)";
-  uctx.fillText(bindLabel("deploy") + " 佈置 · " + bindLabel("resetStats") + " 歸零" + (G.val ? "" : " · " + bindLabel("lessonNext") + " 教學"), x0 + 10, y0 + rows.length*19 + 20);
+  if (!test){
+    uctx.textAlign = "left"; uctx.fillStyle = "rgba(145,132,180,.7)";
+    uctx.fillText(bindLabel("deploy") + " 佈置 · " + bindLabel("resetStats") + " 歸零" + (G.val ? "" : " · " + bindLabel("lessonNext") + " 教學"), x0 + 10, y0 + rows.length*19 + 20);
+  }
   if (G.lessonOn) drawLesson(w);
   drawSprayChart(x0, y0 + rows.length*19 + 46, 150);
   // 平滑射擊觸發中：準心下方一行提示，練的時候才知道自己有沒有做到
@@ -9682,8 +9855,9 @@ function inputDown(code){
       swapGun(list[(i + step + list.length) % list.length]);
     }
     else if (id === "buy"){ if (G.val) openBuy(); }
-    else if (id === "deploy"){ if (G.practice) deployDummies(); }
-    else if (id === "resetStats"){ if (G.practice) resetRangeStats(); }
+    else if (id === "deploy"){ if (G.practice && !G.rangeTest) deployDummies(); }
+    else if (id === "resetStats"){ if (G.practice && !G.rangeTest) resetRangeStats(); }
+    else if (id === "rangeTest"){ beginRangeTest(); }
     else if (id === "lessonNext") lessonStep(1);
     else if (id === "lessonPrev") lessonStep(-1);
   }
@@ -9927,7 +10101,7 @@ refreshKeyHints();
 
 // 訓練場設定：和其他設定一樣存在瀏覽器本機
 const rangeSet = document.getElementById("rangeSet");
-const RANGE_EL = {move:"rgMove", speed:"rgSpeed", stance:"rgStance", random:"rgRandom", shield:"rgShield", infinite:"rgInfinite", jump:"rgJump", board:"rgBoard"};
+const RANGE_EL = {move:"rgMove", speed:"rgSpeed", stance:"rgStance", random:"rgRandom", shield:"rgShield", infinite:"rgInfinite", jump:"rgJump", board:"rgBoard", testDifficulty:"rgTestDifficulty"};
 for (const [key, id] of Object.entries(RANGE_EL)){
   const el = document.getElementById(id);
   el.value = String(RANGE[key]);

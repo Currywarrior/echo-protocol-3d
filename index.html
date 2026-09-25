@@ -4519,19 +4519,30 @@ const bulletPool = [];
 // 曳光（Valorant）：子彈一幀就飛 30m，近距離在畫出來之前就命中消失了，所以曳光不跟著子彈走，
 // 而是子彈結束時，讓一段亮線從槍口飛到終點（像真的曳光彈），最後在終點淡出。
 // 原本是整條線從槍口那端收縮 0.07 秒、寬 1.8cm：靠近槍口那段在畫面上最長卻最先消失，Leo 反映看不清楚
-const TRACER_T = 0.12, TRACER_W = 0.028, TRACER_LEN = 4.0;      // 秒、公尺（自調）
+// 兩層：亮白核心（亮背景上靠它）＋三倍寬的半透明橘黃光暈（暗背景上靠它）。Leo 反映單層黃線還是不夠清楚
+const TRACER_T = 0.13, TRACER_W = 0.018, TRACER_LEN = 10.0, TRACER_PX = 2;      // 秒、公尺、核心最小像素寬（自調）
 const tracerGeo = new THREE.BoxGeometry(1, 1, 1);
 const tracers = [], tracerPool = [];
 const _tA = new THREE.Vector3(), _tB = new THREE.Vector3(), _tS = new THREE.Vector3(), _tE = new THREE.Vector3();
 function addTracer(s, ex, ey, ez){
+  // 玩家自己的曳光（valFire 給的是物件）改畫在 2D 疊層上，見 drawTracers2D；敵人的曳光（起點陣列）維持 3D
+  if (!Array.isArray(s)){ tracers2d.push({e:[ex, ey, ez], age:0}); return; }
   // 一般混色、偏黃：加法混色疊在白天的亮地板與牆上會變成白色，等於看不見
-  const m = tracerPool.pop() || new THREE.Mesh(tracerGeo, new THREE.MeshBasicMaterial({
-    color:0xFFC94A, transparent:true, depthWrite:false}));
+  let m = tracerPool.pop();
+  if (!m){
+    m = new THREE.Group();
+    const core = new THREE.Mesh(tracerGeo, new THREE.MeshBasicMaterial({color:0xFFF6DA, transparent:true, depthWrite:false}));
+    const glow = new THREE.Mesh(tracerGeo, new THREE.MeshBasicMaterial({color:0xFFAE3A, transparent:true, depthWrite:false}));
+    glow.scale.set(3, 3, 1);
+    m.add(glow, core);
+    m.userData = {core, glow};
+  }
   m.frustumCulled = false;
   bulletLayer.add(m);
   tracers.push({m, s, e:[ex, ey, ez], age:0});
 }
 function updateTracers(dt){
+  for (let i = tracers2d.length - 1; i >= 0; i--) if ((tracers2d[i].age += dt) >= TRACER2D_T) tracers2d.splice(i, 1);
   for (let i = tracers.length - 1; i >= 0; i--){
     const t = tracers[i];
     t.age += dt;
@@ -4547,11 +4558,45 @@ function updateTracers(dt){
     t.m.visible = true;
     t.m.position.copy(_tA).lerp(_tB, 0.5);
     t.m.lookAt(_tB);
-    t.m.scale.set(TRACER_W, TRACER_W, len);
-    t.m.material.opacity = 0.95 * (k < 0.7 ? 1 : 1 - (k - 0.7)/0.3);
+    // 畫面上至少 TRACER_PX 像素寬：固定 1.8cm 的話，10m 外不到 1 像素、30m 外 0.3 像素，遠處的曳光等於看不見
+    // （Leo 反映彈道不清楚的真正原因）。依離鏡頭的距離放粗，近處維持細線
+    const dCam = camera.position.distanceTo(t.m.position);
+    const pxPerRad = (uiCanvas.height / scale / 2) / Math.tan(camera.fov * DEG / 2);
+    const w = Math.max(TRACER_W, dCam * TRACER_PX / pxPerRad);
+    t.m.scale.set(w, w, len);
+    const op = k < 0.7 ? 1 : 1 - (k - 0.7)/0.3;
+    t.m.userData.core.material.opacity = 0.95*op;
+    t.m.userData.glow.material.opacity = 0.32*op;
   }
 }
-function clearTracers(){ for (const t of tracers){ bulletLayer.remove(t.m); tracerPool.push(t.m); } tracers.length = 0; }
+function clearTracers(){ for (const t of tracers){ bulletLayer.remove(t.m); tracerPool.push(t.m); } tracers.length = 0; tracers2d.length = 0; }
+// 玩家的曳光畫在 2D：第一人稱看出去子彈幾乎正對鏡頭飛，3D 的線投影到畫面上只剩一個點或一團（量過：60m 的線兩端落在同一個像素）。
+// 改成畫面上一段亮線，從槍模槍口在畫面上的實際位置掃到命中點的投影，0.1 秒；白色核心 2px、橘黃光暈 6px（自調）。
+// 終點一定是子彈真正打到的地方，看起來是從槍收進準心，和 Valorant 一樣
+const TRACER2D_T = 0.1, tracers2d = [];
+const _tp = new THREE.Vector3();
+function drawTracers2D(w, h){
+  if (!tracers2d.length) return;
+  const m = vm.models[vm.currentKey];
+  if (!m) return;
+  _tp.set(0, 0.012, m.userData.muzzleZ).applyMatrix4(m.matrixWorld).project(vmCamera);
+  const mx = (_tp.x*0.5 + 0.5)*w, my = (-_tp.y*0.5 + 0.5)*h;
+  uctx.save();
+  uctx.lineCap = "round";
+  for (const t of tracers2d){
+    _tp.set(t.e[0], t.e[1], t.e[2]).project(camera);
+    if (_tp.z > 1) continue;
+    const ex = (_tp.x*0.5 + 0.5)*w, ey = (-_tp.y*0.5 + 0.5)*h;
+    const k = t.age / TRACER2D_T, head = Math.min(1, k/0.6), tail = Math.max(0, head - 0.45);
+    const op = k < 0.6 ? 1 : 1 - (k - 0.6)/0.4;
+    const hx = mx + (ex - mx)*head, hy = my + (ey - my)*head, tx = mx + (ex - mx)*tail, ty = my + (ey - my)*tail;
+    uctx.globalAlpha = 0.35*op; uctx.strokeStyle = "#FFAE3A"; uctx.lineWidth = 6;
+    uctx.beginPath(); uctx.moveTo(tx, ty); uctx.lineTo(hx, hy); uctx.stroke();
+    uctx.globalAlpha = 0.95*op; uctx.strokeStyle = "#FFF6DA"; uctx.lineWidth = 2;
+    uctx.beginPath(); uctx.moveTo(tx, ty); uctx.lineTo(hx, hy); uctx.stroke();
+  }
+  uctx.restore();
+}
 const sparkGeo = new THREE.SphereGeometry(0.07, 8, 6);
 
 // ── 彈著點的餘熱 ──
@@ -5952,6 +5997,10 @@ function updateViewModel(dt){
 
   // 後座與換彈、換槍的動作
   vm.recoil = Math.max(0, vm.recoil - dt*6.5);
+  // Valorant 的每發踢動：指數衰減，約 0.1 秒回到原位，連射時一發一發分得出來
+  vm.kick = (vm.kick || 0) * Math.exp(-dt*26);
+  vm.flashT = Math.max(0, (vm.flashT || 0) - dt);
+  const kickZ = G.val ? vm.kick*(vm.kickAmp || 1)*0.045 : 0, kickRX = G.val ? vm.kick*(vm.kickAmp || 1)*0.16 : 0;
   vm.swap   = Math.max(0, vm.swap - dt/P.swapTime);
   vm.inspect = Math.max(0, vm.inspect - dt/1.6);
 
@@ -5987,10 +6036,10 @@ function updateViewModel(dt){
   vmRoot.position.set(
     base.x + vm.swayX*0.045*steady + bobX + pose.x,
     base.y + vm.swayY*0.035*steady + bobY + pose.y - vm.swap*0.22,
-    base.z + vm.recoil*0.075 + pose.z
+    base.z + vm.recoil*0.075 + kickZ + pose.z
   );
   vmRoot.rotation.set(
-    base.rx - vm.swayY*0.10 - vm.recoil*0.30 + pose.rx + vm.swap*0.5,
+    base.rx - vm.swayY*0.10 - vm.recoil*0.30 - kickRX + pose.rx + vm.swap*0.5,
     base.ry + vm.swayX*0.14 + pose.ry,
     vm.swayX*0.06 + pose.rz
   );
@@ -6010,14 +6059,17 @@ function updateViewModel(dt){
   drawAmmoPanel(model.userData.panel, p.mags[g.key], g.mag);
   // 槍口火焰
   const ud = model.userData;
-  const f = Math.max(0, vm.recoil*1.7 - 0.45);
+  // Valorant：每發只閃 0.04 秒（flashT），連射時一閃一閃；Apex 維持跟著後座值
+  const f = G.val ? (vm.flashT > 0 ? 1 : 0) : Math.max(0, vm.recoil*1.7 - 0.45);
   ud.core.material.opacity  = f;
   ud.petal.material.opacity = f*0.8;
   ud.wave.material.opacity  = f*0.55;
-  const fs = 0.65 + vm.recoil*1.0;
+  // Valorant 的槍口火光小而短：原本的大小低頭打近處時，花瓣從後面看是一大片五邊形，擋住右下角
+  const fs = G.val ? 0.5 + Math.random()*0.3 : 0.65 + vm.recoil*1.0;
   ud.core.scale.set(fs, 0.8+vm.recoil*0.9, fs);
   ud.petal.scale.set(fs*1.2, 1, fs*1.2);
-  ud.wave.scale.setScalar(0.6 + (1.4-vm.recoil)*1.1);
+  // 衝擊波環：Apex 跟著後座值反向縮放；Valorant 的後座值很小，照舊算會變成蓋住半個右下角的大環，改成固定的小尺寸
+  ud.wave.scale.setScalar(G.val ? 0.55 + Math.random()*0.25 : 0.6 + (1.4-vm.recoil)*1.1);
   ud.flash.rotation.z = Math.random()*Math.PI;
 }
 
@@ -6972,14 +7024,15 @@ for (let i=0;i<SPARK_MAX;i++){
   sparkPool.push({m, life:0, max:1, vx:0, vy:0, vz:0});
 }
 let sparkHead = 0;
-function spawnSpark(x, y, color, n){
+// h：從哪個高度噴出（沒給就是舊的腰部高度 0.9m 附近）；spd：速度倍率（粉塵用小的）
+function spawnSpark(x, y, color, n, h, spd = 1){
   for (let i=0;i<n;i++){
     const q = sparkPool[sparkHead++ % SPARK_MAX];
     q.m.visible = true;
     q.m.material.color.setHex(color);
     q.m.material.opacity = 1;
-    q.m.position.set(x*S, 0.9 + (Math.random()-0.5)*0.5, y*S);
-    const a = Math.random()*Math.PI*2, sp = 1.2 + Math.random()*2.6;
+    q.m.position.set(x*S, h !== undefined ? h + (Math.random()-0.5)*0.06 : 0.9 + (Math.random()-0.5)*0.5, y*S);
+    const a = Math.random()*Math.PI*2, sp = (1.2 + Math.random()*2.6) * spd;
     q.vx = Math.cos(a)*sp; q.vy = (Math.random()-0.2)*2.2; q.vz = Math.sin(a)*sp;
     q.life = 0.32; q.max = 0.32;
   }
@@ -7199,14 +7252,9 @@ function valFire(alt, queued){
   const spr = valSpread(alt);
   const pel = A ? A.pellets : d.pellets || 1;
   const h0 = eyeH();
-  // 曳光起點：視線前方 2m、只往右 0.8cm（約 0.2°），垂直不偏（開鏡時回到中線）。
-  // 起點在畫面上的偏移角 = 側移 / 前方距離，和目標遠近無關。原本右 6cm 下 5cm（約 2°），打近處的牆時
-  // 整條線只剩準心右下方那一小段，Leo 以為子彈打偏右；後來的下 1.5cm 又讓遠距離的曳光從下往上斜，像子彈往上飄。
-  // 實測真實點擊 20m、50m 各 30 發，彈孔平均偏差都在 1cm 內，子彈本身沒有偏。
-  // 世界座標 x = px·S、z = py·S，面向 +x 時右手邊是 +z
-  const fa = Math.atan2(-Math.cos(yaw), -Math.sin(yaw)), cp = Math.cos(pitch), side = 0.008*(1 - G.adsT), fwd = 2.0;
-  const tr0 = [p.x*S + Math.cos(fa)*cp*fwd - Math.sin(fa)*side, h0 + Math.sin(pitch)*fwd,
-               p.y*S + Math.sin(fa)*cp*fwd + Math.cos(fa)*side];
+  // 玩家的曳光畫在 2D（從槍口掃到命中點，見 drawTracers2D）；這裡只標記「這顆子彈要畫曳光」。
+  // 試過 3D 的線：起點偏移小，線正對鏡頭縮成一點；偏移大，打近處的牆又像打偏（Leo 兩次反映）
+  const tr0 = {player:true};
   if (G.spray.pts.length < 60) G.spray.pts.push([-(yaw - G.spray.yaw0) + vs.x*DEG, (pitch - G.spray.pitch0) + vs.y*DEG]);
   for (let i=0;i<pel;i++){
     // 散布圓內取一點：站定時偏向中心，移動時平均分布（wiki 的 Error power / Center Biasing）
@@ -7241,16 +7289,29 @@ function valFire(alt, queued){
   vs.n += 1;
   vs.n0 = vs.n; vs.y0 = vs.y; vs.x0 = vs.x; vs.last = G.t; vs.gap = p.cool;
   // 手上的回饋：槍模後座、火光、聲音（滅音槍小聲很多）
-  vm.recoil = Math.min(1.4, vm.recoil + (d.auto ? 0.4 : d.pellets ? 1.3 : 1.0));
+  // 手上的回饋要「一發一發」：原本只有一個累加的後座值，步槍一秒十發加得比退得快，連射時頂在上限，
+  // 槍整個卡在後面不動、火光也一直亮成一團，看不出每一發。改成每發一次快速回彈的踢動脈衝（kick），
+  // 持續的後座只留一點點；火光每發只亮 0.04 秒
+  vm.recoil = Math.min(0.6, vm.recoil + (d.auto ? 0.12 : d.pellets ? 0.5 : 0.35));
+  vm.kick = 1;
+  vm.kickAmp = d.cat === "sniper" ? 1.7 : d.pellets || A ? 1.5 : d.cat === "sidearm" ? 1.1 : d.cat === "heavy" ? 0.9 : 0.8;
+  vm.flashT = d.silenced ? 0.025 : 0.04;
   p.heat = Math.min(1, p.heat + (d.auto ? 0.12 : 0.4));
   muzzleLight.intensity = d.silenced ? 0.8 : d.auto ? 3.0 : 6;
   ejectShell(p.x, p.y, eyeH() - 0.42, p.angle);
-  if (d.silenced){ sfx("square", 520, 0.04, 0.025, 180); sfxNoise(0.04, 0.02, 3600); }
-  else if (d.pellets || A){ sfx("square",120,0.22,0.08,40); sfxNoise(0.2,0.085,900); }
-  else if (d.cat === "sniper"){ sfx("square",110,0.3,0.09,38); sfxNoise(0.25,0.09,1100); }
-  else if (d.auto){ sfx("square",300,0.06,0.05,90); sfxNoise(0.05,0.035,2400); }
-  else { sfx("square",180,0.14,0.06,60); sfxNoise(0.12,0.05,1600); }
+  valShotSfx(d, !!A);
   return true;
+}
+// 槍聲分三層：極短的高頻爆裂（決定連射時每一發聽不聽得出來）、低頻下掃的衝擊、短尾音。
+// 原本是一個方波加一段噪音，連射時糊成一片。各類別的音高與長度自調
+function valShotSfx(d, alt){
+  if (d.silenced){ sfxNoise(0.012, 0.035, 5200); sfx("sine", 150, 0.05, 0.04, 70); sfxNoise(0.05, 0.03, 1600); return; }
+  const cat = d.pellets || alt ? "shotgun" : d.cat;
+  const T = {sidearm:[260, 80, 0.05, 0.09], smg:[320, 95, 0.04, 0.07], rifle:[210, 55, 0.07, 0.11], heavy:[190, 50, 0.07, 0.1],
+             shotgun:[140, 40, 0.12, 0.18], sniper:[120, 34, 0.16, 0.22]}[cat] || [220, 60, 0.06, 0.1];
+  sfxNoise(0.014, cat === "sniper" || cat === "shotgun" ? 0.13 : 0.1, 8000);        // 擊發
+  sfx("square", T[0], T[2], 0.055, T[1]); sfx("sine", T[0]*0.5, T[2]*1.4, 0.075, T[1]*0.6);   // 衝擊
+  sfxNoise(T[3], 0.04, 1300);                                                        // 尾音
 }
 // 刀：前方 2m、左右約 30 度內最近的一隻；從背後出手傷害加倍（wiki）
 function valKnife(alt){
@@ -7317,7 +7378,52 @@ function valApplyHit(b, raw, zone, at, farPellet){
     const k = zone === "leg" ? 0.7 : 1;
     sfxNoise(0.07, 0.06*k, 700); sfx("sine", 150, 0.08, 0.06*k, 70);
   }
-  if (b.hp <= 0){ sfx("sine", 660, 0.09, 0.04, 990); sfx("sine", 990, 0.12, 0.03, 1480); }
+  if (b.hp <= 0) valKillFeedback();
+}
+// 子彈打到牆或地板：暖黃火花＋一團慢慢散開的灰色粉塵，從實際命中的高度噴出（彈孔貼花另外由 addDecal 處理）。
+// 原本是熱成像風格的紫色火花、固定從腰部高度噴，打地板時火花浮在半空
+function valImpact(bl){
+  const h = Math.max(0.03, bl.h);
+  spawnSpark(bl.x, bl.y, 0xFFD27A, 7, h);
+  spawnSpark(bl.x, bl.y, 0x8C8A84, 4, h, 0.3);
+}
+// 擊殺回饋（照 Valorant）：畫面正下方跳出擊殺旗幟，擊殺音效隨連殺升級，第 1～5 殺各不相同（wiki：Kill Banners，Base Kill 1～5）。
+// 連殺數：死鬥每條命重算（被擊倒時歸零）；訓練場沒有回合，6 秒內沒有再擊殺就歸零（自調）
+function valKillFeedback(){
+  if (!G.dm && G.t - (G.killT ?? -99) > 6) G.killStreak = 0;
+  G.killStreak = Math.min(5, (G.killStreak || 0) + 1);
+  G.killT = G.t;
+  G.killBanner = {t:G.t, n:G.killStreak};
+  // 每多一殺升兩個半音；第 3 殺起多疊一個高八度的泛音，第 5 殺再加長尾音
+  const n = G.killStreak, f = 560 * Math.pow(2, (n - 1) * 2/12);
+  sfx("triangle", f, 0.16, 0.055, f*1.5);
+  sfx("sine", f*2, 0.11, 0.028, f*2.6);
+  if (n >= 3) sfx("sine", f*3, 0.14, 0.018, f*3.4);
+  if (n >= 5) sfx("triangle", f*1.5, 0.35, 0.03, f*2);
+}
+// 擊殺旗幟：菱形徽記＋連殺數的小刻度，跳出時放大再回彈，1.1 秒後淡出
+function drawKillBanner(w, h, cx){
+  const kb = G.killBanner;
+  if (!kb) return;
+  const a = G.t - kb.t;
+  if (a > 1.4) return;
+  const sc = a < 0.12 ? 1.35 - a/0.12*0.35 : 1, al = a > 1.1 ? 1 - (a - 1.1)/0.3 : 1;
+  const y = h - 140;
+  uctx.save();
+  uctx.globalAlpha = al;
+  uctx.translate(cx, y); uctx.scale(sc, sc);
+  const r = 26;
+  uctx.fillStyle = "rgba(10,12,18,.55)";
+  uctx.beginPath(); uctx.moveTo(0, -r - 6); uctx.lineTo(r + 6, 0); uctx.lineTo(0, r + 6); uctx.lineTo(-r - 6, 0); uctx.closePath(); uctx.fill();
+  uctx.strokeStyle = "#FF4655"; uctx.lineWidth = 3;
+  uctx.beginPath(); uctx.moveTo(0, -r); uctx.lineTo(r, 0); uctx.lineTo(0, r); uctx.lineTo(-r, 0); uctx.closePath(); uctx.stroke();
+  uctx.fillStyle = "#F2F4F8";
+  uctx.beginPath(); uctx.moveTo(0, -r*0.45); uctx.lineTo(r*0.45, 0); uctx.lineTo(0, r*0.45); uctx.lineTo(-r*0.45, 0); uctx.closePath(); uctx.fill();
+  for (let i = 0; i < kb.n; i++){
+    uctx.fillStyle = "#FF4655";
+    uctx.fillRect(-kb.n*7 + i*14 + 2, r + 14, 10, 4);
+  }
+  uctx.restore();
 }
 // Valorant 的命中判定半徑（像素）：貼著人物模型量的。模型比例 k=0.88 時頭寬約 0.22m（含頭盔 0.3m）、
 // 軀幹 0.45～0.6m、兩腿併起來 0.25～0.36m，所以頭 0.15k、軀幹 0.30k、腿 0.20k 公尺。
@@ -7446,6 +7552,7 @@ function dmOnKill(b){
 function dmPlayerDown(){
   const d = G.dm;
   d.deaths++; d.downT = DM.respawn;
+  G.killStreak = 0;                              // 連殺每條命重算
   G.mode = "down";
   G.player.hp = 0;
   sfx("sawtooth", 90, 0.5, 0.06, 40);
@@ -8527,19 +8634,19 @@ function update(dt){
         const u = (yy - BOARD.y)*S, v = hh - BOARD_HC;
         if (Math.abs(u) < BOARD_W/2 && Math.abs(v) < BOARD_H/2){
           boardHit(u, v);
-          spawnSpark(BOARD.x, yy, 0x9B6BE8, 2);
+          spawnSpark(BOARD.x, yy, bl.val ? 0xFFD27A : 0x9B6BE8, bl.val ? 5 : 2, hh);
           dead = true; break;
         }
       }
       // 打到地板或天花板
       // 露天地圖沒有天花板，子彈可以飛過牆頂，飛得夠高才消失
       if (bl.h <= 0.02 || bl.h >= (activeMap.outdoor ? 40 : WALL_H-0.02)){
-        spawnSpark(bl.x,bl.y,0x9B6BE8,3);
+        if (bl.val) valImpact(bl); else spawnSpark(bl.x,bl.y,0x9B6BE8,3);
         sfxNoiseAt(bl.x,bl.y,0.04,0.055,3200);
         dead = true; break;
       }
       if (inWallAt(bl.x,bl.y,bl.h)){
-        spawnSpark(bl.x,bl.y,0x9B6BE8,4);
+        if (bl.val) valImpact(bl); else spawnSpark(bl.x,bl.y,0x9B6BE8,4);
         addDecal(bl.x, bl.y, bl.h);
         sfxNoiseAt(bl.x,bl.y,0.05,0.16,1600);
         dead = true; break;
@@ -9520,6 +9627,8 @@ function drawXhPreview(){
 // Valorant 的 HUD：下方中央是護甲、血量、彈藥，右側是三個武器欄，左下是錢
 function drawValHud(w, h, cx){
   const p = G.player, g = gun(), d = g.val, y0 = h - 50;
+  drawTracers2D(w, h);
+  drawKillBanner(w, h, cx);
   uctx.textBaseline = "middle";
   uctx.fillStyle = "rgba(8,10,16,.5)";
   uctx.fillRect(cx - 230, y0 - 24, 460, 48);

@@ -18,3 +18,4 @@ desktop.ini
 *.ogg
 *.wav
 *.m4a
+__pycache__/

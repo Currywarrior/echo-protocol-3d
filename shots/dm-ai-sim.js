@@ -169,6 +169,8 @@ function playerStart(ctx, moving) {
   {
     if(ctx.activeMap.name==="RIDGE TOWN") return {x:80,y:1160};
     if(ctx.activeMap.name==="DEAD SIGNAL") return {x:50,y:360};
+    // 新地圖的 (40,360) 可能落在樓裡：那就用地圖的玩家出生點
+    if(vm.runInContext("navBlocked(40,360)",ctx)) return {x:ctx.activeMap.player.x,y:ctx.activeMap.player.y};
     return {x:40,y:360};
   }
 }

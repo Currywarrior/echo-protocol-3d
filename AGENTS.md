@@ -34,6 +34,10 @@
 - 兩種模式：生存（波次敵人）/ 訓練場（Apex Firing Range 式假人、統計、壓槍分析、12 課身法槍法教學）
 - 四張地圖：COLUMN FOREST / DEAD SIGNAL（室內）、HIGH NOON / RIDGE TOWN（露天；RIDGE TOWN 是 Apex 式據點，
   世界 99x69m，用 `size` 指定，換圖時 `resizeWorld()` 重建地板、天空、陰影範圍與遠裁切面）
+- 爆破圖 STONEGATE（`MAPS.stonegate`，90x75m，仿 Valorant 雙包點格局）：目前只在死鬥與 APEX 的生存／訓練場能玩
+  （Valorant 訓練場固定 THE RANGE）。資料裡已有 `sites`、`spawnsAtk`、`spawnsDef`、`barriers` 給爆破規則用，
+  規則本身還沒做。樓用 `block()` 產生：ht 7.2～9.6m 的實心樓加一塊不畫的內芯（`core:true`），
+  因為不帶高度的 2D 視線判定（出生點安全、聲音悶住、聲納）只看沒有 ht 的牆
 - 牆可以懸空（`base`），`house()` 用它產生走得進去的房子（門窗洞、窗台窗楣、樓板、室內樓梯、屋頂）；
   敵人用格子 A* 尋路（`buildNav` / `navStep`），沒看到玩家時會往玩家附近搜索
 - 移動與射擊一比一照 Apex Legends（見下方決定表）；按鍵全部可重新綁定（`ACTIONS` / `BINDS`）
@@ -123,6 +127,28 @@ Playwright MCP 開的是背景分頁，會被降頻到約 1fps，推不動遊戲
   （2026-09-24 Leo 同時在玩 Apex，GPU 100%，headless 每幀半秒，所有數值都偏低，差點誤判成 bug）
 - 測試副本要把 `SET.autoFs = 0`，否則開始時自動全螢幕，尺寸變動會一直解除鎖定
 - headless 的幀率不能拿來判斷效能；聲音測不到
+
+### 現成的驗收工具（`tools/`）
+
+上面的作法已經寫成兩支程式，改完東西先跑一次：
+
+```
+pip install playwright                 # 第一次；沒有瀏覽器再 python -m playwright install chromium
+python tools/regress.py                # 完整回歸，失敗時結束碼非 0
+python tools/regress.py --gpu          # Leo 的 Windows：本機 Chrome + d3d11（預設是 Chromium + SwiftShader）
+python tools/regress.py --only dm,maps --shots shots/tmp   # 只跑部分項目，順便截圖
+```
+
+- `tools/make_test_copy.py`：從 `index.html` 產生測試副本（在 `applyAtmo(); layout(); G = newGame();` 前掛 `window.__dbg`，
+  含 `getG`、`keys`、`update`、`step`、`setLocked`、`setYaw`、`setPitch`、`startGame`、`overPause`、`camera`、`scene` 等），
+  `--serve PORT` 用 http.server 提供服務。副本放在暫存資料夾，**不要提交**
+- `tools/regress.py` 檢查：沒有 pageerror；VALORANT 訓練場 19 把槍逐把開火與換彈；APEX 訓練場三把槍開火；
+  VALORANT 死鬥開局 5 隻、擊殺後補回、倒地 1.5 秒後重生；射擊測驗開始與結束；主選單每一張地圖都能載入（APEX 開局、死鬥 5 隻）。
+  全部用固定步長 `__dbg.step` 推進，GPU 忙或軟體算繪都不影響結果
+- `--shots DIR` 每張地圖拍一張，`SHOT_VIEWS` 裡有的地圖（目前 stonegate）再多拍幾個位置
+- 連不到 cdnjs 的環境（雲端容器）：`--three 路徑` 把 CDN 網址接到本機的 three.min.js r147
+  （`npm pack three@0.147.0` 解出 `package/build/three.min.js`）。遊戲本身仍然只從 cdnjs 載入，這只是測試用
+- 新增測試項目就加在 `regress.py` 的 `TESTS`；新地圖只要加進主選單就會自動被 maps 項目涵蓋
 
 手感、聲音、平衡一律要 Leo 自己測。不要宣稱驗證過沒驗證過的東西。
 

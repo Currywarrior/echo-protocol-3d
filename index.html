@@ -237,6 +237,7 @@
           <option value="corridors">DEAD SIGNAL · 走廊與房間</option>
           <option value="plaza">HIGH NOON · 正午廣場</option>
           <option value="town">RIDGE TOWN · 小鎮（練 Apex 身法）</option>
+          <option value="stonegate">STONEGATE · 石砌小鎮（雙包點爆破圖）</option>
         </select>
       </label>
       <label class="mapPicker" for="modeSelect">模式
@@ -529,6 +530,14 @@ function house(x, y, w, h, opts){
   for (let f=1; f<o.floors; f++) slab(f*SH, hole && f === 1 ? {x:hole.x - 2, y:hole.y - 2, w:hole.w + 4, h:hole.h + 4} : null);
   slab(top, null);
   return out;
+}
+
+// ── 實心樓塊（爆破圖）──
+// 高樓用 ht 讓碰撞與畫面有真正的高度（比攀爬上限 6.35m 高，Apex 規則下也爬不上去、翻不出格局）。
+// 但沒有 ht 的牆才會進 SEGS：出生點的安全判定、聲音悶住、聲納這些不帶高度的視線判定只看 SEGS，
+// 有 ht 的樓在它們眼裡是透明的。所以樓體裡再塞一塊縮進 20px 的內芯（core），不畫、摸不到，只擋 2D 視線
+function block(x, y, w, h, ht){
+  return [{x, y, w, h, ht, style:"building"}, {x:x + 20, y:y + 20, w:w - 40, h:h - 40, core:true}];
 }
 
 const MAPS = {
@@ -854,6 +863,94 @@ const MAPS = {
       {x:60,y:1060,w:3180,h:200,kind:"paving"},
       {x:1580,y:60,w:160,h:1000,kind:"paving"},{x:1580,y:1260,w:160,h:980,kind:"paving"},
       {x:70,y:1440,w:180,h:760,kind:"grass"},
+    ],
+  },
+  // STONEGATE：爆破圖（仿 Valorant 的雙包點格局，2026-09-25 第一版）。世界 90m x 75m，1 格 100px = 3m。
+  // 北邊是防守方出生區、南邊是進攻方；A 包點在西、B 包點在東，中庭（mid）連接兩邊。
+  // 進攻方到 A：A 大道（A main）、中路 → 走廊（catwalk）；到 B：B 大道（B main）、中路 → 市場（market），
+  // 另有 pizza 小巷從中路下段連到 B 大廳。防守方到 A：後巷下坡、中路上段 → 樹下（tree）；到 B：後巷、市場。
+  // 樓都是實心的高樓（block），比攀爬上限高；通道最窄 3m（catwalk、pizza、樹下），最胖的敵人加尋路外擴也過得去。
+  // 爆破規則下一輪才做：sites（包點範圍）、spawnsAtk / spawnsDef（兩方出生點）、barriers（購買階段的屏障）先放在資料裡
+  stonegate: {
+    name:"STONEGATE",
+    size:{w:3000, h:2500},
+    outdoor:true, vista:true,
+    theme:{
+      neutral:true,
+      // 冷灰石材：環境一律冷色或中性，暖色只屬於敵人
+      walls:[0xB4B9BA, 0xAAB1B4, 0xBDBDB6], edge:0x646C70,
+      trim:0xD0D4D2, panel:0xA4AAAC, strip:0x5FC8C0,
+      floor:0xA0A5A2, ceiling:0x000000, light:0xFFFFFF,
+      glow:0xFFFFFF, cold:0x929C9E, pipe:0x788084, terrain:0x8C9490,
+      propMetal:0x6C7478, propDark:0x3C4246,
+      ashlar:true, bags:0x979A94, stone:0x98A0A2, stoneDark:0x788084,
+      topGrime:false,
+    },
+    atmo:{
+      // 微陰的冷白天光：太陽偏白、天空偏灰藍，陰影靠天光補成冷色
+      bg:0xDCE2E8, fog:0.003, hemiSky:0xB6CAE0, hemiGround:0x8C9294, hemi:0.8,
+      sensor:0, bloom:0.06, threshold:0.95, vignette:0.18, grade:0.3, exposure:0.95,
+      sunColor:0xF2F5FA, sunI:1.8, sunDir:[0.4,0.72,0.3],
+      skyTop:0x5A86C0, skyHorizon:0xDAE2EA,
+      aberr:0, scan:0, noise:0, sharp:0.5, ao:1, env:true, clouds:0.6,
+    },
+    walls:[
+      // 樓塊：由 3m 格子草圖合併而成（外圍一圈也是樓），高度 7.2～9.6m 錯開當天際線
+      ...block(0, 0, 3000, 100, 7.2), ...block(0, 100, 1100, 100, 8.4), ...block(1900, 100, 1100, 100, 9.6),
+      ...block(0, 200, 400, 300, 9.6), ...block(2600, 200, 400, 300, 7.2), ...block(700, 400, 800, 100, 8.4),
+      ...block(1700, 400, 600, 100, 7.8), ...block(0, 500, 200, 2000, 8.4), ...block(1000, 500, 500, 100, 7.8),
+      ...block(1700, 500, 300, 400, 7.2), ...block(2800, 500, 200, 2000, 8.4), ...block(1300, 600, 200, 100, 8.4),
+      ...block(1000, 700, 200, 400, 8.4), ...block(1200, 800, 300, 100, 7.2), ...block(400, 1100, 400, 600, 7.8),
+      ...block(1800, 1100, 200, 600, 8.4), ...block(800, 1200, 400, 300, 7.2), ...block(2000, 1200, 600, 500, 7.2),
+      ...block(800, 1500, 300, 200, 7.8), ...block(1300, 1500, 500, 200, 9.6), ...block(1000, 1700, 100, 400, 7.8),
+      ...block(1300, 1800, 700, 300, 8.4), ...block(200, 2100, 600, 400, 7.8), ...block(2200, 2100, 600, 400, 7.8),
+      ...block(800, 2300, 200, 200, 7.8), ...block(2000, 2300, 200, 200, 7.8), ...block(1000, 2400, 1000, 100, 9.6),
+      // 中庭的方尖碑：全高、擋視線，切斷中路南北的長射線，也是全圖的地標
+      {x:1452,y:1152,w:96,h:96,style:"monument"},
+      {x:1260,y:960,w:42,h:42,ht:0.8,crate:true},{x:1700,y:1400,w:42,h:42,ht:0.8,crate:true},
+      {x:1250,y:1440,w:20,h:20,tree:true},{x:1730,y:930,w:20,h:20,tree:true},
+      // ── A 包點（x 200～1000、y 500～1100）──
+      // 西北角 1.5m 高台（A heaven）與往南下的斜坡：看得到整個包點，但站上去全身都露出來
+      {x:200,y:500,w:180,h:120,ht:1.5},{x:200,y:620,w:180,h:110,ht:1.5,ramp:"-y"},
+      // 發電機石座 2.2m：站著也擋得住；貨箱 0.8m 跳得上去；1m 矮牆蹲下才是掩體
+      {x:600,y:780,w:100,h:70,ht:2.2},
+      {x:820,y:560,w:42,h:42,ht:0.8,crate:true},{x:862,y:560,w:42,h:42,ht:0.8,crate:true},
+      {x:300,y:920,w:150,h:30,ht:1.0},
+      // ── B 包點（x 2000～2800、y 500～1200）──
+      {x:2620,y:500,w:180,h:120,ht:1.5},{x:2620,y:620,w:180,h:110,ht:1.5,ramp:"-y"},
+      {x:2250,y:820,w:120,h:90,ht:2.2},
+      {x:2080,y:620,w:42,h:42,ht:0.8,crate:true},{x:2080,y:662,w:42,h:42,ht:0.8,crate:true},
+      {x:2480,y:1000,w:30,h:150,ht:1.0},
+      // ── 兩邊大廳的掩體 ──
+      {x:500,y:1850,w:42,h:42,ht:0.8,crate:true},{x:700,y:1760,w:100,h:34,ht:0.95,style:"sandbags"},
+      {x:2400,y:1880,w:42,h:42,ht:0.8,crate:true},{x:2200,y:1760,w:100,h:34,ht:0.95,style:"sandbags"},
+      // ── 路燈 ──
+      {x:1215,y:1215,w:10,h:10,ht:5.5,style:"lamp"},{x:1775,y:1275,w:10,h:10,ht:5.5,style:"lamp"},
+    ],
+    // 死鬥與生存用的出生點：散在兩個包點、大廳、中路與兩方出生區
+    spawns:[
+      {x:500,y:800},{x:300,y:1300},{x:600,y:1950},{x:1500,y:2250},{x:1200,y:1800},{x:1300,y:1100},
+      {x:1700,y:1250},{x:1600,y:650},{x:1500,y:250},{x:700,y:300},{x:2300,y:300},{x:2400,y:700},
+      {x:2700,y:1400},{x:2450,y:1950},{x:1650,y:1750},{x:950,y:1150},{x:1150,y:650},
+    ],
+    player:{x:1500,y:2300,angle:-Math.PI/2},
+    lights:[],
+    // ── 爆破用的結構化資料（下一輪的規則才會讀）──
+    sites:{
+      A:{x:200, y:500, w:800, h:600},
+      B:{x:2000, y:500, w:800, h:700},
+    },
+    spawnsAtk:[{x:1100,y:2200},{x:1300,y:2250},{x:1500,y:2200},{x:1700,y:2250},{x:1900,y:2200}],
+    spawnsDef:[{x:1200,y:200},{x:1350,y:250},{x:1500,y:200},{x:1650,y:250},{x:1800,y:200}],
+    // 購買階段的屏障：擋住出生區的每個出口（進攻方三個：A 出口、中路下段、B 出口；防守方三個：A 後巷、中路上段、B 後巷）。
+    // 這一輪只是資料，不進碰撞
+    barriers:[
+      {x:992, y:2100, w:16, h:200, team:"atk"}, {x:1100, y:2092, w:200, h:16, team:"atk"}, {x:1992, y:2100, w:16, h:200, team:"atk"},
+      {x:1092, y:200, w:16, h:200, team:"def"}, {x:1500, y:392, w:200, h:16, team:"def"}, {x:1892, y:200, w:16, h:200, team:"def"},
+    ],
+    terrain:[
+      {x:200,y:500,w:800,h:600,kind:"paving"},{x:2000,y:500,w:800,h:700,kind:"paving"},
+      {x:1200,y:900,w:600,h:600,kind:"paving"},
     ],
   },
 };
@@ -3123,7 +3220,7 @@ for (const zp of activeMap.zips || []){
 
 for (const w of activeMap.deco || []) addPart(w);
 for (const w of WALLS){
-  if (w.pole) continue;
+  if (w.pole || w.core) continue;              // 樓塊內芯只擋 2D 視線，不畫
   if (w.part){ addPart(w); continue; }
   if (w.tree){ addTree((w.x+w.w/2)*S, (w.y+w.h/2)*S); continue; }
   if (w.ramp){ addRamp(w); continue; }
@@ -3253,10 +3350,10 @@ function addDoorFrame(cx, cz, opening, depth, rotY){
 function addDoorFrames(){
   for (let i=0;i<WALLS.length;i++){
     const a = WALLS[i];
-    if (a.ht || a.tree) continue;
+    if (a.ht || a.tree || a.core) continue;
     for (let j=i+1;j<WALLS.length;j++){
       const b = WALLS[j];
-      if (b.ht || b.tree) continue;
+      if (b.ht || b.tree || b.core) continue;
       if (a.x === b.x && a.w === b.w){
         const first = a.y < b.y ? a : b, second = first === a ? b : a;
         const gap = second.y - (first.y + first.h);

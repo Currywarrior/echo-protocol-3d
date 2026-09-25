@@ -6470,8 +6470,11 @@ function spawnRangeTestDummy(){
   b.test = true; b.testDifficulty = st.difficulty;
   b.testRemaining = level.time; b.testBorn = G.t; b.testHeadKill = false;
   b.crouch = b.crouchT = 0;
-  b.testTurnT = 0.25 + Math.random()*0.9; b.testCrouchT = 0.4 + Math.random()*1.2;
-  b.testCrouching = false; b.testSpeed = st.difficulty === "medium" ? "mid" : "slow";
+  // Hard 出現時就先擲一次姿勢：停留只有 1.5 秒，等第一次換姿勢才蹲的話大多來不及（實測只有 6% 的時間蹲著）
+  b.testTurnT = 0.25 + Math.random()*0.9; b.testCrouchT = 0.3 + Math.random()*0.6;
+  b.testCrouching = st.difficulty === "hard" && Math.random() < 0.4;
+  b.crouch = b.crouchT = b.testCrouching ? 1 : 0;
+  b.testSpeed = st.difficulty === "medium" ? "mid" : "slow";
   b.testMinY = minY; b.testMaxY = maxY;
   st.current = b; st.phase = "active";
   G.bots.push(b);
@@ -6775,8 +6778,8 @@ function updateRangeTestDummy(b, dt){
   if (hard){
     b.testCrouchT -= dt;
     if (b.testCrouchT <= 0){
-      b.testCrouching = Math.random() < 0.38;
-      b.testCrouchT = 0.45 + Math.random()*1.35;
+      b.testCrouching = Math.random() < 0.45;
+      b.testCrouchT = 0.3 + Math.random()*0.6;
     }
     b.crouch = b.testCrouching ? 1 : 0;
   } else b.crouch = 0;
@@ -9464,7 +9467,7 @@ function drawRangeHud(w, h, cx){
   uctx.font = '600 11px "Chakra Petch", system-ui';
   if (!G.lessonOn && !test) uctx.fillText("TRAINING RANGE", cx, 50);
   if (test){
-    const pw = Math.min(420,w-24), px = cx-pw/2, py = 25, ph = 51;
+    const pw = Math.min(420,w-24), px = cx-pw/2, py = 74, ph = 51;    // 放在指南針與方位數字下方，不要蓋住它們
     uctx.fillStyle = "rgba(8,6,20,.78)"; uctx.fillRect(px,py,pw,ph);
     uctx.strokeStyle = "rgba(145,132,180,.55)"; uctx.lineWidth = 1; uctx.strokeRect(px+.5,py+.5,pw-1,ph-1);
     uctx.textAlign = "center"; uctx.fillStyle = "#F2ECFF"; uctx.font = '700 12px "Chakra Petch", system-ui';

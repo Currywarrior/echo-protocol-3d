@@ -7199,12 +7199,13 @@ function valFire(alt, queued){
   const spr = valSpread(alt);
   const pel = A ? A.pellets : d.pellets || 1;
   const h0 = eyeH();
-  // 曳光起點：視線前方 2m、右 1cm、下 1.5cm，也就是準心右下方約 0.4°（開鏡時回到中線）。
-  // 起點在畫面上的偏移角 = 側移 / 前方距離，和目標遠近無關；原本右 6cm 下 5cm（約 2°），打近處的牆時
-  // 整條線只剩準心右下方那一小段，Leo 以為子彈打偏（實測真實點擊 30 發，彈孔平均偏右 0.0cm）。
+  // 曳光起點：視線前方 2m、只往右 0.8cm（約 0.2°），垂直不偏（開鏡時回到中線）。
+  // 起點在畫面上的偏移角 = 側移 / 前方距離，和目標遠近無關。原本右 6cm 下 5cm（約 2°），打近處的牆時
+  // 整條線只剩準心右下方那一小段，Leo 以為子彈打偏右；後來的下 1.5cm 又讓遠距離的曳光從下往上斜，像子彈往上飄。
+  // 實測真實點擊 20m、50m 各 30 發，彈孔平均偏差都在 1cm 內，子彈本身沒有偏。
   // 世界座標 x = px·S、z = py·S，面向 +x 時右手邊是 +z
-  const fa = Math.atan2(-Math.cos(yaw), -Math.sin(yaw)), cp = Math.cos(pitch), side = 0.01*(1 - G.adsT), fwd = 2.0;
-  const tr0 = [p.x*S + Math.cos(fa)*cp*fwd - Math.sin(fa)*side, h0 + Math.sin(pitch)*fwd - 0.015*(1 - G.adsT),
+  const fa = Math.atan2(-Math.cos(yaw), -Math.sin(yaw)), cp = Math.cos(pitch), side = 0.008*(1 - G.adsT), fwd = 2.0;
+  const tr0 = [p.x*S + Math.cos(fa)*cp*fwd - Math.sin(fa)*side, h0 + Math.sin(pitch)*fwd,
                p.y*S + Math.sin(fa)*cp*fwd + Math.cos(fa)*side];
   if (G.spray.pts.length < 60) G.spray.pts.push([-(yaw - G.spray.yaw0) + vs.x*DEG, (pitch - G.spray.pitch0) + vs.y*DEG]);
   for (let i=0;i<pel;i++){
@@ -7580,16 +7581,24 @@ function botShoot(b){
   const aimH = eyeH() - 0.30 + (Math.random()*2-1)*0.14;   // 瞄胸口，帶一點垂直散布
   // 飛行時間要有下限：貼身時距離趨近零，除下去垂直速度會爆成每秒數百公尺，
   // 子彈等於垂直射向天花板
-  const flight = Math.max(0.05, dist / T.bulletSpd);
-  const vh = Math.max(-6, Math.min(6, (aimH - bh) / flight));
+  // Valorant 是即時命中（hitscan）：子彈用和玩家一樣的 1800m/s，50m 內不到 0.03 秒，
+  // 敵人死掉時它射出的子彈早就命中或落空了。原本是每秒 18.6m 的慢速彈，敵人死後還在空中飛好幾秒，照樣打死人（Leo 回報）。
+  // Apex 的子彈本來就有飛行時間，維持原樣
+  const spd = G.val ? VAL.bulletSpd : T.bulletSpd;
+  // 垂直速度：慢速彈要有下限與上限（貼身時距離趨近零，除下去會爆成每秒數百公尺，等於射向天花板）；
+  // 高速彈直接照幾何算方向，套用那些限制的話子彈會飛不到瞄準的高度
+  const flight = Math.max(0.05, dist / spd);
+  const vh = G.val ? (aimH - bh) / dist * spd : Math.max(-6, Math.min(6, (aimH - bh) / flight));
   // 出膛點不能推出玩家的判定圈外，否則貼臉時子彈是從你身體外側生出來的
   const off = Math.min(18, dist*0.55);
+  const silent = G.val && !!VAL_GUNS[BOT_VAL[b.type] || "vandal"].silenced;
   G.bullets.push({
     x:b.x+Math.cos(a)*off, y:b.y+Math.sin(a)*off, h:bh,
-    vx:Math.cos(a)*T.bulletSpd, vy:Math.sin(a)*T.bulletSpd,
+    vx:Math.cos(a)*spd, vy:Math.sin(a)*spd,
     vh,
-    dmg:G.val ? valBotDamage(b, dist) : T.dmg, friendly:false, life:1.6, srcX:b.x, srcY:b.y, mesh:null,
-    silent:G.val && !!VAL_GUNS[BOT_VAL[b.type] || "vandal"].silenced,
+    dmg:G.val ? valBotDamage(b, dist) : T.dmg, friendly:false, life:G.val ? 0.12 : 1.6, srcX:b.x, srcY:b.y, mesh:null,
+    // Valorant：子彈快到看不見，改畫從敵人槍口到終點的曳光；滅音槍的敵人不畫（wiki：Tracers not visible to enemies）
+    silent, tr:G.val && !silent ? [(b.x + Math.cos(a)*off)*S, bh, (b.y + Math.sin(a)*off)*S] : null,
   });
   b.flash = 0.07;
   b.muzzle = 0.05;
@@ -8979,7 +8988,7 @@ function sync(dtLast){
   updateTracers(dtLast);
   for (const bl of G.bullets){
     // Valorant：自己的子彈用曳光表現（見 addTracer）；滅音槍的子彈敵人看不到曳光（wiki：Tracers not visible to enemies）
-    if ((bl.val && bl.friendly) || bl.silent) continue;
+    if ((bl.val && bl.friendly) || bl.silent || bl.tr) continue;
     if (!bl.mesh){
       bl.mesh = bulletPool.pop() || new THREE.Mesh(bulletGeo, bulletMatFriend);
       bl.mesh.material = bl.friendly ? bulletMatFriend : bulletMatFoe;

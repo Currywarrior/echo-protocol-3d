@@ -3841,13 +3841,17 @@ const PICKUPS = {
   dmheal:{name:"HEAL",        color:0x5CE08A, label:"血量與護甲補滿"},     // 死鬥：屍體掉的補包
 };
 const pickupGeo = new THREE.BoxGeometry(0.34,0.34,0.34);
+const pickupHaloGeo = new THREE.SphereGeometry(0.55, 14, 10);
 function makePickup(kind){
   const P2 = PICKUPS[kind];
   const g = new THREE.Group();
   const core = new THREE.Mesh(pickupGeo, new THREE.MeshBasicMaterial({color:P2.color}));
   const cage = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(0.52,0.52,0.52)),
     new THREE.LineBasicMaterial({color:P2.color, transparent:true, opacity:0.75}));
-  const halo = new THREE.PointLight(P2.color, 1.1, 3.4, 2);
+  // 光暈用疊加發光的半透明球，不用 PointLight：場景裡的燈數一變，Three.js 會把所有受光材質的著色器重新編譯，
+  // 在 Windows（D3D11）上一次 2 秒多。死鬥每殺一個掉一個補包、撿走或消失又少一盞，每次都整個卡住
+  const halo = new THREE.Mesh(pickupHaloGeo, new THREE.MeshBasicMaterial({
+    color:P2.color, transparent:true, opacity:0.16, blending:THREE.AdditiveBlending, depthWrite:false}));
   g.add(core, cage, halo);
   g.userData = {core, cage};
   return g;
@@ -7145,10 +7149,11 @@ function valFire(alt, queued){
   const spr = valSpread(alt);
   const pel = A ? A.pellets : d.pellets || 1;
   const h0 = eyeH();
-  // 曳光起點：槍口約在視線前方 0.9m、偏右下（開鏡時移回中線）。世界座標 x = px·S、z = py·S，面向 +x 時右手邊是 +z
-  const fa = Math.atan2(-Math.cos(yaw), -Math.sin(yaw)), cp = Math.cos(pitch), side = 0.16*(1 - G.adsT);
-  const tr0 = [p.x*S + Math.cos(fa)*cp*0.9 - Math.sin(fa)*side, h0 + Math.sin(pitch)*0.9 - 0.13*(1 - 0.6*G.adsT),
-               p.y*S + Math.sin(fa)*cp*0.9 + Math.cos(fa)*side];
+  // 曳光起點：視線前方 2m、只偏右 6cm、偏下 5cm（開鏡時回到中線）。原本在 0.9m、右 16cm、下 13cm（模擬槍口），
+  // 整條線有一大段在準心右下方，Leo 反映看起來偏右。世界座標 x = px·S、z = py·S，面向 +x 時右手邊是 +z
+  const fa = Math.atan2(-Math.cos(yaw), -Math.sin(yaw)), cp = Math.cos(pitch), side = 0.06*(1 - G.adsT), fwd = 2.0;
+  const tr0 = [p.x*S + Math.cos(fa)*cp*fwd - Math.sin(fa)*side, h0 + Math.sin(pitch)*fwd - 0.05*(1 - G.adsT),
+               p.y*S + Math.sin(fa)*cp*fwd + Math.cos(fa)*side];
   if (G.spray.pts.length < 60) G.spray.pts.push([-(yaw - G.spray.yaw0) + vs.x*DEG, (pitch - G.spray.pitch0) + vs.y*DEG]);
   for (let i=0;i<pel;i++){
     // 散布圓內取一點：站定時偏向中心，移動時平均分布（wiki 的 Error power / Center Biasing）

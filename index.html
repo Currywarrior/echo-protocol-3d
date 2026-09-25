@@ -291,11 +291,11 @@
       <div class="buyGrid" id="buyGrid"></div>
     </div>
     <div class="overlay" id="overDead" hidden>
-      <div class="eyebrow">Signal Lost</div>
-      <h1>陣亡</h1>
+      <div class="eyebrow" id="dEyebrow">Signal Lost</div>
+      <h1 id="dTitle">陣亡</h1>
       <div class="stats">
         <div class="stat"><b id="dScore">0</b><span>Score</span></div>
-        <div class="stat"><b id="dRound">1</b><span>Round</span></div>
+        <div class="stat"><b id="dRound">1</b><span id="dRoundLabel">Round</span></div>
         <div class="stat"><b id="dKills">0</b><span>Kills</span></div>
         <div class="stat"><b id="dAcc">0%</b><span>Accuracy</span></div>
         <div class="stat"><b id="dBest">0</b><span>Best</span></div>
@@ -3832,6 +3832,7 @@ function applyAtmo(){
 const PICKUPS = {
   cell: {name:"SUPPLY",       color:0x3FE0C8, label:"補給"},
   ammo: {name:"AMMO",         color:0xFFD24D, label:"AMMO FULL"},
+  dmheal:{name:"HEAL",        color:0x5CE08A, label:"血量與護甲補滿"},     // 死鬥：屍體掉的補包
 };
 const pickupGeo = new THREE.BoxGeometry(0.34,0.34,0.34);
 function makePickup(kind){
@@ -7159,6 +7160,102 @@ function valBotStats(b){
   b.hp = b.maxHp = VAL.hp; b.shield = b.maxShield = 0;
   b.armor = b.armorMax = G.round >= 5 ? 50 : G.round >= 3 ? 25 : 0; b.armorAbs = 0.66;
 }
+// ── 死鬥（Valorant Deathmatch）──
+// 官方規則（wiki）：各自為戰，先拿 40 殺或 9 分鐘到時殺最多；自動給重甲、槍隨便買、不能用技能。
+// 擊殺時當下那把槍補滿彈匣（機槍只補 30 發），屍體掉補包，撿到血與護甲補滿；
+// 死後 1.5 秒在遠離死亡點的地方重生，有短暫無敵（時間到或一移動就解除），重生時小地圖脈衝一次顯示所有敵人。
+// 這裡是單人對電腦（Leo 選的）：同時 5 隻、只打玩家，敵人死後也是 1.5 秒在遠處重生。
+// 無敵 3 秒、補包 20 秒後消失是自調（wiki 只寫「幾秒」）
+const DM = {kills:40, time:540, bots:5, respawn:1.5, invuln:3, packLife:20};
+const DM_TYPES = ["grunt", "grunt", "stalker", "lancer", "warden"];
+function dmStart(){
+  G.dm = {kills:0, deaths:0, left:DM.time, queue:[], downT:0, over:false};
+  G.mode = "fight";
+  dmArm(G.player);
+  for (let i = 0; i < DM.bots; i++) dmSpawnBot();
+  banner("DEATHMATCH", "先拿 " + DM.kills + " 殺 · " + DM.time/60 + " 分鐘 · 按 " + bindLabel("buy") + " 買槍（免費）");
+}
+// 血滿、重甲滿（開局、重生、撿補包）
+function dmArm(p){ p.hp = VAL.hp; p.armor = VAL_ARMOR.heavy.cap; p.armorKind = "heavy"; p.armorAbs = VAL_ARMOR.heavy.abs; p.regenPool = 0; }
+// 挑重生點：離 avoid 裡每個點都夠遠、而且彼此看不到的優先，再從最遠的前三個裡隨機挑一個，免得每次都在同一個地方
+function dmPickSpawn(avoid){
+  const score = s => {
+    let m = 1e9, seen = false;
+    for (const a of avoid){ m = Math.min(m, Math.hypot(s.x - a.x, s.y - a.y)); if (hasLOS(a.x, a.y, s.x, s.y)) seen = true; }
+    return m - (seen ? 600 : 0);
+  };
+  const ranked = SPAWNS.slice().sort((a, b) => score(b) - score(a));
+  return ranked[Math.floor(Math.random() * Math.min(3, ranked.length))];
+}
+function dmSpawnBot(){
+  const p = G.player, s = dmPickSpawn([p]);
+  const type = DM_TYPES[Math.floor(Math.random() * DM_TYPES.length)], T = TYPES[type];
+  const obj = makeBotObject(type);
+  botLayer.add(obj);
+  const x = s.x + (Math.random()*30 - 15), y = s.y + (Math.random()*30 - 15);
+  const b = {
+    type, obj, x, y, rad:T.rad, hp:VAL.hp, maxHp:VAL.hp, angle:Math.atan2(p.y - y, p.x - x),
+    shield:0, maxShield:0, cool:0.4 + Math.random()*0.5, burst:T.burstSize, see:0,
+    lastX:x, lastY:y, goalX:x, goalY:y, strafe:Math.random() < 0.5 ? 1 : -1, stuck:0, px:x, py:y,
+    revealed:0, flash:0, laser:null, hitT:0, hitAngle:0, hitForce:0, headT:0, headForce:0,
+    armor:VAL_ARMOR.heavy.cap, armorMax:VAL_ARMOR.heavy.cap, armorAbs:VAL_ARMOR.heavy.abs,
+  };
+  G.bots.push(b);
+}
+// 擊殺：補彈匣、掉補包、排重生、檢查是否拿滿 40 殺
+function dmOnKill(b){
+  const d = G.dm, p = G.player, g = gun();
+  d.kills++;
+  if (g.val && !g.val.melee){
+    p.reloading = 0;
+    p.mags[g.key] = g.val.cat === "heavy" ? Math.min(g.mag, p.mags[g.key] + 30) : g.mag;
+  }
+  const obj = makePickup("dmheal");
+  obj.position.set(b.x*S, 0.6, b.y*S);
+  fxLayer.add(obj);
+  G.pickups.push({kind:"dmheal", x:b.x, y:b.y, obj, taken:false, life:DM.packLife});
+  d.queue.push(DM.respawn);
+  if (d.kills >= DM.kills) dmEnd(true);
+}
+function dmPlayerDown(){
+  const d = G.dm;
+  d.deaths++; d.downT = DM.respawn;
+  G.mode = "down";
+  G.player.hp = 0;
+  sfx("sawtooth", 90, 0.5, 0.06, 40);
+  banner("被擊倒", DM.respawn + " 秒後重生");
+}
+function dmRespawnPlayer(){
+  const p = G.player, s = dmPickSpawn(G.bots.length ? G.bots : [p]);
+  p.x = s.x; p.y = s.y; p.vx = p.vy = 0; p.z = 0;
+  dmArm(p);
+  p.reloading = 0;
+  G.mode = "fight";
+  p.iframe = DM.invuln;                               // 沿用現成的無敵時間：大於 0 時子彈打不到
+  G.tagT = 0;
+  // 小地圖脈衝：重生時所有敵人短暫顯示
+  for (const b of G.bots) b.revealed = 3;
+}
+function dmUpdate(dt){
+  const d = G.dm, p = G.player;
+  d.left -= dt;
+  if (d.left <= 0){ d.left = 0; dmEnd(false); return; }
+  for (let i = d.queue.length - 1; i >= 0; i--){
+    if ((d.queue[i] -= dt) <= 0){ d.queue.splice(i, 1); dmSpawnBot(); }
+  }
+  if (G.mode === "down"){
+    if ((d.downT -= dt) <= 0) dmRespawnPlayer();
+  } else if (p.iframe > 0 && Math.hypot(p.vx, p.vy) > 5) p.iframe = 0;     // 重生無敵：一移動就解除
+}
+function dmEnd(win){
+  const d = G.dm;
+  if (d.over) return;
+  d.over = true;
+  G.mode = "dead"; G.deadT = 0;
+  banner(win ? "勝利 · " + DM.kills + " 殺" : "時間到", "擊殺 " + d.kills + " · 死亡 " + d.deaths);
+  sfx("sine", 660, 0.25, 0.05, 990);
+  endGame();
+}
 // 訓練場假人的護甲：沿用護盾選單的 0～4，對應 無 / 輕甲 / 再生護盾 / 重甲 / 重甲
 function valDummySetup(b){
   const kind = [null, "light", "regen", "heavy", "heavy"][RANGE.shield] || null, a = kind && VAL_ARMOR[kind];
@@ -7169,7 +7266,7 @@ function valDummySetup(b){
 
 // 購買選單（B）：訓練場全部免費；生存模式只有波與波之間的購買階段能買
 const overBuy = document.getElementById("overBuy"), buyGrid = document.getElementById("buyGrid");
-function canBuy(){ return !!(G && G.val && G.mode !== "dead" && (G.practice || G.mode === "break")); }
+function canBuy(){ return !!(G && G.val && G.mode !== "dead" && (G.practice || G.dm || G.mode === "break")); }   // 死鬥隨時可買
 function openBuy(){
   if (!canBuy()){ banner("現在不能買", "波與波之間的購買階段才能買"); return; }
   renderBuy(); overBuy.hidden = false;
@@ -7180,8 +7277,8 @@ function closeBuy(){
   requestLock();          // 按 B 關掉是一次按鍵操作，瀏覽器允許直接把滑鼠鎖回去（ESC 不算，會跳暫停畫面）
 }
 function renderBuy(){
-  const p = G.player, free = G.practice;
-  document.getElementById("buyCredits").textContent = free ? "訓練場 · 全部免費" : "¤ " + G.credits;
+  const p = G.player, free = G.practice || !!G.dm;
+  document.getElementById("buyCredits").textContent = free ? (G.dm ? "死鬥 · 全部免費" : "訓練場 · 全部免費") : "¤ " + G.credits;
   const cols = [["sidearm"], ["smg", "shotgun"], ["rifle"], ["sniper", "heavy"], ["armor"]];
   let html = "";
   for (const col of cols){
@@ -7221,7 +7318,7 @@ buyGrid.addEventListener("click", ev => {
 function valBuyGun(key){
   const p = G.player, d = GUNS[key].val, slot = d.cat === "sidearm" ? "secondary" : "primary";
   if (p.slots[slot] !== key){
-    if (!G.practice){
+    if (!G.practice && !G.dm){
       if (G.credits < d.cost){ sfx("square", 140, 0.12, 0.04, 90); return; }
       G.credits -= d.cost;
     }
@@ -7234,7 +7331,7 @@ function valBuyGun(key){
 function valBuyArmor(k){
   const p = G.player, a = VAL_ARMOR[k];
   if (p.armorKind === k && p.armor >= a.cap - 0.01) return;
-  if (!G.practice){
+  if (!G.practice && !G.dm){
     if (G.credits < a.cost){ sfx("square", 140, 0.12, 0.04, 90); return; }
     G.credits -= a.cost;
   }
@@ -7700,6 +7797,7 @@ function update(dt){
     G.timer -= dt;
     if (G.timer <= 0){ G.mode = "fight"; spawnRound(); }
   }
+  if (G.dm && !G.dm.over) dmUpdate(dt);
   G.breakMark = Math.max(0, G.breakMark - dt*2.2);
   if (G.pingMark && (G.pingMark.t -= dt) <= 0) G.pingMark = null;
   for (let i=G.respawns.length-1;i>=0;i--){
@@ -7708,7 +7806,7 @@ function update(dt){
     if (r.t <= 0){ G.bots.push(makeDummy(r.x, r.y, r.ax, r.ay)); G.respawns.splice(i,1); }
   }
 
-  if (G.mode !== "dead"){
+  if (G.mode !== "dead" && G.mode !== "down"){      // down：死鬥被擊倒、等重生，不能動也不能開槍
     // 視角決定朝向：先由 yaw 推回 2D 的角度
     p.angle = Math.atan2(-Math.cos(aimYaw()), -Math.sin(aimYaw()));
     // 相對於視角的移動
@@ -8287,7 +8385,7 @@ function update(dt){
         continue;
       }
       G.kills++;
-      if (G.val) G.credits = Math.min(9000, G.credits + 200);   // Valorant：每殺一個 +200
+      if (G.dm) dmOnKill(b);
       // 三秒內接著再殺會疊加，最多三倍
       G.streakT = 3.0;
       G.streak = Math.min(8, G.streak + 1);
@@ -8300,7 +8398,7 @@ function update(dt){
       if (!G.val) sfxAt(b.x,b.y,"triangle",420,0.22,0.5,110);   // Valorant 的擊殺音在 valApplyHit
     }
   }
-  if (G.mode === "fight" && G.bots.length === 0 && !G.practice){
+  if (G.mode === "fight" && G.bots.length === 0 && !G.practice && !G.dm){
     G.score += 200 + (G.tookDamage ? 0 : 300);
     if (G.val) valRoundWon();
     else {
@@ -8311,7 +8409,8 @@ function update(dt){
     G.player.reloading = 0;
     G.mode = "break"; G.timer = G.val ? 15 : 2.6;
   }
-  if (G.player.hp <= 0 && G.mode !== "dead"){
+  if (G.dm){ if (G.player.hp <= 0 && G.mode === "fight") dmPlayerDown(); }   // 死鬥：被擊倒後重生，不結束
+  else if (G.player.hp <= 0 && G.mode !== "dead"){
     G.mode = "dead";
     G.deadT = 0;
     G.kick = 0.16;
@@ -8355,7 +8454,9 @@ function update(dt){
     const u = G.pickups[i];
     u.obj.rotation.y += dt*1.5;
     u.obj.position.y = 0.55 + Math.sin(G.t*2.4 + i)*0.09;
-    if (G.mode === "dead") continue;
+    // 有壽命的（死鬥補包）時間到就消失
+    if (u.life !== undefined && (u.life -= dt) <= 0){ fxLayer.remove(u.obj); G.pickups.splice(i, 1); continue; }
+    if (G.mode === "dead" || G.mode === "down") continue;
     if (Math.hypot(G.player.x-u.x, G.player.y-u.y) < 34){
       const info = PICKUPS[u.kind];
       let label = info.label;
@@ -8368,6 +8469,7 @@ function update(dt){
         }
         label = got.length ? "+ " + got.join("、") : "補品已滿";
       }
+      else if (u.kind === "dmheal") dmArm(G.player);
       else { G.player.mags = {vector:GUNS.vector.mag, lance:GUNS.lance.mag, breach:GUNS.breach.mag}; G.player.reloading = 0; }
       G.feed.unshift({text:label, score:0, life:2.2, max:2.2, pickup:true});
       if (G.feed.length > 5) G.feed.pop();
@@ -9166,7 +9268,8 @@ function drawValHud(w, h, cx){
   }
   // 錢與購買階段
   uctx.textAlign = "left";
-  if (!G.practice){
+  if (G.dm) drawDmHud(w, h, cx);
+  else if (!G.practice){
     uctx.fillStyle = "#FFD27A"; uctx.font = '600 14px "IBM Plex Mono", ui-monospace, monospace';
     uctx.fillText("¤ " + G.credits, 28, h - 40);
     if (G.mode === "break" && G.timer < 100){
@@ -9177,6 +9280,30 @@ function drawValHud(w, h, cx){
     uctx.fillStyle = "rgba(242,236,255,.55)"; uctx.font = '600 11px "Chakra Petch", system-ui';
     uctx.fillText(bindLabel("buy") + " 買槍（訓練場免費）", 28, h - 40);
   }
+}
+// 死鬥 HUD：上方中央是擊殺數與剩餘時間，被擊倒時畫面中央是重生倒數，重生無敵時提示一動就解除
+function drawDmHud(w, h, cx){
+  const d = G.dm, p = G.player;
+  const sec = Math.ceil(d.left), mm = Math.floor(sec/60), ss = String(sec % 60).padStart(2, "0");
+  uctx.textAlign = "center"; uctx.textBaseline = "middle";
+  uctx.fillStyle = "rgba(8,10,16,.5)"; uctx.fillRect(cx - 120, 64, 240, 46);
+  uctx.fillStyle = "#F2F4F8"; uctx.font = '700 22px "IBM Plex Mono", ui-monospace, monospace';
+  uctx.fillText(d.kills + " / " + DM.kills, cx - 50, 84);
+  uctx.fillStyle = d.left < 60 ? "#FF4655" : "#F2F4F8";
+  uctx.fillText(mm + ":" + ss, cx + 62, 84);
+  uctx.fillStyle = "rgba(242,244,248,.55)"; uctx.font = '600 10px "Chakra Petch", system-ui';
+  uctx.fillText("擊殺", cx - 50, 102); uctx.fillText("死亡 " + d.deaths, cx + 62, 102);
+  if (G.mode === "down"){
+    uctx.fillStyle = "rgba(8,10,16,.45)"; uctx.fillRect(0, 0, w, h);
+    uctx.fillStyle = "#F2F4F8"; uctx.font = '700 20px "Chakra Petch", system-ui';
+    uctx.fillText("重生 " + Math.max(0, d.downT).toFixed(1), cx, h*0.5);
+  } else if (p.iframe > 0.05){
+    uctx.fillStyle = "#5CE08A"; uctx.font = '700 12px "Chakra Petch", system-ui';
+    uctx.fillText("無敵 " + p.iframe.toFixed(1) + " 秒 · 移動就解除", cx, h*0.62);
+  }
+  uctx.textAlign = "left";
+  uctx.fillStyle = "rgba(242,236,255,.55)"; uctx.font = '600 11px "Chakra Petch", system-ui';
+  uctx.fillText(bindLabel("buy") + " 買槍（死鬥免費）", 28, h - 40);
 }
 function drawRangeHud(w, h, cx){
   const p = G.player, rs = G.rs;
@@ -9456,7 +9583,12 @@ function endGame(){
     try { localStorage.setItem("echo3d.best", String(best)); } catch(e){}
   }
   document.getElementById("dScore").textContent = G.score;
-  document.getElementById("dRound").textContent = G.round;
+  document.getElementById("dRound").textContent = G.dm ? G.dm.deaths : G.round;
+  // 死鬥的結算：標題是勝利或時間到，Round 欄改成死亡次數
+  const dmWin = G.dm && G.dm.kills >= DM.kills;
+  document.getElementById("dEyebrow").textContent = G.dm ? "Deathmatch" : "Signal Lost";
+  document.getElementById("dTitle").textContent = G.dm ? (dmWin ? "勝利" : "時間到") : "陣亡";
+  document.getElementById("dRoundLabel").textContent = G.dm ? "Deaths" : "Round";
   document.getElementById("dKills").textContent = G.kills;
   document.getElementById("dAcc").textContent =
     (G.shots ? Math.round(G.hits/G.shots*100) : 0) + "%";
@@ -9483,7 +9615,7 @@ function startGame(){
   G = newGame();
   // 訓練場直接進入交戰狀態（射擊、開鏡都要這個狀態），但不會生成敵人波次
   if (G.practice){ G.mode = "fight"; deployDummies(true); }
-  else if (G.val){ G.timer = 15; banner("購買階段", "按 " + bindLabel("buy") + " 買槍 · 開局 800"); }
+  else if (G.val) dmStart();                 // Valorant 的非訓練場模式是死鬥
   rangeSet.hidden = !G.practice;
   placeBoard();
   overStart.hidden = true; overDead.hidden = true; overPause.hidden = true;
@@ -9904,7 +10036,7 @@ mapSelect.addEventListener("change", () => {
 // 選擇記在瀏覽器本機
 const MODE_TEXT = {
   apex:    {survival:"生存 · 一波一波的敵人", range:"訓練場 · 假人不會開槍"},
-  valorant:{survival:"死鬥 · 一波一波的敵人，波與波之間買槍", range:"訓練場 · THE RANGE 靶道與靶板，買槍免費"},
+  valorant:{survival:"死鬥 · 先拿 40 殺或 9 分鐘，死了 1.5 秒重生", range:"訓練場 · THE RANGE 靶道與靶板，買槍免費"},
 };
 const RG_TEXT = {
   apex:    {shield:["無", "白 · 50", "藍 · 75", "紫 · 100", "紅 · 125"],

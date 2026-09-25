@@ -7182,10 +7182,12 @@ function valFire(alt, queued){
   const spr = valSpread(alt);
   const pel = A ? A.pellets : d.pellets || 1;
   const h0 = eyeH();
-  // 曳光起點：視線前方 2m、只偏右 6cm、偏下 5cm（開鏡時回到中線）。原本在 0.9m、右 16cm、下 13cm（模擬槍口），
-  // 整條線有一大段在準心右下方，Leo 反映看起來偏右。世界座標 x = px·S、z = py·S，面向 +x 時右手邊是 +z
-  const fa = Math.atan2(-Math.cos(yaw), -Math.sin(yaw)), cp = Math.cos(pitch), side = 0.06*(1 - G.adsT), fwd = 2.0;
-  const tr0 = [p.x*S + Math.cos(fa)*cp*fwd - Math.sin(fa)*side, h0 + Math.sin(pitch)*fwd - 0.05*(1 - G.adsT),
+  // 曳光起點：視線前方 2m、右 1cm、下 1.5cm，也就是準心右下方約 0.4°（開鏡時回到中線）。
+  // 起點在畫面上的偏移角 = 側移 / 前方距離，和目標遠近無關；原本右 6cm 下 5cm（約 2°），打近處的牆時
+  // 整條線只剩準心右下方那一小段，Leo 以為子彈打偏（實測真實點擊 30 發，彈孔平均偏右 0.0cm）。
+  // 世界座標 x = px·S、z = py·S，面向 +x 時右手邊是 +z
+  const fa = Math.atan2(-Math.cos(yaw), -Math.sin(yaw)), cp = Math.cos(pitch), side = 0.01*(1 - G.adsT), fwd = 2.0;
+  const tr0 = [p.x*S + Math.cos(fa)*cp*fwd - Math.sin(fa)*side, h0 + Math.sin(pitch)*fwd - 0.015*(1 - G.adsT),
                p.y*S + Math.sin(fa)*cp*fwd + Math.cos(fa)*side];
   if (G.spray.pts.length < 60) G.spray.pts.push([-(yaw - G.spray.yaw0) + vs.x*DEG, (pitch - G.spray.pitch0) + vs.y*DEG]);
   for (let i=0;i<pel;i++){
@@ -7362,10 +7364,10 @@ function valBotStats(b){
 // 死後 1.5 秒在遠離死亡點的地方重生，有短暫無敵（時間到或一移動就解除），重生時小地圖脈衝一次顯示所有敵人。
 // 這裡是單人對電腦（Leo 選的）：同時 5 隻、只打玩家，敵人死後也是 1.5 秒在遠處重生。
 // 無敵 3 秒、補包 20 秒後消失是自調（wiki 只寫「幾秒」）
-const DM = {kills:40, time:540, bots:5, respawn:1.5, invuln:3, packLife:20};
+const DM = {kills:40, time:540, bots:5, respawn:1.5, invuln:3, packLife:20, grace:5};
 const DM_TYPES = ["grunt", "grunt", "stalker", "lancer", "warden"];
 function dmStart(){
-  G.dm = {kills:0, deaths:0, left:DM.time, queue:[], downT:0, over:false};
+  G.dm = {kills:0, deaths:0, left:DM.time, queue:[], downT:0, over:false, graceT:0};
   G.mode = "fight";
   dmArm(G.player);
   for (let i = 0; i < DM.bots; i++) dmSpawnBot();
@@ -7373,16 +7375,26 @@ function dmStart(){
 }
 // 血滿、重甲滿（開局、重生、撿補包）
 function dmArm(p){ p.hp = VAL.hp; p.armor = VAL_ARMOR.heavy.cap; p.armorKind = "heavy"; p.armorAbs = VAL_ARMOR.heavy.abs; p.regenPool = 0; }
-// 挑重生點：離 avoid 裡每個點都夠遠、而且彼此看不到的優先，再從最遠的前三個裡隨機挑一個，免得每次都在同一個地方
+// 挑重生點：離 avoid 裡每個點都夠遠、而且沒有人看得到的優先，再從最好的前三個裡隨機挑一個，免得每次都在同一個地方。
+// 候選除了地圖的出生點（HIGH NOON 只有 8 個），再加 40 個隨機空地：只有 8 個點時，5 隻敵人散開後常常沒有一個點是安全的
 function dmPickSpawn(avoid){
+  const cand = SPAWNS.slice();
+  for (let i = 0; i < 40; i++){
+    const x = 40 + Math.random()*(W - 80), y = 40 + Math.random()*(H - 80);
+    if (spotFree(x, y, 22) && (!NAV || !navBlocked(x, y))) cand.push({x, y});
+  }
   const score = s => {
-    let m = 1e9, seen = false;
-    for (const a of avoid){ m = Math.min(m, Math.hypot(s.x - a.x, s.y - a.y)); if (hasLOS(a.x, a.y, s.x, s.y)) seen = true; }
-    return m - (seen ? 600 : 0);
+    let m = 1e9, seen = 0;
+    for (const a of avoid){ m = Math.min(m, Math.hypot(s.x - a.x, s.y - a.y)); if (hasLOS(a.x, a.y, s.x, s.y)) seen++; }
+    return m - seen*800;
   };
-  const ranked = SPAWNS.slice().sort((a, b) => score(b) - score(a));
+  const ranked = cand.sort((a, b) => score(b) - score(a));
   return ranked[Math.floor(Math.random() * Math.min(3, ranked.length))];
 }
+// 敵人搜索時往玩家附近走的機率。生存模式是 0.7（敵人是來獵殺你的，躲進房子也會被找到），
+// 但這等於敵人永遠知道你在哪：死鬥一重生，下一個搜索目標就是你的新位置，五隻一起圍過來（Leo 回報一復活就又被殺）。
+// 死鬥降到 0.35，其餘時間在出生點之間巡邏；重生後 5 秒內完全不往你附近找（自調）
+function dmHuntChance(){ return G.dm.graceT > 0 ? 0 : 0.35; }
 function dmSpawnBot(){
   const p = G.player, s = dmPickSpawn([p]);
   const type = DM_TYPES[Math.floor(Math.random() * DM_TYPES.length)], T = TYPES[type];
@@ -7422,7 +7434,11 @@ function dmPlayerDown(){
   banner("被擊倒", DM.respawn + " 秒後重生");
 }
 function dmRespawnPlayer(){
-  const p = G.player, s = dmPickSpawn(G.bots.length ? G.bots : [p]);
+  // 避開每隻敵人，也避開剛才死掉的地方（Valorant：重生點會遠離死亡位置）
+  const p = G.player, s = dmPickSpawn(G.bots.concat([{x:p.x, y:p.y}]));
+  // 敵人失去追蹤：不再往最後看見你的地方走，搜索目標也重新挑
+  G.dm.graceT = DM.grace;
+  for (const b of G.bots){ b.chase = false; b.see = 0; b.goalX = b.x; b.goalY = b.y; }
   p.x = s.x; p.y = s.y; p.vx = p.vy = 0; p.z = 0;
   dmArm(p);
   p.reloading = 0;
@@ -7436,6 +7452,7 @@ function dmUpdate(dt){
   const d = G.dm, p = G.player;
   d.left -= dt;
   if (d.left <= 0){ d.left = 0; dmEnd(false); return; }
+  if (d.graceT > 0) d.graceT -= dt;
   for (let i = d.queue.length - 1; i >= 0; i--){
     if ((d.queue[i] -= dt) <= 0){ d.queue.splice(i, 1); dmSpawnBot(); }
   }
@@ -8307,7 +8324,7 @@ function update(dt){
           // 搜索：七成往玩家大概的位置（附近 8m 內隨機一點）走，三成隨機去一個出生點。
           // 大地圖上只靠隨機閒晃，躲進房子裡的玩家永遠不會被找到；有了 A* 尋路，敵人會從門進去找
           let gx, gy;
-          if (Math.random() < 0.7){
+          if (Math.random() < (G.dm ? dmHuntChance() : 0.7)){      // 死鬥的對手不知道你在哪：見 dmHuntChance
             for (let k=0;k<6;k++){
               const a = Math.random()*Math.PI*2, r = Math.random()*260;
               gx = p.x + Math.cos(a)*r; gy = p.y + Math.sin(a)*r;

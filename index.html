@@ -6185,25 +6185,30 @@ function navBlocked(x, y){
   if (i < 0 || j < 0 || i >= NAV.cols || j >= NAV.rows) return true;
   return NAV.g[j*NAV.cols + i] === 1;
 }
+// 搜尋目標可能落在地圖外或障礙膨脹格裡；回傳最近可走格，避免 AI 每幀重試不可能的終點
+function navNearestFree(x, y){
+  if (!NAV || NAV.map !== activeMap) buildNav();
+  const i = Math.floor(x / NAV_CELL), j = Math.floor(y / NAV_CELL);
+  for (let r=0;r<8;r++) for (let dj=-r;dj<=r;dj++) for (let di=-r;di<=r;di++){
+    const ii = i + di, jj = j + dj;
+    if (ii >= 0 && jj >= 0 && ii < NAV.cols && jj < NAV.rows && !NAV.g[jj*NAV.cols + ii])
+      return {id:jj*NAV.cols + ii, x:(ii + 0.5)*NAV_CELL, y:(jj + 0.5)*NAV_CELL};
+  }
+  return null;
+}
 // 兩點之間每半格取樣一次，都沒碰到障礙就算走得通
 function lineClear(ax, ay, bx, by){
   const d = Math.hypot(bx - ax, by - ay), n = Math.ceil(d / (NAV_CELL*0.5));
   for (let k=1;k<=n;k++){ const t = k/n; if (navBlocked(ax + (bx-ax)*t, ay + (by-ay)*t)) return false; }
   return true;
 }
+// 敵人貼在障礙邊時，起點幾格可能已在膨脹區；略過這段才能判斷哪一側真的能離開牆角
 function findPath(ax, ay, bx, by){
   const {cols, rows, g} = NAV, N = cols*rows;
-  // 起點或終點落在障礙裡（貼著牆）就找最近的空格
-  const nearestFree = (x, y) => {
-    let i = Math.floor(x/NAV_CELL), j = Math.floor(y/NAV_CELL);
-    for (let r=0;r<8;r++) for (let dj=-r;dj<=r;dj++) for (let di=-r;di<=r;di++){
-      const ii = i + di, jj = j + dj;
-      if (ii >= 0 && jj >= 0 && ii < cols && jj < rows && !g[jj*cols + ii]) return jj*cols + ii;
-    }
-    return -1;
-  };
-  const s0 = nearestFree(ax, ay), s1 = nearestFree(bx, by);
-  if (s0 < 0 || s1 < 0) return null;
+  // 起點或終點貼牆時用可走格；不可達的精確座標不能再覆寫回路徑末端
+  const p0 = navNearestFree(ax, ay), p1 = navNearestFree(bx, by);
+  if (!p0 || !p1) return null;
+  const s0 = p0.id, s1 = p1.id;
   const gs = new Float32Array(N).fill(1e9), from = new Int32Array(N).fill(-1), closed = new Uint8Array(N);
   const heap = [], hx = s1 % cols, hy = (s1 / cols) | 0;
   const h = k => { const dx = Math.abs(k % cols - hx), dy = Math.abs(((k / cols) | 0) - hy); return (dx + dy) + (Math.SQRT2 - 2)*Math.min(dx, dy); };
@@ -6235,19 +6240,20 @@ function findPath(ax, ay, bx, by){
   const path = [];
   for (let k = s1; k !== -1; k = from[k]) path.push({x:(k % cols + 0.5)*NAV_CELL, y:(((k / cols) | 0) + 0.5)*NAV_CELL});
   path.reverse();
-  path[path.length - 1] = {x:bx, y:by};
+  if (!navBlocked(bx, by)) path[path.length - 1] = {x:bx, y:by};
   return path;
 }
 // 回傳這一幀要走向的點：直線走得通就是目標本身，否則是路徑上能直線走到的最遠那一點
 function navStep(b, tx, ty, dt){
   if (!NAV || NAV.map !== activeMap) buildNav();
-  if (lineClear(b.x, b.y, tx, ty)){ b.path = null; return [tx, ty]; }
+  if (lineClear(b.x, b.y, tx, ty)){ b.path = null; b.pathFail = false; return [tx, ty]; }
   b.pathT = (b.pathT || 0) - dt;
-  if (!b.path || b.pathT <= 0 || Math.hypot(b.pathGX - tx, b.pathGY - ty) > 40){
-    b.path = findPath(b.x, b.y, tx, ty); b.pathI = 0; b.pathT = 0.7; b.pathGX = tx; b.pathGY = ty;
+  if ((!b.path && !b.pathFail) || b.pathT <= 0 || Math.hypot(b.pathGX - tx, b.pathGY - ty) > 40){
+    b.path = findPath(b.x, b.y, tx, ty); b.pathFail = !b.path || !b.path.length;
+    b.pathI = 0; b.pathT = 0.7; b.pathGX = tx; b.pathGY = ty;
   }
   const path = b.path;
-  if (!path || !path.length) return [tx, ty];
+  if (!path || !path.length) return [b.x, b.y];
   while (b.pathI < path.length - 1 && lineClear(b.x, b.y, path[b.pathI + 1].x, path[b.pathI + 1].y)) b.pathI++;
   return [path[b.pathI].x, path[b.pathI].y];
 }
@@ -8293,6 +8299,8 @@ function update(dt){
 
       const d = Math.hypot(p.x-b.x, p.y-b.y);
       const los = d < T.range && hasLOS(b.x,b.y,p.x,p.y,1.85*botK(b.type),eyeH());
+      // 卡住計時的邊界比戰術側移帶寬一些，免得距離在門檻附近抖動時每幀清零。
+      const stuckBand = los && T.keepDist > 0 && Math.abs(d - T.keepDist) < 120;
       if (los){ b.see += dt; b.lastX = p.x; b.lastY = p.y; b.chase = true; } else b.see = 0;
 
       let tx, ty;
@@ -8310,9 +8318,14 @@ function update(dt){
           if (Math.random() < 0.7){
             for (let k=0;k<6;k++){
               const a = Math.random()*Math.PI*2, r = Math.random()*260;
-              gx = p.x + Math.cos(a)*r; gy = p.y + Math.sin(a)*r;
-              if (!NAV || !navBlocked(gx, gy)) break;
+              const q = navNearestFree(
+                Math.max(0, Math.min(W - 1, p.x + Math.cos(a)*r)),
+                Math.max(0, Math.min(H - 1, p.y + Math.sin(a)*r))
+              );
+              if (q){ gx = q.x; gy = q.y; break; }
             }
+            // 靠地圖邊緣或窄角連續抽到牆內時留在原地，免得把不可達座標當成巡邏目標
+            if (gx === undefined){ const q = navNearestFree(p.x, p.y); gx = q ? q.x : b.x; gy = q ? q.y : b.y; }
           } else { const s = SPAWNS[(Math.random()*SPAWNS.length)|0]; gx = s.x; gy = s.y; }
           b.goalX = gx; b.goalY = gy;
         }
@@ -8323,14 +8336,26 @@ function update(dt){
       const al = Math.hypot(ax,ay) || 1;
       ax /= al; ay /= al;
       if (los && d < T.keepDist){ ax = -ax; ay = -ay; }
-      if (los && T.keepDist > 0 && Math.abs(d - T.keepDist) < 90){
+      const keepBand = los && T.keepDist > 0 && Math.abs(d - T.keepDist) < 90;
+      if (keepBand){
         const t2 = Math.atan2(p.y-b.y, p.x-b.x) + Math.PI/2*b.strafe;
         ax = Math.cos(t2); ay = Math.sin(t2);
+      }
+      // 只有另一側確實有淨空才翻轉切線；兩側都堵住時沿牆法線側閃，避免固定來回撞同一柱。
+      if (keepBand && b.stuck > 0.3 && (b.hitX || b.hitY) && !b.keepEscapeUsed){
+        const altX = b.x - ax*80, altY = b.y - ay*80;
+        if (lineClear(b.x,b.y,altX,altY)) b.strafe *= -1;
+        else {
+          b.dodge = 0.6;
+          const tx2 = b.hitX ? 0 : (Math.sign(ax) || 1), ty2 = b.hitX ? (Math.sign(ay) || 1) : 0;
+          b.strafe = (-ay*tx2 + ax*ty2) >= 0 ? 1 : -1;
+        }
+        b.keepEscapeUsed = true;
       }
       // 側閃一旦開始就持續一段時間。原本側移一走得動，卡住計時就歸零，
       // 下一幀立刻轉回去撞牆，貼牆時每 0.3 秒抽搐一下
       // 剛生成的敵人 dodge 是 undefined，undefined <= 0 是 false，所以要寫成 !(> 0)
-      if (b.stuck > 0.3 && !(b.dodge > 0)){
+      if (b.stuck > 0.3 && !(b.dodge > 0) && (!keepBand || d < T.keepDist)){
         b.dodge = 0.6;
         // 側閃方向順著剛才沿牆滑動的方向（想走的方向在牆面上的分量），也就是離繞過障礙物最近的那一邊。
         // 原本方向是隨機的：柱子旁邊往反方向閃，閃完又滑回原處，會在柱子邊來回好幾秒
@@ -8341,7 +8366,8 @@ function update(dt){
         b.dodge -= dt;
         const t2 = Math.atan2(ay,ax) + Math.PI/2*b.strafe;
         ax = Math.cos(t2); ay = Math.sin(t2);
-        if (b.stuck > 0.95){ b.stuck = 0; b.strafe *= -1; }
+        // 已依碰撞軸選過可走側；未脫困時再反轉會讓 AI 每秒在同一段牆邊折返。
+        if (b.stuck > 0.95) b.stuck = 0;
       }
       b.px = b.x; b.py = b.y;
       const spd = T.speed * ENEMY_SPEED_K * (b.tagT > 0 ? 1 - b.tagAmt * b.tagT / VAL.tagT : 1);   // 中彈減速（Valorant）
@@ -8349,7 +8375,14 @@ function update(dt){
       b.hitX = bhit.x; b.hitY = bhit.y;
       const bmoved = Math.hypot(b.x-b.px, b.y-b.py);
       b.moved = bmoved;
-      b.stuck = bmoved < spd*dt*0.4 ? b.stuck + dt : 0;
+      const blockedMove = (bhit.x || bhit.y) && bmoved < spd*dt*0.4;
+      // 一幀擦出牆邊不代表脫困；短暫沒碰撞時保留卡住時間，讓固定側閃完成。
+      if (stuckBand && blockedMove){ b.stuck += dt; b.keepClearT = 0; }
+      else if (stuckBand && b.stuck > 0){
+        b.keepClearT = (b.keepClearT || 0) + dt;
+        if (b.keepClearT >= 0.35){ b.stuck = 0; b.keepEscapeUsed = false; b.keepClearT = 0; }
+        else b.stuck = Math.max(0, b.stuck-dt*0.25);
+      } else { b.stuck = bmoved < spd*dt*0.4 ? b.stuck + dt : 0; b.keepEscapeUsed = false; b.keepClearT = 0; }
       // 腳步聲：跑得快的踩得密，隔著牆會悶掉但還聽得見
       b.step = (b.step || 0) + bmoved;
       if (b.step > 58){

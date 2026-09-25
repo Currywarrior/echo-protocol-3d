@@ -268,15 +268,17 @@ function simulate(ctx, mapId, seed, moving) {
         }
         sampled[i]={x:b.x,y:b.y};
       }
-      const elapsed=time+DT,h=hist[i];h.push({x:b.x,y:b.y,t:elapsed});while(h.length&&elapsed-h[0].t>2.01)h.shift();
+      const elapsed=time+DT,h=hist[i];h.push({x:b.x,y:b.y,t:elapsed,go:b._simStillT!==time});while(h.length&&elapsed-h[0].t>2.01)h.shift();
       // 以不重疊的 2 秒區間計數，避免同一段卡住因單幀邊界抖動被重複計數數百次。
       if((frame+1)%120===0&&h.length){
         const start=h.find(q=>elapsed-q.t>=2-DT), net=start?Math.hypot(b.x-start.x,b.y-start.y):Infinity;
         // navStep 的回傳值是此刻真正要走的點：有路徑時是路徑點，直線可達時才是追蹤目標。
         const intent=Math.hypot((b._intentX??b.x)-b.x,(b._intentY??b.y)-b.y);
-        // 視窗內有刻意站定過（_simStillT）就不算：例如架槍 3 秒後剛起步，2 秒內淨位移自然不到 0.8m。
-        // SIM_STUCK_RAW=1 關掉這個排除，用舊定義對照
-        const stuck=net<0.8/0.03 && intent>3/0.03 && (!!process.env.SIM_STUCK_RAW || !(elapsed-(b._simStillT??-99)<2));
+        // 刻意站定（架槍、躲掩體、急停開槍，_simStillT）的時間不算在「該走而沒走」裡：
+        // 視窗內扣掉站定之後剩下的時間，照這隻敵人的速度至少走得了 1.5m，淨位移卻不到 0.8m 才算卡住。
+        // 舊版沒有刻意站定，剩下的時間永遠是整整 2 秒，和原本的定義完全一樣。SIM_STUCK_RAW=1 改回原本的定義對照
+        const goT=h.reduce((s,q)=>s+(q.go?DT:0),0), canWalk=goT*vm.runInContext("TYPES",ctx)[b.type].speed*ctx.ENEMY_SPEED_K;
+        const stuck=net<0.8/0.03 && intent>3/0.03 && (!!process.env.SIM_STUCK_RAW || canWalk>=1.5/0.03);
         if(stuck){
           m.stuckEpisodes++;
         if(process.env.SIM_TRACE&&m.examples.length<8)m.examples.push({t:+elapsed.toFixed(2),netM:+(net*0.03).toFixed(2),targetM:+(intent*0.03).toFixed(2),x:+b.x.toFixed(1),y:+b.y.toFixed(1),preSep:[+b._simPreSepX.toFixed(1),+b._simPreSepY.toFixed(1)],tx:+b._targetX.toFixed(1),ty:+b._targetY.toFixed(1),nx:+b._intentX.toFixed(1),ny:+b._intentY.toFixed(1),move:[+b._simAx.toFixed(2),+b._simAy.toFixed(2)],los:!!b._los,keepBand:!!b._simKeepBand,keepGoal:!!b.keepGoal,distM:+((b._simDist||0)*0.03).toFixed(2),keepDistM:+((b._simKeepDist||0)*0.03).toFixed(2),strafe:b._simStrafe,dodge:+(b._simDodge||0).toFixed(2),bothSidesBlocked:!!b._simBothSidesBlocked,hit:[!!b.hitX,!!b.hitY],stuck:+b.stuck.toFixed(2),pathI:b.pathI,pathN:b.path&&b.path.length,nearestBotM:+(Math.min(...ctx.G.bots.filter(q=>q!==b).map(q=>Math.hypot(q.x-b.x,q.y-b.y)))*0.03).toFixed(2)});

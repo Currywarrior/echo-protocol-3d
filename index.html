@@ -1024,6 +1024,9 @@ const VAL = {
   jumpV:6.0, gravity:18,             // 起跳 6m/s、重力 18m/s²：跳高 1.0m、滯空 0.67 秒（自調）
   tag:0.725, tagFar:0.30, tagT:0.5,  // 中彈減速 72.5%（wiki）；霰彈在 10m 外只減 30%、0.5 秒回復（wiki）。一般子彈的持續時間自調成一樣
   land:7, landT:0.225,               // 落地後 0.225 秒內散布 +7°（wiki）
+  deadzone:0.275,                    // 速度在跑速的 27.5% 以內沒有移動誤差（wiki patch：30% → 27.5%）
+  bias:1.0,                          // 站定時的中心偏置：子彈離中心的距離 = 散布 × 亂數^bias（平均分布是 ^0.5）。
+                                     // wiki 只說移動時改成「幾乎平均分布」（Error power 調降），站定的強度沒公開，取最溫和的 1（自調）
   rcCap:5,                           // 連射時子彈最多往上飄幾度（自調）
   bulletSpd:1800*PXM,                // Valorant 是瞬間命中；這裡用每秒 1800m 的子彈，50m 內不到 0.03 秒
   knifeRange:2*PXM,                  // 刀：2m 內（wiki）
@@ -1039,7 +1042,7 @@ const VAL_ARMOR = {
   heavy:{name:"重型護甲", cost:1000, cap:50, abs:0.66},
 };
 // 欄位：cat 類別、cost 價格、rate 射速（發/秒）、mag 彈匣、res 備彈、rel 換彈（秒）、eq 切槍（秒）、run 跑速倍率、
-// dmg 各距離段 [到幾公尺, 頭, 身, 腿]、spr 散布 [站著首發, 蹲著首發, 站著上限, 蹲著上限]（度）、
+// dmg 各距離段 [到幾公尺, 頭, 身, 腿]（valorant-api.com 的遊戲資料精確值，含小數；畫面上去掉小數，Sheriff 爆頭 159.5 顯示 159）、spr 散布 [站著首發, 蹲著首發, 站著上限, 蹲著上限]（度）、
 // mv 移動誤差 [蹲走, 走路, 跑步, 空中]（加上去的度數）、ads 右鍵開鏡（zoom 倍率、rate 射速、move 移速倍率、spr 散布、burst 點放發數）。
 // rc 是後座圖形（自調，形狀照社群整理的彈道描述）：up 每發往上飄幾度（前 n[0] 發、到 n[1] 發、之後），
 // side 橫向每發幾度，prot 發之後才開始左右擺，每發 10% 機會換邊、兩次換邊至少隔 sw 秒（沒寫就是 0.6，PC 版 wiki 數值）；
@@ -1047,41 +1050,41 @@ const VAL_ARMOR = {
 // rec 停火後完全回正要幾秒，grow 連射幾發散布長到上限
 const VAL_GUNS = {
   classic: {name:"CLASSIC", cat:"sidearm", cost:0, rate:6.75, mag:12, res:36, rel:1.75, eq:0.75, run:0.85,
-    dmg:[[30,78,26,22],[50,66,22,19]], spr:[0.4,0.3,1.8,1.35], mv:[0.5,1.1,2.3,7],
+    dmg:[[30,78,26,22.1],[50,66,22,18.7]], spr:[0.4,0.3,1.8,1.35], mv:[0.5,1.1,2.3,7],
     alt:{pellets:3, rate:2.22, spr:[1.9,1.71,5.78,5.21], mv:[0,0.6,1.5,2.25]}, rc:{up:[0.9], rec:0.35, grow:4}},
   shorty:  {name:"SHORTY", cat:"sidearm", cost:300, rate:3, mag:2, res:6, rel:1.75, eq:0.75, run:0.8, pellets:15,
-    dmg:[[7,22,11,9],[15,12,6,5],[50,6,3,3]], spr:[4,3,4,3], mv:[0.5,1,2,4], rc:{up:[3], rec:0.4, grow:1}},
+    dmg:[[7,22,11,9.35],[15,12,6,5.1],[50,6,3,2.55]], spr:[4,3,4,3], mv:[0.5,1,2,4], rc:{up:[3], rec:0.4, grow:1}},
   frenzy:  {name:"FRENZY", cat:"sidearm", cost:450, rate:10, mag:15, res:45, rel:1.5, eq:1, run:0.85, auto:true,
-    dmg:[[20,78,26,22],[50,63,21,18]], spr:[0.65,0.55,1.7,1.45], mv:[0.5,0.8,2,7],
+    dmg:[[20,78,26,22.1],[50,63,21,17.85]], spr:[0.65,0.55,1.7,1.45], mv:[0.5,0.8,2,7],
     // 6.11：散布與後座在第 5 發到頂（wiki），之後垂直不再往上
     rc:{up:[0.55,0.35,0], n:[4,5], side:0.25, prot:4, rec:0.35, grow:5, runUp:1.5}},
   ghost:   {name:"GHOST", cat:"sidearm", cost:500, rate:6.75, mag:13, res:39, rel:1.5, eq:0.75, run:0.85, silenced:true,
-    dmg:[[30,105,30,26],[50,88,25,21]], spr:[0.3,0.23,1.65,1.24], mv:[0.5,1.1,2.3,7], rc:{up:[1.0], rec:0.3, grow:4}},
+    dmg:[[30,105,30,25.5],[50,87.5,25,21.25]], spr:[0.3,0.23,1.65,1.24], mv:[0.5,1.1,2.3,7], rc:{up:[1.0], rec:0.3, grow:4}},
   bandit:  {name:"BANDIT", cat:"sidearm", cost:600, rate:5.1, mag:8, res:24, rel:1.5, eq:0.75, run:0.85,
     dmg:[[10,152,39,33],[30,128,39,33],[50,112,34,28]], spr:[0.275,0.21,1.97,1.48], mv:[0.5,1.2,2.7,7], rc:{up:[1.4], rec:0.35, grow:3}},
   sheriff: {name:"SHERIFF", cat:"sidearm", cost:800, rate:4, mag:6, res:24, rel:2.25, eq:1, run:0.8,
-    dmg:[[30,160,55,47],[50,145,50,42]], spr:[0.25,0.19,2.75,2.06], mv:[0.5,1.2,3,7], rc:{up:[3.2], rec:0.45, grow:2}},
+    dmg:[[30,159.5,55,46.75],[50,145,50,42.5]], spr:[0.25,0.19,2.75,2.06], mv:[0.5,1.2,3,7], rc:{up:[3.2], rec:0.45, grow:2}},
   stinger: {name:"STINGER", cat:"smg", cost:1100, rate:16, mag:20, res:60, rel:2.25, eq:0.75, run:0.85, auto:true,
-    dmg:[[15,68,27,23],[50,57,23,19]], spr:[0.65,0.55,1.5,1.28], mv:[0.15,1,2.5,10],
+    dmg:[[15,67.5,27,22.95],[50,57,23,19]], spr:[0.65,0.55,1.5,1.28], mv:[0.15,1,2.5,10],
     ads:{zoom:1.15, move:0.76, spr:[0.35,0.26,2.74,2.06], burst:4, burstRate:18, rate:2.118},
     rc:{up:[0.45,0.25,0.1], n:[5,12], side:0.3, prot:5, rec:0.4, grow:8}},
-  spectre: {name:"SPECTRE", cat:"smg", cost:1600, rate:13.33, mag:30, res:90, rel:2.25, eq:0.75, run:0.85, auto:true, silenced:true,
-    dmg:[[15,78,26,22],[30,66,22,19],[50,60,20,17]], spr:[0.4,0.34,1.4,1.19], mv:[0.15,1,2.5,10],
+  spectre: {name:"SPECTRE", cat:"smg", cost:1600, rate:13.333, mag:30, res:90, rel:2.25, eq:0.75, run:0.85, auto:true, silenced:true,
+    dmg:[[15,78,26,22.1],[30,66,22,18.7],[50,60,20,17]], spr:[0.4,0.34,1.4,1.19], mv:[0.15,1,2.5,10],
     ads:{zoom:1.15, move:0.76, rate:12, spr:[0.25,0.21,1.25,1.06]},
     rc:{up:[0.35,0.2,0.08], n:[6,14], side:0.25, prot:5, sw:0.28, rec:0.4, grow:9, runUp:1.8, runSide:1.5}},
   bucky:   {name:"BUCKY", cat:"shotgun", cost:850, rate:1.1, mag:5, res:10, rel:2.5, eq:1, run:0.75, pellets:15,
-    dmg:[[8,34,17,14],[12,26,13,11],[50,18,9,8]], spr:[3,2.34,3,2.34], mv:[0.5,1,2,4], rc:{up:[3.5], rec:0.5, grow:1}},
+    dmg:[[8,34,17,14],[12,26,13,11.05],[50,18,9,7.65]], spr:[3,2.34,3,2.34], mv:[0.5,1,2,4], rc:{up:[3.5], rec:0.5, grow:1}},
   judge:   {name:"JUDGE", cat:"shotgun", cost:1850, rate:3.5, mag:5, res:15, rel:2.2, eq:1, run:0.75, pellets:12, auto:true,
-    dmg:[[10,34,17,14],[15,20,10,8],[50,14,7,6]], spr:[2.5,1.69,4,3], mv:[0.5,1,1,4], rc:{up:[1.6], rec:0.4, grow:3}},
+    dmg:[[10,34,17,14.45],[15,20,10,8.5],[50,14,7,5.95]], spr:[2.5,1.69,4,3], mv:[0.5,1,1,4], rc:{up:[1.6], rec:0.4, grow:3}},
   bulldog: {name:"BULLDOG", cat:"rifle", cost:2050, rate:10, mag:24, res:72, rel:2.5, eq:1, run:0.8, auto:true,
-    dmg:[[50,116,35,30]], spr:[0.3,0.26,1.25,1.06], mv:[0.8,3,6,10],
+    dmg:[[50,115.5,35,29.75]], spr:[0.3,0.26,1.25,1.06], mv:[0.8,3,6,10],
     ads:{zoom:1.25, move:0.76, spr:[0.1,0.08,1.5,1.12], burst:3, burstRate:13.333, rate:2.105},
     rc:{up:[0.5,0.3,0.12], n:[4,10], side:0.3, prot:4, rec:0.35, grow:6}},
   guardian:{name:"GUARDIAN", cat:"rifle", cost:2250, rate:5.25, mag:12, res:36, rel:2.5, eq:1, run:0.8,
-    dmg:[[50,195,65,49]], spr:[0.1,0.09,1.58,1.34], mv:[0.8,3,6,10],
+    dmg:[[50,195,65,48.75]], spr:[0.1,0.09,1.58,1.34], mv:[0.8,3,6,10],
     ads:{zoom:1.5, move:0.76, spr:[0,0,1.48,1.25]}, rc:{up:[1.6], rec:0.35, grow:3}},
   phantom: {name:"PHANTOM", cat:"rifle", cost:2900, rate:11, mag:30, res:60, rel:2.5, eq:1, run:0.8, auto:true, silenced:true,
-    dmg:[[20,156,39,33],[50,140,35,30]], spr:[0.2,0.17,0.9,0.76], mv:[0.8,3,6,10],
+    dmg:[[20,156,39,33.15],[50,140,35,29.75]], spr:[0.2,0.17,0.9,0.76], mv:[0.8,3,6,10],
     ads:{zoom:1.25, move:0.76, rate:9.9, spr:[0.11,0.09,0.91,0.78]},
     rc:{up:[0.45,0.28,0.1], n:[6,14], side:0.28, prot:8, rec:0.35, grow:8, runUp:1.8}},
   vandal:  {name:"VANDAL", cat:"rifle", cost:2900, rate:9.75, mag:25, res:50, rel:2.5, eq:1, run:0.8, auto:true,
@@ -1090,7 +1093,7 @@ const VAL_GUNS = {
     rc:{up:[0.55,0.32,0.1], n:[6,12], side:0.35, prot:6, rec:0.375, grow:7, runUp:1.8}},
   // 狙擊槍：腰射很不準，右鍵開鏡後首發零散布
   marshal: {name:"MARSHAL", cat:"sniper", cost:950, rate:1.5, mag:5, res:15, rel:2.5, eq:1.25, run:0.8,
-    dmg:[[50,202,101,86]], spr:[1,0.9,1,0.9], mv:[7.5,10,15,20],
+    dmg:[[50,202,101,85.85]], spr:[1,0.9,1,0.9], mv:[7.5,10,15,20],
     ads:{zoom:3.5, move:0.9, rate:1.2, spr:[0,0,0,0]}, rc:{up:[3], rec:0.6, grow:1}},
   outlaw:  {name:"OUTLAW", cat:"sniper", cost:2400, rate:2.75, mag:2, res:10, rel:3.8, eq:1.25, run:0.8,
     dmg:[[50,238,140,119]], spr:[3.5,3.15,3.5,3.15], mv:[7.5,10,15,20],
@@ -1100,10 +1103,10 @@ const VAL_GUNS = {
     ads:{zoom:2.5, zoom2:5, move:0.72, spr:[0,0,0,0]}, rc:{up:[4], rec:0.8, grow:1}},
   // 機槍：ARES 的上限比首發小，越打越準；ODIN 腰射射速會越轉越快
   ares:    {name:"ARES", cat:"heavy", cost:1600, rate:13, mag:50, res:100, rel:3.25, eq:1.25, run:0.76, auto:true,
-    dmg:[[30,75,30,26],[50,70,28,24]], spr:[1,0.6,0.7,0.42], mv:[0.4,3,6.5,10],
+    dmg:[[30,75,30,25.5],[50,70,28,23.8]], spr:[1,0.6,0.7,0.42], mv:[0.4,3,6.5,10],
     ads:{zoom:1.15, move:0.76, spr:[0.9,0.54,0.55,0.33]}, rc:{up:[0.3,0.15,0.05], n:[8,20], side:0.2, prot:10, rec:0.5, grow:12}},
   odin:    {name:"ODIN", cat:"heavy", cost:3200, rate:12, rateMax:15.6, mag:100, res:200, rel:5, eq:1.25, run:0.76, auto:true,
-    dmg:[[30,95,38,32],[50,78,31,26]], spr:[0.8,0.48,1.3,0.78], mv:[0.4,3,6.5,10],
+    dmg:[[30,95,38,32.3],[50,77.5,31,26.35]], spr:[0.8,0.48,1.3,0.78], mv:[0.4,3,6.5,10],
     ads:{zoom:1.15, move:0.76, rate:15.6, spr:[0.79,0.47,1.36,0.82]}, rc:{up:[0.35,0.18,0.06], n:[8,25], side:0.25, prot:10, rec:0.6, grow:14}},
   // 刀：正面 50（右鍵 75）、背後 100（右鍵 150），2m 內（wiki）。揮刀間隔自調：左鍵 0.5 秒、右鍵 1 秒
   knife:   {name:"MELEE", cat:"melee", cost:0, rate:2, mag:0, res:0, rel:0, eq:0.6, run:1,
@@ -4507,11 +4510,12 @@ const bulletMatFriend = new THREE.MeshBasicMaterial({color:0xFFF4D6});
 const bulletMatFoe    = new THREE.MeshBasicMaterial({color:0xFF6B2B});
 const bulletPool = [];
 // 曳光（Valorant）：子彈一幀就飛 30m，近距離在畫出來之前就命中消失了，所以曳光不跟著子彈走，
-// 而是子彈結束時畫一條從槍口到終點的亮線，0.07 秒內從槍口那端往終點收縮並淡出
-const TRACER_T = 0.07, TRACER_W = 0.018;
+// 而是子彈結束時，讓一段亮線從槍口飛到終點（像真的曳光彈），最後在終點淡出。
+// 原本是整條線從槍口那端收縮 0.07 秒、寬 1.8cm：靠近槍口那段在畫面上最長卻最先消失，Leo 反映看不清楚
+const TRACER_T = 0.12, TRACER_W = 0.028, TRACER_LEN = 4.0;      // 秒、公尺（自調）
 const tracerGeo = new THREE.BoxGeometry(1, 1, 1);
 const tracers = [], tracerPool = [];
-const _tA = new THREE.Vector3(), _tB = new THREE.Vector3();
+const _tA = new THREE.Vector3(), _tB = new THREE.Vector3(), _tS = new THREE.Vector3(), _tE = new THREE.Vector3();
 function addTracer(s, ex, ey, ez){
   // 一般混色、偏黃：加法混色疊在白天的亮地板與牆上會變成白色，等於看不見
   const m = tracerPool.pop() || new THREE.Mesh(tracerGeo, new THREE.MeshBasicMaterial({
@@ -4526,15 +4530,18 @@ function updateTracers(dt){
     t.age += dt;
     const k = t.age / TRACER_T;
     if (k >= 1){ bulletLayer.remove(t.m); tracerPool.push(t.m); tracers.splice(i, 1); continue; }
-    _tB.set(t.e[0], t.e[1], t.e[2]);
-    _tA.set(t.s[0], t.s[1], t.s[2]).lerp(_tB, k);
+    // 亮線的頭在前 70% 的時間從槍口飛到終點，尾巴落後 TRACER_LEN；之後停在終點淡出
+    _tS.set(t.s[0], t.s[1], t.s[2]); _tE.set(t.e[0], t.e[1], t.e[2]);
+    const total = _tS.distanceTo(_tE), head = Math.min(1, k/0.7), tail = Math.max(0, head - TRACER_LEN/Math.max(total, 0.01));
+    _tA.copy(_tS).lerp(_tE, tail);
+    _tB.copy(_tS).lerp(_tE, head);
     const len = _tA.distanceTo(_tB);
     if (len < 0.05){ t.m.visible = false; continue; }
     t.m.visible = true;
     t.m.position.copy(_tA).lerp(_tB, 0.5);
     t.m.lookAt(_tB);
     t.m.scale.set(TRACER_W, TRACER_W, len);
-    t.m.material.opacity = 0.9 * (1 - k);
+    t.m.material.opacity = 0.95 * (k < 0.7 ? 1 : 1 - (k - 0.7)/0.3);
   }
 }
 function clearTracers(){ for (const t of tracers){ bulletLayer.remove(t.m); tracerPool.push(t.m); } tracers.length = 0; }
@@ -7038,21 +7045,24 @@ function valSpread(alt){
   SPREAD_PARTS.fire = s - first;          // 準心的「射擊誤差」只顯示連射累積的部分
   const s0 = s;
   const mv = A ? A.mv : d.mv;
+  const run = VAL.run * d.run, sp = Math.hypot(p.vx, p.vy), dz = run * VAL.deadzone;
   if (!p.grounded) s += mv[3];
-  else {
-    // 移動誤差跟著實際速度走（wiki：加速時漸漸加上去、減速時漸漸退掉），所以急停到接近零速就幾乎沒有
-    const run = VAL.run * d.run, sp = Math.hypot(p.vx, p.vy);
-    if (G.crouching) s += mv[0] * Math.min(1, sp / (run*VAL.crouchMul));
+  else if (sp > dz){
+    // 移動誤差跟著實際速度走（wiki：加速時漸漸加上去、減速時漸漸退掉）。
+    // 速度在跑速的 27.5% 以內完全沒有（wiki：Deadzone accuracy speed threshold 27.5%），所以急停到這個速度以下就準了；
+    // 原本從 0 速就開始加，停下的過程中明明已經算站定還在散
+    if (G.crouching) s += mv[0] * Math.min(1, (sp - dz) / (run*VAL.crouchMul - dz));
     else {
       const walk = run * VAL.walkMul;
-      s += sp <= walk ? mv[1] * sp / walk : mv[1] + (mv[2] - mv[1]) * Math.min(1, (sp - walk) / (run - walk));
+      s += sp <= walk ? mv[1] * (sp - dz) / (walk - dz) : mv[1] + (mv[2] - mv[1]) * Math.min(1, (sp - walk) / (run - walk));
     }
   }
   if (G.t - G.landT < VAL.landT) s += VAL.land;
   SPREAD_PARTS.move = s - s0;
+  SPREAD_PARTS.still = s === s0;          // 沒有任何移動、空中、落地誤差：開火時用中心偏置的分布
   return s;
 }
-const SPREAD_PARTS = {fire:0, move:0};      // 最近一次 valSpread 算出的兩種誤差（度），給準心用
+const SPREAD_PARTS = {fire:0, move:0, still:true};   // 最近一次 valSpread 算出的誤差（度），給準心與開火用
 function valUp(rc, n){
   return rc.up.length === 1 ? rc.up[0] : n < rc.n[0] ? rc.up[0] : n < rc.n[1] ? rc.up[1] : rc.up[2];
 }
@@ -7141,7 +7151,8 @@ function valFire(alt, queued){
                p.y*S + Math.sin(fa)*cp*0.9 + Math.cos(fa)*side];
   if (G.spray.pts.length < 60) G.spray.pts.push([-(yaw - G.spray.yaw0) + vs.x*DEG, (pitch - G.spray.pitch0) + vs.y*DEG]);
   for (let i=0;i<pel;i++){
-    const r = spr * DEG * Math.sqrt(Math.random()), th = Math.random()*Math.PI*2;
+    // 散布圓內取一點：站定時偏向中心，移動時平均分布（wiki 的 Error power / Center Biasing）
+    const r = spr * DEG * (SPREAD_PARTS.still && pel === 1 ? Math.pow(Math.random(), VAL.bias) : Math.sqrt(Math.random())), th = Math.random()*Math.PI*2;
     const by = yaw - vs.x*DEG + Math.cos(th)*r;
     const pit = pitch + vs.y*DEG + Math.sin(th)*r;
     const a = Math.atan2(-Math.cos(by), -Math.sin(by));
@@ -7237,7 +7248,7 @@ function valApplyHit(b, raw, zone, at, farPellet){
   spawnSpark(at.x, at.y, zone === "head" ? 0xFFFFFF : 0xFF6A5A, zone === "head" ? 10 : 6);
   // 數字顯示這一槍的武器傷害（Vandal 爆頭 160，和商店一樣）。實際扣掉的量會被剩下的血與護甲截掉
   // （重甲 50 + 血 100 = 150），那個記在左邊的 DAMAGE / DPS 統計裡
-  G.pops.push({x:at.x, y:at.y, h:at.h + 0.25, text:String(Math.round(raw)), life:0.9, max:0.9, blocked:false, zone,
+  G.pops.push({x:at.x, y:at.y, h:at.h + 0.25, text:String(Math.floor(raw + 1e-6)), life:0.9, max:0.9, blocked:false, zone,
                color:r.armor ? "#8FD3FF" : null, kill:b.hp <= 0});
   G.hitMark = 1;
   // 命中音效：身體是悶的肉聲、爆頭是清脆的金屬聲，擊殺再加一聲上揚的確認音（Valorant 沒有命中標記，全靠聲音分辨）
@@ -8418,6 +8429,8 @@ function update(dt){
             const TT = TYPES[b.type];
             const zone = isHead ? "head" : (qh > z.legTop ? "torso" : "leg");
             if (bl.val){
+              // 子彈停在真正擦中的那一點：曳光終點、火花、傷害數字都在這裡，不會穿過頭後面才停
+              bl.x = qx; bl.y = qy; bl.h = qh;
               // Valorant：依飛了幾公尺查傷害表，頭 / 身 / 腿各有自己的數字
               const distM = Math.hypot(bl.x - bl.ox, bl.y - bl.oy) * S;
               const band = bl.val.dmg.find(r => distM <= r[0]) || bl.val.dmg[bl.val.dmg.length - 1];
@@ -8486,7 +8499,9 @@ function update(dt){
             p2.shield -= toSh; p2.hp -= bl.dmg - toSh;
             if (toSh > 0 && p2.shield <= 0){ sfx("triangle", 1100, 0.2, 0.06, 300); sfxNoise(0.15, 0.06, 4200); }
           }
-          G.vignette = 1; G.kick = Math.min(0.12, G.kick+0.05); G.tookDamage = true;
+          // 中彈跳視角（aim punch）只給 Apex：它只轉鏡頭、子彈不跟著轉，準心會和彈道錯開最多約 7°，
+          // 在死鬥裡被打時瞄在頭上也會打不到。Valorant 沒有 aim punch，中彈只減速
+          G.vignette = 1; if (!G.val) G.kick = Math.min(0.12, G.kick+0.05); G.tookDamage = true;
           G.dmgArcs.push({
             angle: Math.atan2((bl.srcY ?? bl.y)-p2.y, (bl.srcX ?? bl.x)-p2.x),
             life:1.3, max:1.3,

@@ -8124,7 +8124,7 @@ function sdBeginRound(){
   defs.forEach((b, i) => { b.sdSite = keys[(i + off) % keys.length]; });
   const side = sd.atk === 0 ? "進攻" : "防守";
   banner("ROUND " + sd.round + " · " + side + (ot ? " · 延長賽" : ""),
-    "購買階段 · 按 " + bindLabel("buy") + " 買槍" + (carrier === p ? " · 你攜帶 SPIKE" : ""));
+    carrier === p ? "你攜帶 SPIKE" : "");
 }
 // 交戰對象：視線內最近的另一隊成員（包含玩家）；都看不到就保留上一個還活著的目標（去最後看見的位置找），
 // 再沒有就是最近的敵人。每 0.12～0.18 秒重掃一次，十個人互相看視線太貴
@@ -8143,8 +8143,11 @@ function sdTarget(b){
     if (b.tg !== prev) b.see = 0;          // 換目標要重新反應
   }
   if (b.tg && !sdIsAlive(b.tg)) b.tg = null;
-  return b.tg;
+  // 敵人全死了（例如下包後進攻方全滅，防守方還要去拆包）：回傳地圖外很遠的假目標，
+  // 距離超過射程所以永遠「看不到」，AI 照爆破目標走。回傳 null 的話整個 AI 會跳過，防守方站著不動等引爆
+  return b.tg || SD_NOBODY;
 }
+const SD_NOBODY = {x:-1e5, y:-1e5, type:"grunt", rad:13, mvx:0, mvy:0, hp:1};
 // 下包與拆包：同一時間只有一個人在做。每幀要重新呼叫（sdUpdate 發現這一幀沒人續就取消）；
 // 拆包到一半（3.5 秒）之後中斷，下次從一半開始（wiki）
 function sdAct(who, kind, dt){
@@ -9280,7 +9283,6 @@ function update(dt){
       // 爆破模式：購買階段站在出生區不動；交戰對象是視線內最近的另一隊成員（sdTarget），其他模式永遠是玩家
       if (G.sd && G.sd.phase === "buy") continue;
       const tg = G.sd ? sdTarget(b) : p;
-      if (!tg) continue;
       const d = Math.hypot(tg.x-b.x, tg.y-b.y);
       const los = d < T.range && hasLOS(b.x,b.y,tg.x,tg.y,1.85*botK(b.type),tg === p ? eyeH() : aiEyeOf(tg));
       // 爆破的目標（下包、撿包、守點、回防拆包）；urgent 的目標沒看到人時優先於追擊與戰術
@@ -10614,14 +10616,14 @@ function drawDmHud(w, h, cx){
 function drawSdHud(w, h, cx){
   const sd = G.sd, p = G.player, sp = sd.spike, cy = h/2;
   uctx.textAlign = "center"; uctx.textBaseline = "middle";
-  uctx.fillStyle = "rgba(8,10,16,.55)"; uctx.fillRect(cx - 160, 12, 320, 62);
+  uctx.fillStyle = "rgba(8,10,16,.55)"; uctx.fillRect(cx - 160, 52, 320, 64);          // 羅盤下面（和死鬥的面板同一個位置）
   uctx.font = '700 28px "IBM Plex Mono", ui-monospace, monospace';
-  uctx.fillStyle = SD_ALLY_CSS; uctx.fillText(String(sd.score[0]), cx - 112, 36);
-  uctx.fillStyle = SD_FOE_CSS; uctx.fillText(String(sd.score[1]), cx + 112, 36);
+  uctx.fillStyle = SD_ALLY_CSS; uctx.fillText(String(sd.score[0]), cx - 112, 76);
+  uctx.fillStyle = SD_FOE_CSS; uctx.fillText(String(sd.score[1]), cx + 112, 76);
   uctx.font = '600 10px "Chakra Petch", system-ui';
   uctx.fillStyle = "rgba(242,244,248,.6)";
-  uctx.fillText(sd.atk === 0 ? "進攻" : "防守", cx - 112, 60);
-  uctx.fillText(sd.atk === 0 ? "防守" : "進攻", cx + 112, 60);
+  uctx.fillText(sd.atk === 0 ? "進攻" : "防守", cx - 112, 100);
+  uctx.fillText(sd.atk === 0 ? "防守" : "進攻", cx + 112, 100);
   // 計時：購買階段、回合進行、Spike 倒數
   let label, t = Math.max(0, sd.timer), col = "#F2F4F8";
   if (sd.phase === "planted"){ label = "SPIKE"; if (t < 10) col = Math.floor(G.t*4) % 2 ? "#F2F4F8" : "#FFD27A"; }
@@ -10630,23 +10632,18 @@ function drawSdHud(w, h, cx){
   else label = "ROUND " + sd.round + (sd.round > SD.half*2 ? " · 延長" : "");
   const txt = sd.phase === "planted" ? t.toFixed(1) : Math.floor(Math.ceil(t)/60) + ":" + String(Math.ceil(t) % 60).padStart(2, "0");
   uctx.fillStyle = col; uctx.font = '700 22px "IBM Plex Mono", ui-monospace, monospace';
-  uctx.fillText(txt, cx, 34);
+  uctx.fillText(txt, cx, 74);
   uctx.fillStyle = "rgba(242,244,248,.6)"; uctx.font = '600 10px "Chakra Petch", system-ui';
-  uctx.fillText(label, cx, 58);
+  uctx.fillText(label, cx, 98);
   // 存活：每隊五格，活著是實心
   for (let team = 0; team < 2; team++){
     const n = sdAliveN(team), x0 = team ? cx + 40 : cx - 78;
     for (let i = 0; i < 5; i++){
       uctx.fillStyle = i < n ? (team ? SD_FOE_CSS : SD_ALLY_CSS) : "rgba(242,244,248,.15)";
-      uctx.fillRect(x0 + i*8, 66, 6, 4);
+      uctx.fillRect(x0 + i*8, 108, 6, 4);
     }
   }
-  // 回合結果
-  if (sd.phase === "end" && sd.last){
-    uctx.font = '700 30px "Chakra Petch", system-ui';
-    uctx.fillStyle = sd.last.win === 0 ? SD_ALLY_CSS : SD_FOE_CSS;
-    uctx.fillText(sd.last.win === 0 ? "回合勝利" : "回合失敗", cx, h*0.3);
-  }
+  // 回合結果用 banner（sdEndRound），這裡不再畫一次
   // 下包、拆包進度
   if (sd.act && sd.act.who === p){
     const tot = sd.act.kind === "plant" ? SD.plant : SD.defuse, bw = 240, y = cy + 64;
@@ -11018,7 +11015,7 @@ function endGame(){
   const dmWin = G.dm && G.dm.kills >= DM.kills;
   document.getElementById("dEyebrow").textContent = G.sd ? "Spike Defusal" : G.dm ? "Deathmatch" : "Signal Lost";
   document.getElementById("dTitle").textContent = G.sd ? (G.sd.winner === 0 ? "勝利" : "敗北") : G.dm ? (dmWin ? "勝利" : "時間到") : "陣亡";
-  document.getElementById("dRoundLabel").textContent = G.sd ? "Score" : G.dm ? "Deaths" : "Round";
+  document.getElementById("dRoundLabel").textContent = G.sd ? "Rounds" : G.dm ? "Deaths" : "Round";
   document.getElementById("dKills").textContent = G.kills;
   document.getElementById("dAcc").textContent =
     (G.shots ? Math.round(G.hits/G.shots*100) : 0) + "%";

@@ -34,9 +34,9 @@
 - 兩種模式：生存（波次敵人）/ 訓練場（Apex Firing Range 式假人、統計、壓槍分析、12 課身法槍法教學）
 - 四張地圖：COLUMN FOREST / DEAD SIGNAL（室內）、HIGH NOON / RIDGE TOWN（露天；RIDGE TOWN 是 Apex 式據點，
   世界 99x69m，用 `size` 指定，換圖時 `resizeWorld()` 重建地板、天空、陰影範圍與遠裁切面）
-- 爆破圖 STONEGATE（`MAPS.stonegate`，90x75m，仿 Valorant 雙包點格局）：目前只在死鬥與 APEX 的生存／訓練場能玩
-  （Valorant 訓練場固定 THE RANGE）。資料裡已有 `sites`、`spawnsAtk`、`spawnsDef`、`barriers` 給爆破規則用，
-  規則本身還沒做。樓用 `block()` 產生：ht 7.2～9.6m 的實心樓加一塊不畫的內芯（`core:true`），
+- 爆破圖 STONEGATE（`MAPS.stonegate`，90x75m，仿 Valorant 雙包點格局）。資料裡的 `sites`、`spawnsAtk`、`spawnsDef`、`barriers`
+  給 VALORANT 的「爆破」模式用（`SD`、`sdStart` 起的區段；5 對 5、回合、Spike、經濟照官方）。爆破只讀這些欄位，
+  選的地圖沒有就用第一張有的（`sdMapFor`）。電腦的交戰對象是 `sdTarget`（視線內最近的另一隊），目標是 `sdObjective`。樓用 `block()` 產生：ht 7.2～9.6m 的實心樓加一塊不畫的內芯（`core:true`），
   因為不帶高度的 2D 視線判定（出生點安全、聲音悶住、聲納）只看沒有 ht 的牆
 - 牆可以懸空（`base`），`house()` 用它產生走得進去的房子（門窗洞、窗台窗楣、樓板、室內樓梯、屋頂）；
   敵人用格子 A* 尋路（`buildNav` / `navStep`），沒看到玩家時會往玩家附近搜索

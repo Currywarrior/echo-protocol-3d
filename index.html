@@ -6257,6 +6257,17 @@ function navStep(b, tx, ty, dt){
   while (b.pathI < path.length - 1 && lineClear(b.x, b.y, path[b.pathI + 1].x, path[b.pathI + 1].y)) b.pathI++;
   return [path[b.pathI].x, path[b.pathI].y];
 }
+// 側移方向要用敵人自己的碰撞半徑檢查；NAV_PAD 不含較大的 WARDEN，且碰撞解算是逐軸執行，A* 的格線不足以判斷窄柱旁的切線。
+function botRouteClear(b, dx, dy, dist){
+  const n = Math.ceil(dist / 6);
+  for (let i=1;i<=n;i++){
+    const x = b.x + dx * dist * i/n, y = b.y + dy * dist * i/n;
+    const probe = {x, y, rad:b.rad};
+    for (const w of WALLS) if ((w.base || 0) < BOT_H && aabbHit(probe, w)) return false;
+    for (const other of G.bots) if (other !== b && Math.hypot(other.x-x, other.y-y) < b.rad + other.rad) return false;
+  }
+  return true;
+}
 
 function rosterFor(round){
   const n = Math.min(1 + round, 7);
@@ -8352,18 +8363,30 @@ function update(dt){
         }
         tx = b.goalX; ty = b.goalY;
       }
+      const keepBand = los && T.keepDist > 0 && Math.abs(d - T.keepDist) < 90;
+      let sideX = 0, sideY = 0;
+      if (keepBand){
+        const t2 = Math.atan2(p.y-b.y, p.x-b.x) + Math.PI/2*b.strafe;
+        sideX = Math.cos(t2); sideY = Math.sin(t2);
+        if (b.keepGoal && (Math.hypot(b.keepGoalX-b.x, b.keepGoalY-b.y) < 32 || Math.hypot(b.keepGoalPX-p.x, b.keepGoalPY-p.y) > 80)) b.keepGoal = false;
+        // 切線路徑前方有柱子時，用固定的環繞點交給 A*；動態側向量每幀都轉向，會在同一柱邊反覆換邊。
+        if (!b.keepGoal && !botRouteClear(b, sideX, sideY, 90)){
+          // 直接沿切線前進會讓每幀變動的方向在柱角反覆換邊，因此預先固定環繞點交給 A*。
+          const angle = Math.atan2(b.y-p.y, b.x-p.x) - b.strafe*0.45;
+          // 環繞點可能落在地圖外或牆內；先吸附到可走格，否則 A* 會收到永遠找不到的終點。
+          const goal = navNearestFree(Math.max(0,Math.min(W-1,p.x+Math.cos(angle)*d)), Math.max(0,Math.min(H-1,p.y+Math.sin(angle)*d)));
+          if (goal){ b.keepGoalX = goal.x; b.keepGoalY = goal.y; b.keepGoalPX = p.x; b.keepGoalPY = p.y; b.keepGoal = true; }
+        }
+      }
+      if (b.keepGoal){ tx = b.keepGoalX; ty = b.keepGoalY; b.keepEscapeUsed = true; }
       [tx, ty] = navStep(b, tx, ty, dt);
       let ax = tx-b.x, ay = ty-b.y;
       const al = Math.hypot(ax,ay) || 1;
       ax /= al; ay /= al;
-      if (los && d < T.keepDist){ ax = -ax; ay = -ay; }
-      const keepBand = los && T.keepDist > 0 && Math.abs(d - T.keepDist) < 90;
-      if (keepBand){
-        const t2 = Math.atan2(p.y-b.y, p.x-b.x) + Math.PI/2*b.strafe;
-        ax = Math.cos(t2); ay = Math.sin(t2);
-      }
+      if (!b.keepGoal && los && d < T.keepDist){ ax = -ax; ay = -ay; }
+      if (keepBand && !b.keepGoal){ ax = sideX; ay = sideY; }
       // 只有另一側確實有淨空才翻轉切線；兩側都堵住時沿牆法線側閃，避免固定來回撞同一柱。
-      if (keepBand && b.stuck > 0.3 && (b.hitX || b.hitY) && !b.keepEscapeUsed){
+      if (keepBand && !b.keepGoal && b.stuck > 0.3 && (b.hitX || b.hitY) && !b.keepEscapeUsed){
         const altX = b.x - ax*80, altY = b.y - ay*80;
         if (lineClear(b.x,b.y,altX,altY)) b.strafe *= -1;
         else {
@@ -8389,6 +8412,17 @@ function update(dt){
         ax = Math.cos(t2); ay = Math.sin(t2);
         // 已依碰撞軸選過可走側；未脫困時再反轉會讓 AI 每秒在同一段牆邊折返。
         if (b.stuck > 0.95) b.stuck = 0;
+      }
+      if (T.speed * ENEMY_SPEED_K >= 120){
+        // 單幀位移較大的敵人若立刻翻轉方向，會跨過路徑點後再折返；更慢的敵人不需要額外慣性。
+        const want = Math.atan2(ay,ax);
+        if (!Number.isFinite(b.moveHeading)) b.moveHeading = want;
+        else {
+          const turn = Math.atan2(Math.sin(want-b.moveHeading), Math.cos(want-b.moveHeading));
+          const turnRate = Math.max(9, Math.min(12, 15 - T.speed / 32.7));
+          b.moveHeading += Math.max(-turnRate*dt, Math.min(turnRate*dt, turn));
+        }
+        ax = Math.cos(b.moveHeading); ay = Math.sin(b.moveHeading);
       }
       b.px = b.x; b.py = b.y;
       const spd = T.speed * ENEMY_SPEED_K * (b.tagT > 0 ? 1 - b.tagAmt * b.tagT / VAL.tagT : 1);   // 中彈減速（Valorant）

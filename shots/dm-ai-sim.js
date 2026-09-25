@@ -16,6 +16,7 @@ const DM_TYPES = ["grunt", "grunt", "stalker", "lancer", "warden"];
 const MAP_IDS = (process.env.SIM_MAPS || "atrium,corridors,plaza,town").split(",");
 const SEEDS = (process.env.SIM_SEEDS || process.env.SIM_SEED || "20260920,20260921,20260922,20260923,20260924,20260925,20260926,20260927,20260928,20260929").split(",").map(Number);
 const SCENARIOS = (process.env.SIM_SCENARIOS || "fixed,moving").split(",");
+const TYPES_FILTER = (process.env.SIM_TYPES || "").split(",").filter(Boolean);
 
 function blockEnd(source, open) {
   let depth = 0, quote = "", line = false, comment = false;
@@ -77,6 +78,25 @@ function getParts(source) {
     "b._targetX = tx; b._targetY = ty; b._los = los; __activeBot = b; [tx, ty] = navStep(b, tx, ty, dt); b._intentX = tx; b._intentY = ty; __activeBot = null;"
   );
   if (!instrumentedAI.includes("b._intentX")) throw new Error("無法在 AI 迴圈插入目標點量測");
+  instrumentedAI = instrumentedAI.replace(
+    "const keepBand = los && T.keepDist > 0 && Math.abs(d - T.keepDist) < 90;",
+    "const keepBand = los && T.keepDist > 0 && Math.abs(d - T.keepDist) < 90; b._simKeepBand=keepBand; b._simStrafe=b.strafe; b._simDodge=b.dodge||0; b._simDist=d; b._simKeepDist=T.keepDist;"
+  );
+  instrumentedAI = instrumentedAI.replace(
+    "sideX = Math.cos(t2); sideY = Math.sin(t2);",
+    "sideX = Math.cos(t2); sideY = Math.sin(t2); b._simBothSidesBlocked=keepBand&&!botRouteClear(b,sideX,sideY,90)&&!botRouteClear(b,-sideX,-sideY,90);"
+  );
+  instrumentedAI = instrumentedAI.replace(
+    "if (lineClear(b.x,b.y,altX,altY)) b.strafe *= -1;",
+    "const __altClear=lineClear(b.x,b.y,altX,altY), __sideClear=lineClear(b.x,b.y,b.x+ax*80,b.y+ay*80); b._simBothSidesBlocked=!__altClear&&!__sideClear; if (__altClear) b.strafe *= -1;"
+  );
+  instrumentedAI = instrumentedAI.replace(
+    "const bhit = moveWithCollision(b, ax*spd*dt, ay*spd*dt);",
+    "b._simAx=ax; b._simAy=ay; b._intentX=tx; b._intentY=ty; const bhit = moveWithCollision(b, ax*spd*dt, ay*spd*dt);"
+  ).replace(
+    "b.moved = bmoved;",
+    "b.moved = bmoved; b._simPreSepX=b.x; b._simPreSepY=b.y;"
+  );
   return { mapText, typeText, instrumentedAI };
 }
 
@@ -93,7 +113,7 @@ function setupContext(parts, mapId, seed) {
     EYE: 1.62, HU: 0.0254 / 0.03, BOT_SCALE: 0.88, BOT_H: 2.0,
     STEP_UP: 0.45, LEDGE_REACH: 0.32, NAV_CELL: 12, NAV_PAD: 14,
     WALLS: [], SEGS: [], SPAWNS: [], activeMap: null, NAV: null, NAV_CACHE: new WeakMap(),
-    G: null, __activeBot: null, __metrics: null,
+    G: null, __activeBot: null, __metrics: null, SIM_TRACE:!!process.env.SIM_TRACE,
     buildFootprint: () => {}, addFootprint: () => {},
     sfxNoiseAt: () => {}, sfxAt: () => {}, botShoot: () => {},
     updateDummy: () => {}, VAL: {tagT: 1}, ENEMY_SPEED_K: (173.5 * (0.0254 / 0.03)) / 215,
@@ -127,6 +147,7 @@ function setupContext(parts, mapId, seed) {
 
   const funcs = ["rayHit", "hasLOS", "standable", "topAt", "aabbHit", "moveWithCollision",
     "buildNav", "navBlocked", "navNearestFree", "lineClear", "findPath", "navStep", "botK", "eyeH"];
+  if (parts.fullSource.includes("function botRouteClear(")) funcs.push("botRouteClear");
   for (const name of funcs) {
     if(name === "navNearestFree" && !parts.fullSource.includes("function navNearestFree(")) continue;
     vm.runInContext(extractFunction(parts.fullSource,name), ctx);
@@ -134,7 +155,7 @@ function setupContext(parts, mapId, seed) {
   vm.runInContext("const BODY_H=1.83, CROUCH_H=1.2; function bodyH(){return G && G.crouching ? CROUCH_H : BODY_H;}", ctx);
   vm.runInContext("const PXM = 1;", ctx);
   // 以原始 A* 做同一份網格計數；活躍 AI 呼叫仍會被收集。
-  vm.runInContext("function __installPathCounter(){ const raw=findPath; globalThis.__rawFindPath=raw; globalThis.findPath=function(ax,ay,bx,by){ const b=__activeBot; if(b && __metrics){ const id=b._simId, m=__metrics[id]; m.pathCalls++; if(b.path && b.pathGX!==undefined && Math.hypot(b.pathGX-bx,b.pathGY-by)<40 && b.pathI < b.path.length-1 && Math.hypot(b.path[b.pathI].x-b.x,b.path[b.pathI].y-b.y)>40) m.repeatPath++; } const out=raw(ax,ay,bx,by); if(!out && __activeBot && __metrics) __metrics[__activeBot._simId].emptyPaths++; return out; }; }", ctx);
+  vm.runInContext("function __installPathCounter(){ const raw=findPath; globalThis.__rawFindPath=raw; globalThis.findPath=function(ax,ay,bx,by){ const b=__activeBot; if(b && __metrics){ const id=b._simId, m=__metrics[id]; m.pathCalls++; if(b.path && b.pathGX!==undefined && Math.hypot(b.pathGX-bx,b.pathGY-by)<40 && b.pathI < b.path.length-1 && Math.hypot(b.path[b.pathI].x-b.x,b.path[b.pathI].y-b.y)>40) m.repeatPath++; } const out=raw(ax,ay,bx,by); if(!out && __activeBot && __metrics){ const m=__metrics[__activeBot._simId]; m.emptyPaths++; if(SIM_TRACE&&m.emptyExamples.length<8)m.emptyExamples.push({x:+__activeBot.x.toFixed(1),y:+__activeBot.y.toFixed(1),tx:+bx.toFixed(1),ty:+by.toFixed(1),trackX:+(__activeBot._targetX||0).toFixed(1),trackY:+(__activeBot._targetY||0).toFixed(1),keepGoal:!!__activeBot.keepGoal,pathFail:!!__activeBot.pathFail}); } return out; }; }", ctx);
   vm.runInContext("function runBotAI(dt){ const p=G.player;" + parts.instrumentedAI + "}", ctx);
   ctx.__installPathCounter = vm.runInContext("__installPathCounter", ctx);
   ctx.__installPathCounter();
@@ -193,14 +214,16 @@ function playerPosition(ctx, time, moving) {
 
 function simulate(ctx, mapId, seed, moving) {
   const bots=makeBots(ctx,seed,moving), metrics={};
-  for(const b of bots) metrics[b._simId]={pathCalls:0,emptyPaths:0,repeatPath:0,reversals:0,stuckEpisodes:0,examples:[],revExamples:[]};
+  for(const b of bots) metrics[b._simId]={pathCalls:0,emptyPaths:0,repeatPath:0,reversals:0,stuckEpisodes:0,examples:[],revExamples:[],emptyExamples:[]};
   ctx.__metrics=metrics;
   const hist=bots.map(b=>[{x:b.x,y:b.y,t:0}]), prevDir=bots.map(()=>null), lastDirTime=bots.map(()=>-10);
   const sampled=bots.map(b=>({x:b.x,y:b.y}));
   const sim=vm.runInContext("runBotAI",ctx);
+  let prevPlayer=playerPosition(ctx,0,moving);
   for(let frame=0;frame<TICKS;frame++){
     const time=frame*DT, pp=playerPosition(ctx,time,moving);
-    ctx.G.player.x=pp.x;ctx.G.player.y=pp.y;ctx.G.t=time;
+    ctx.G.player.vx=(pp.x-prevPlayer.x)/DT;ctx.G.player.vy=(pp.y-prevPlayer.y)/DT;
+    ctx.G.player.x=pp.x;ctx.G.player.y=pp.y;ctx.G.t=time;prevPlayer=pp;
     sim(DT);
     for(const b of bots){
       const i=b._simId,m=metrics[i], dx=b.x-b.px,dy=b.y-b.py,dist=Math.hypot(dx,dy);
@@ -226,7 +249,7 @@ function simulate(ctx, mapId, seed, moving) {
         const stuck=net<0.8/0.03 && intent>3/0.03;
         if(stuck){
           m.stuckEpisodes++;
-          if(process.env.SIM_TRACE&&m.examples.length<8)m.examples.push({t:+elapsed.toFixed(2),netM:+(net*0.03).toFixed(2),targetM:+(intent*0.03).toFixed(2),x:+b.x.toFixed(1),y:+b.y.toFixed(1),tx:+b._targetX.toFixed(1),ty:+b._targetY.toFixed(1),nx:+b._intentX.toFixed(1),ny:+b._intentY.toFixed(1),los:!!b._los,hit:[!!b.hitX,!!b.hitY],dodge:+(b.dodge||0).toFixed(2),stuck:+b.stuck.toFixed(2),pathI:b.pathI,pathN:b.path&&b.path.length});
+        if(process.env.SIM_TRACE&&m.examples.length<8)m.examples.push({t:+elapsed.toFixed(2),netM:+(net*0.03).toFixed(2),targetM:+(intent*0.03).toFixed(2),x:+b.x.toFixed(1),y:+b.y.toFixed(1),preSep:[+b._simPreSepX.toFixed(1),+b._simPreSepY.toFixed(1)],tx:+b._targetX.toFixed(1),ty:+b._targetY.toFixed(1),nx:+b._intentX.toFixed(1),ny:+b._intentY.toFixed(1),move:[+b._simAx.toFixed(2),+b._simAy.toFixed(2)],los:!!b._los,keepBand:!!b._simKeepBand,keepGoal:!!b.keepGoal,distM:+((b._simDist||0)*0.03).toFixed(2),keepDistM:+((b._simKeepDist||0)*0.03).toFixed(2),strafe:b._simStrafe,dodge:+(b._simDodge||0).toFixed(2),bothSidesBlocked:!!b._simBothSidesBlocked,hit:[!!b.hitX,!!b.hitY],stuck:+b.stuck.toFixed(2),pathI:b.pathI,pathN:b.path&&b.path.length,nearestBotM:+(Math.min(...ctx.G.bots.filter(q=>q!==b).map(q=>Math.hypot(q.x-b.x,q.y-b.y)))*0.03).toFixed(2)});
         }
       }
     }
@@ -246,10 +269,10 @@ function runVariant(label, source) {
   const grouped=new Map();
   for(const row of all){
     const key=`${row.scenario}/${row.map}/${row.type}`;
-    if(!grouped.has(key))grouped.set(key,{scenario:row.scenario,map:row.map,type:row.type,seeds:SEEDS.length,bots:0,pathCalls:0,emptyPaths:0,repeatPath:0,reversals:0,stuck2s:0,travelM:0,examples:[],revExamples:[]});
-    const g=grouped.get(key);g.bots++;g.pathCalls+=row.pathCalls;g.emptyPaths+=row.emptyPaths;g.repeatPath+=row.repeatPath;g.reversals+=row.reversals;g.stuck2s+=row.stuckEpisodes;g.travelM+=row.travelM;if(process.env.SIM_TRACE){g.examples.push(...row.examples);g.revExamples.push(...row.revExamples);}
+    if(!grouped.has(key))grouped.set(key,{scenario:row.scenario,map:row.map,type:row.type,seeds:SEEDS.length,bots:0,pathCalls:0,emptyPaths:0,repeatPath:0,reversals:0,stuck2s:0,travelM:0,examples:[],revExamples:[],emptyExamples:[]});
+    const g=grouped.get(key);g.bots++;g.pathCalls+=row.pathCalls;g.emptyPaths+=row.emptyPaths;g.repeatPath+=row.repeatPath;g.reversals+=row.reversals;g.stuck2s+=row.stuckEpisodes;g.travelM+=row.travelM;if(process.env.SIM_TRACE){g.examples.push(...row.examples);g.revExamples.push(...row.revExamples);g.emptyExamples.push(...row.emptyExamples);}
   }
-  const data=[...grouped.values()].map(r=>({...r,travelM:+(r.travelM/r.bots).toFixed(1)}));
+  const data=[...grouped.values()].filter(r=>!TYPES_FILTER.length||TYPES_FILTER.includes(r.type)).map(r=>({...r,travelM:+(r.travelM/r.bots).toFixed(1)}));
   const out={label, seconds:SECONDS, seeds:SEEDS, scenarios:SCENARIOS, data};
   return out;
 }
@@ -261,6 +284,8 @@ function main() {
   if(args.has("--before-stdin")){source=fs.readFileSync(0,"utf8");label="修正前";}
   else if(args.has("--before-file")){
     const at=process.argv.indexOf("--before-file");source=fs.readFileSync(path.resolve(process.argv[at+1]),"utf8");label="修正前";
+  }else if(args.has("--candidate-file")){
+    const at=process.argv.indexOf("--candidate-file");source=fs.readFileSync(path.resolve(process.argv[at+1]),"utf8");label="指定候選版";
   }else if(args.has("--after")) label="修正後";
   console.log(JSON.stringify(runVariant(label,source)));
 }

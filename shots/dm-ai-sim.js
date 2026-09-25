@@ -70,6 +70,12 @@ function getParts(source) {
   if (mapsStart < 0 || mapsEnd < 0 || typesStart < 0 || typesEnd < 0) throw new Error(`擷取標記錯誤：${mapsStart}, ${mapsEnd}, ${typesStart}, ${typesEnd}`);
   const mapText = source.slice(mapsStart, mapsEnd);
   const typeText = source.slice(typesStart, typesEnd);
+  // VAL 常數（加減速、移動誤差死區）照原始碼；PXM 在模擬裡另外設成 1，這裡要用遊戲裡的真實值（1/S）
+  const valStart = findWhitespaceInsensitive(source, "const VAL = {");
+  const valText = valStart < 0 ? "" : source.slice(valStart, blockEnd(source, source.indexOf("{", valStart)) + 1);
+  // Valorant 敵人戰術（VAL_AI 區段）：舊版沒有就略過
+  const aiStart = source.indexOf("// ── VAL_AI 開始"), aiEnd = source.indexOf("// ── VAL_AI 結束");
+  const tacticsText = aiStart >= 0 && aiEnd > aiStart ? source.slice(aiStart, aiEnd) : "";
   // 只掃描兩個需要的迴圈；舊版單行 HTML 的其他函式含正規表示式大括號，整段掃描會誤判函式結尾。
   const botsLoop = extractForLoop(source, "function update(", "for (const b of G.bots)");
   const separationLoop = extractForLoop(source, "function update(", "for (let i=0;i<G.bots.length;i++)");
@@ -78,9 +84,10 @@ function getParts(source) {
     "b._targetX = tx; b._targetY = ty; b._los = los; __activeBot = b; [tx, ty] = navStep(b, tx, ty, dt); b._intentX = tx; b._intentY = ty; __activeBot = null;"
   );
   if (!instrumentedAI.includes("b._intentX")) throw new Error("無法在 AI 迴圈插入目標點量測");
+  // keepBand 的條件在不同版本多了戰術旗標（!tac、!aiming），用正規表示式比對整行，前後版本都能插入量測
   instrumentedAI = instrumentedAI.replace(
-    "const keepBand = los && T.keepDist > 0 && Math.abs(d - T.keepDist) < 90;",
-    "const keepBand = los && T.keepDist > 0 && Math.abs(d - T.keepDist) < 90; b._simKeepBand=keepBand; b._simStrafe=b.strafe; b._simDodge=b.dodge||0; b._simDist=d; b._simKeepDist=T.keepDist;"
+    /const keepBand = [^;]*;/,
+    m => m + " b._simKeepBand=keepBand; b._simStrafe=b.strafe; b._simDodge=b.dodge||0; b._simDist=d; b._simKeepDist=T.keepDist;"
   );
   instrumentedAI = instrumentedAI.replace(
     "sideX = Math.cos(t2); sideY = Math.sin(t2);",
@@ -90,6 +97,11 @@ function getParts(source) {
     "if (lineClear(b.x,b.y,altX,altY)) b.strafe *= -1;",
     "const __altClear=lineClear(b.x,b.y,altX,altY), __sideClear=lineClear(b.x,b.y,b.x+ax*80,b.y+ay*80); b._simBothSidesBlocked=!__altClear&&!__sideClear; if (__altClear) b.strafe *= -1;"
   );
+  // 刻意站定（架槍、躲掩體、急停開槍）的時間點：這段時間原地不動是故意的，不算卡住（舊版沒有這行就不會插入）
+  instrumentedAI = instrumentedAI.replace(
+    "if (still){ tx = b.x; ty = b.y; }",
+    "if (still){ tx = b.x; ty = b.y; b._simStillT = G.t; }"
+  );
   instrumentedAI = instrumentedAI.replace(
     "const bhit = moveWithCollision(b, ax*spd*dt, ay*spd*dt);",
     "b._simAx=ax; b._simAy=ay; b._intentX=tx; b._intentY=ty; const bhit = moveWithCollision(b, ax*spd*dt, ay*spd*dt);"
@@ -97,7 +109,7 @@ function getParts(source) {
     "b.moved = bmoved;",
     "b.moved = bmoved; b._simPreSepX=b.x; b._simPreSepY=b.y;"
   );
-  return { mapText, typeText, instrumentedAI };
+  return { mapText, typeText, instrumentedAI, valText, tacticsText };
 }
 
 function setupContext(parts, mapId, seed) {
@@ -115,7 +127,8 @@ function setupContext(parts, mapId, seed) {
     WALLS: [], SEGS: [], SPAWNS: [], activeMap: null, NAV: null, NAV_CACHE: new WeakMap(),
     G: null, __activeBot: null, __metrics: null, SIM_TRACE:!!process.env.SIM_TRACE,
     buildFootprint: () => {}, addFootprint: () => {},
-    sfxNoiseAt: () => {}, sfxAt: () => {}, botShoot: () => {},
+    sfxNoiseAt: () => {}, sfxAt: () => {}, botShoot: b => ctx.__onShot && ctx.__onShot(b), DEG: Math.PI / 180,
+    SET: {aiDiff: process.env.SIM_DIFF || "normal"},
     updateDummy: () => {}, VAL: {tagT: 1}, ENEMY_SPEED_K: (173.5 * (0.0254 / 0.03)) / 215,
   });
 
@@ -154,6 +167,8 @@ function setupContext(parts, mapId, seed) {
   }
   vm.runInContext("const BODY_H=1.83, CROUCH_H=1.2; function bodyH(){return G && G.crouching ? CROUCH_H : BODY_H;}", ctx);
   vm.runInContext("const PXM = 1;", ctx);
+  if (parts.valText) ctx.VAL = vm.runInContext("(() => { const PXM = 1 / 0.03; " + parts.valText + " return VAL; })()", ctx);
+  if (parts.tacticsText) vm.runInContext(parts.tacticsText, ctx);
   // 以原始 A* 做同一份網格計數；活躍 AI 呼叫仍會被收集。
   vm.runInContext("function __installPathCounter(){ const raw=findPath; globalThis.__rawFindPath=raw; globalThis.findPath=function(ax,ay,bx,by){ const b=__activeBot; if(b && __metrics){ const id=b._simId, m=__metrics[id]; m.pathCalls++; if(b.path && b.pathGX!==undefined && Math.hypot(b.pathGX-bx,b.pathGY-by)<40 && b.pathI < b.path.length-1 && Math.hypot(b.path[b.pathI].x-b.x,b.path[b.pathI].y-b.y)>40) m.repeatPath++; } const out=raw(ax,ay,bx,by); if(!out && __activeBot && __metrics){ const m=__metrics[__activeBot._simId]; m.emptyPaths++; if(SIM_TRACE&&m.emptyExamples.length<8)m.emptyExamples.push({x:+__activeBot.x.toFixed(1),y:+__activeBot.y.toFixed(1),tx:+bx.toFixed(1),ty:+by.toFixed(1),trackX:+(__activeBot._targetX||0).toFixed(1),trackY:+(__activeBot._targetY||0).toFixed(1),keepGoal:!!__activeBot.keepGoal,pathFail:!!__activeBot.pathFail}); } return out; }; }", ctx);
   vm.runInContext("function runBotAI(dt){ const p=G.player;" + parts.instrumentedAI + "}", ctx);
@@ -216,8 +231,14 @@ function playerPosition(ctx, time, moving) {
 
 function simulate(ctx, mapId, seed, moving) {
   const bots=makeBots(ctx,seed,moving), metrics={};
-  for(const b of bots) metrics[b._simId]={pathCalls:0,emptyPaths:0,repeatPath:0,reversals:0,stuckEpisodes:0,examples:[],revExamples:[],emptyExamples:[]};
+  for(const b of bots) metrics[b._simId]={pathCalls:0,emptyPaths:0,repeatPath:0,reversals:0,stuckEpisodes:0,examples:[],revExamples:[],emptyExamples:[],
+    shots:0,shotSpeed:0,steadyShots:0,engagedT:0,coverT:0,hurts:0};
   ctx.__metrics=metrics;
+  // 開槍當下的移動速度（這一幀實際位移，不含敵人互推）；「站定」= 低於自己跑速的 27.5%（Valorant 移動誤差的死區）
+  ctx.__onShot=b=>{const m=metrics[b._simId],T=vm.runInContext("TYPES",ctx)[b.type],v=b.moved/DT;m.shots++;m.shotSpeed+=v*0.03;if(v<=T.speed*ctx.ENEMY_SPEED_K*0.275)m.steadyShots++;};
+  // 玩家還手：敵人看得到玩家時，平均每暴露 1.5 秒被打中一次（獨立亂數，不影響 AI 自己的亂數序列）
+  let hurtRng=(seed^0x5bd1e995)>>>0;const hurtRand=()=>(hurtRng=(Math.imul(hurtRng,1664525)+1013904223)>>>0)/0x100000000;
+  const lastLos=bots.map(()=>null);
   const hist=bots.map(b=>[{x:b.x,y:b.y,t:0}]), prevDir=bots.map(()=>null), lastDirTime=bots.map(()=>-10);
   const sampled=bots.map(b=>({x:b.x,y:b.y}));
   const sim=vm.runInContext("runBotAI",ctx);
@@ -226,9 +247,16 @@ function simulate(ctx, mapId, seed, moving) {
     const time=frame*DT, pp=playerPosition(ctx,time,moving);
     ctx.G.player.vx=(pp.x-prevPlayer.x)/DT;ctx.G.player.vy=(pp.y-prevPlayer.y)/DT;
     ctx.G.player.x=pp.x;ctx.G.player.y=pp.y;ctx.G.t=time;prevPlayer=pp;
+    const t0=process.hrtime.bigint();
     sim(DT);
+    __tickNs.push(Number(process.hrtime.bigint()-t0));
     for(const b of bots){
       const i=b._simId,m=metrics[i], dx=b.x-b.px,dy=b.y-b.py,dist=Math.hypot(dx,dy);
+      if(!process.env.SIM_NO_HURT && b._los && hurtRand()<DT/1.5){b.hurtAt=time;m.hurts++;}
+      // 掩體後：最近 3 秒內看過玩家（交火中），這一幀看不到玩家，但離最後看得到玩家的位置不到 3m（隨時能再探頭）
+      if(b._los) lastLos[i]={x:b.x,y:b.y,t:time};
+      else if(lastLos[i]&&time-lastLos[i].t<3){m.engagedT+=DT;if(Math.hypot(b.x-lastLos[i].x,b.y-lastLos[i].y)*0.03<=3)m.coverT+=DT;}
+      if(b._los&&lastLos[i])m.engagedT+=DT;
       b._totalDist=(b._totalDist||0)+dist;
       if(frame%6===5){
         const sx=b.x-sampled[i].x,sy=b.y-sampled[i].y,sd=Math.hypot(sx,sy);
@@ -242,13 +270,17 @@ function simulate(ctx, mapId, seed, moving) {
         }
         sampled[i]={x:b.x,y:b.y};
       }
-      const elapsed=time+DT,h=hist[i];h.push({x:b.x,y:b.y,t:elapsed});while(h.length&&elapsed-h[0].t>2.01)h.shift();
+      const elapsed=time+DT,h=hist[i];h.push({x:b.x,y:b.y,t:elapsed,go:b._simStillT!==time});while(h.length&&elapsed-h[0].t>2.01)h.shift();
       // 以不重疊的 2 秒區間計數，避免同一段卡住因單幀邊界抖動被重複計數數百次。
       if((frame+1)%120===0&&h.length){
         const start=h.find(q=>elapsed-q.t>=2-DT), net=start?Math.hypot(b.x-start.x,b.y-start.y):Infinity;
         // navStep 的回傳值是此刻真正要走的點：有路徑時是路徑點，直線可達時才是追蹤目標。
         const intent=Math.hypot((b._intentX??b.x)-b.x,(b._intentY??b.y)-b.y);
-        const stuck=net<0.8/0.03 && intent>3/0.03;
+        // 刻意站定（架槍、躲掩體、急停開槍，_simStillT）的時間不算在「該走而沒走」裡：
+        // 視窗內扣掉站定之後剩下的時間，照這隻敵人的速度至少走得了 1.5m，淨位移卻不到 0.8m 才算卡住。
+        // 舊版沒有刻意站定，剩下的時間永遠是整整 2 秒，和原本的定義完全一樣。SIM_STUCK_RAW=1 改回原本的定義對照
+        const goT=h.reduce((s,q)=>s+(q.go?DT:0),0), canWalk=goT*vm.runInContext("TYPES",ctx)[b.type].speed*ctx.ENEMY_SPEED_K;
+        const stuck=net<0.8/0.03 && intent>3/0.03 && (!!process.env.SIM_STUCK_RAW || canWalk>=1.5/0.03);
         if(stuck){
           m.stuckEpisodes++;
         if(process.env.SIM_TRACE&&m.examples.length<8)m.examples.push({t:+elapsed.toFixed(2),netM:+(net*0.03).toFixed(2),targetM:+(intent*0.03).toFixed(2),x:+b.x.toFixed(1),y:+b.y.toFixed(1),preSep:[+b._simPreSepX.toFixed(1),+b._simPreSepY.toFixed(1)],tx:+b._targetX.toFixed(1),ty:+b._targetY.toFixed(1),nx:+b._intentX.toFixed(1),ny:+b._intentY.toFixed(1),move:[+b._simAx.toFixed(2),+b._simAy.toFixed(2)],los:!!b._los,keepBand:!!b._simKeepBand,keepGoal:!!b.keepGoal,distM:+((b._simDist||0)*0.03).toFixed(2),keepDistM:+((b._simKeepDist||0)*0.03).toFixed(2),strafe:b._simStrafe,dodge:+(b._simDodge||0).toFixed(2),bothSidesBlocked:!!b._simBothSidesBlocked,hit:[!!b.hitX,!!b.hitY],stuck:+b.stuck.toFixed(2),pathI:b.pathI,pathN:b.path&&b.path.length,nearestBotM:+(Math.min(...ctx.G.bots.filter(q=>q!==b).map(q=>Math.hypot(q.x-b.x,q.y-b.y)))*0.03).toFixed(2)});
@@ -259,6 +291,7 @@ function simulate(ctx, mapId, seed, moving) {
   return bots.map(b=>{const m=metrics[b._simId];return {map:mapId,type:b.type,...m,travelM:(b._totalDist||0)*0.03};});
 }
 
+const __tickNs=[];
 function runVariant(label, source) {
   const parts=getParts(source);parts.fullSource=source;
   const all=[];
@@ -271,11 +304,16 @@ function runVariant(label, source) {
   const grouped=new Map();
   for(const row of all){
     const key=`${row.scenario}/${row.map}/${row.type}`;
-    if(!grouped.has(key))grouped.set(key,{scenario:row.scenario,map:row.map,type:row.type,seeds:SEEDS.length,bots:0,pathCalls:0,emptyPaths:0,repeatPath:0,reversals:0,stuck2s:0,travelM:0,examples:[],revExamples:[],emptyExamples:[]});
-    const g=grouped.get(key);g.bots++;g.pathCalls+=row.pathCalls;g.emptyPaths+=row.emptyPaths;g.repeatPath+=row.repeatPath;g.reversals+=row.reversals;g.stuck2s+=row.stuckEpisodes;g.travelM+=row.travelM;if(process.env.SIM_TRACE){g.examples.push(...row.examples);g.revExamples.push(...row.revExamples);g.emptyExamples.push(...row.emptyExamples);}
+    if(!grouped.has(key))grouped.set(key,{scenario:row.scenario,map:row.map,type:row.type,seeds:SEEDS.length,bots:0,pathCalls:0,emptyPaths:0,repeatPath:0,reversals:0,stuck2s:0,travelM:0,
+      shots:0,shotSpeed:0,steadyShots:0,engagedT:0,coverT:0,examples:[],revExamples:[],emptyExamples:[]});
+    const g=grouped.get(key);g.bots++;g.shots+=row.shots;g.shotSpeed+=row.shotSpeed;g.steadyShots+=row.steadyShots;g.engagedT+=row.engagedT;g.coverT+=row.coverT;g.pathCalls+=row.pathCalls;g.emptyPaths+=row.emptyPaths;g.repeatPath+=row.repeatPath;g.reversals+=row.reversals;g.stuck2s+=row.stuckEpisodes;g.travelM+=row.travelM;if(process.env.SIM_TRACE){g.examples.push(...row.examples);g.revExamples.push(...row.revExamples);g.emptyExamples.push(...row.emptyExamples);}
   }
-  const data=[...grouped.values()].filter(r=>!TYPES_FILTER.length||TYPES_FILTER.includes(r.type)).map(r=>({...r,travelM:+(r.travelM/r.bots).toFixed(1)}));
-  const out={label, seconds:SECONDS, seeds:SEEDS, scenarios:SCENARIOS, data};
+  const data=[...grouped.values()].filter(r=>!TYPES_FILTER.length||TYPES_FILTER.includes(r.type)).map(r=>({...r,travelM:+(r.travelM/r.bots).toFixed(1),
+    shotSpeedMs:r.shots?+(r.shotSpeed/r.shots).toFixed(2):null, steadyPct:r.shots?+(100*r.steadyShots/r.shots).toFixed(1):null,
+    coverPct:r.engagedT?+(100*r.coverT/r.engagedT).toFixed(1):null}));
+  // 每次 AI 更新（五隻敵人的整段迴圈，含分離）的耗時
+  const ns=__tickNs.slice().sort((a,b)=>a-b), q=f=>+(ns[Math.min(ns.length-1,Math.floor(ns.length*f))]/1000).toFixed(1);
+  const out={label, seconds:SECONDS, seeds:SEEDS, scenarios:SCENARIOS, diff:process.env.SIM_DIFF||"normal", tickUs:{median:q(0.5),p99:q(0.99),max:q(1)}, data};
   return out;
 }
 

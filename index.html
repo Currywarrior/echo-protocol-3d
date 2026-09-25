@@ -6339,6 +6339,9 @@ function buildNav(){
   NAV = {cols, rows, g, map:activeMap};
 }
 function navBlocked(x, y){
+  // 和 navNearestFree 等一樣先確認格子是這張圖的：死鬥開局第一隻敵人可能先走到 botAheadGoal（只查格子、不找路），
+  // 這時還沒有人觸發過 buildNav，NAV 是 null 或上一張圖的，會整個丟例外
+  if (!NAV || NAV.map !== activeMap) buildNav();
   const i = Math.floor(x / NAV_CELL), j = Math.floor(y / NAV_CELL);
   if (i < 0 || j < 0 || i >= NAV.cols || j >= NAV.rows) return true;
   return NAV.g[j*NAV.cols + i] === 1;

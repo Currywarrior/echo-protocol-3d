@@ -6446,10 +6446,14 @@ function botPickHold(b, heading){
 // 兩個條件都要：光是看不到的點（例如牆後很深的地方）只能躲、不能打，真人會躲在牆角邊
 function botFindCover(b, T, p){
   const eh = 1.85*botK(b.type), ph = eyeH();
+  // 別的敵人站著或已經選好的掩體／探頭點附近 1.5m 不要：兩隻擠同一個牆角會被分離互推，前後抖個不停
+  const taken = (x, y) => { for (const o of G.bots){ if (o === b || o.dummy) continue;
+    if (Math.hypot(o.x - x, o.y - y) < 50) return true;
+    if (o.cov && (Math.hypot(o.cov.x - x, o.cov.y - y) < 50 || Math.hypot(o.cov.px - x, o.cov.py - y) < 50)) return true; } return false; };
   let best = null, bc = 1e9;
   for (const ring of [45, 85, 130]) for (let k=0;k<10;k++){
     const a = k * Math.PI/5 + ring*0.01, cx = b.x + Math.cos(a)*ring, cy = b.y + Math.sin(a)*ring;
-    if (navBlocked(cx, cy) || !lineClear(b.x, b.y, cx, cy) || hasLOS(cx, cy, p.x, p.y, eh, ph)) continue;
+    if (navBlocked(cx, cy) || taken(cx, cy) || !lineClear(b.x, b.y, cx, cy) || hasLOS(cx, cy, p.x, p.y, eh, ph)) continue;
     const dp = Math.hypot(p.x - cx, p.y - cy);
     if (dp > T.range*0.95) continue;
     const toP = Math.atan2(p.y - cy, p.x - cx);
@@ -6457,6 +6461,7 @@ function botFindCover(b, T, p){
       const qx = cx + Math.cos(toP + side*Math.PI/2)*step, qy = cy + Math.sin(toP + side*Math.PI/2)*step;
       if (navBlocked(qx, qy) || !lineClear(cx, cy, qx, qy)) break;
       if (!hasLOS(qx, qy, p.x, p.y, eh, ph)) continue;
+      if (taken(qx, qy)) break;
       // 近的掩體優先；太靠近玩家（比 keepDist 的一半還近）扣分，免得躲到玩家臉上
       const cost = ring + step*0.5 + (dp < T.keepDist*0.5 ? 200 : 0);
       if (cost < bc){ bc = cost; best = {x:cx, y:cy, px:qx, py:qy}; }
@@ -8798,7 +8803,13 @@ function update(dt){
       }
       // Valorant 的敵人和玩家一樣有加減速：vK 是跑速的幾成。急停時按反方向用 VAL.accel、只放開用 VAL.brake（難度決定比例）；
       // 原本速度是瞬間到位，開槍時的移動誤差就沒有「停下來的過程」可言
-      const still = aiming || (tac && tac.still);
+      let still = aiming || (tac && tac.still);
+      // 急轉身（和剛才實際移動的方向差 > 120°）先站 0.65 秒再走：Valorant 的身體要先煞停才能反向，
+      // 直接掉頭在畫面上就是原地前後抖（dm-ai-sim 的「方向反轉」）。卡牆側閃（dodge）或正在卡住時不套用，
+      // 那時候折返是脫困需要的，也不能讓停頓把真正的卡住藏起來
+      if (G.val && !still && !(b.dodge > 0) && !(b.stuck > 0.1) && (ax || ay) && b.mvH !== undefined && (b.vel || 0) > 10 &&
+          angDiff(Math.atan2(ay, ax), b.mvH) > 2.1) b.turnT = 0.65;
+      if (G.val && b.turnT > 0){ b.turnT -= dt; if (!still) still = true; }
       if (G.val){
         const run = T.speed * ENEMY_SPEED_K, want = still ? 0 : 1, vK = b.vK || 0;
         const acc = (want < vK && !b.counter ? VAL.brake : VAL.accel) / run * dt;
@@ -8815,6 +8826,7 @@ function update(dt){
       b.moved = bmoved;
       b.vel = bmoved / dt;                 // 實際移動速度（px/s），開槍的移動誤差用它（botValSpread）
       b.stillT = b.vel < 5 ? (b.stillT || 0) + dt : 0;   // 站定多久了（botTactics：縮回掩體前要先站穩）
+      if (bmoved > 0.5) b.mvH = Math.atan2(b.y - b.py, b.x - b.px);   // 最近一次真的在走的方向（急轉身判斷用）
       const blockedMove = (bhit.x || bhit.y) && bmoved < spd*dt*0.4;
       // 一幀擦出牆邊不代表脫困；短暫沒碰撞時保留卡住時間，讓固定側閃完成。
       if (stuckBand && blockedMove){ b.stuck += dt; b.keepClearT = 0; }

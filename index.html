@@ -7485,9 +7485,13 @@ function openBuy(){
   renderBuy(); overBuy.hidden = false;
   document.exitPointerLock?.();
 }
-function closeBuy(){
+// relock：按 B 關掉才直接把滑鼠鎖回去；按 Esc 是想放開滑鼠，不能鎖，改顯示暫停畫面、點一下才回遊戲。
+// 原本兩種都鎖：Esc 關購買選單後游標又被抓回遊戲視窗，死鬥隨時能買槍後開關得很頻繁，
+// 快速的解鎖／重鎖正是 Chrome 留下舊 ClipCursor 範圍的時機（Leo 回報游標一直被拉回筆電螢幕的一塊）
+function closeBuy(relock){
   overBuy.hidden = true;
-  requestLock();          // 按 B 關掉是一次按鍵操作，瀏覽器允許直接把滑鼠鎖回去（ESC 不算，會跳暫停畫面）
+  if (relock) requestLock();
+  else if (G && G.mode !== "dead") overPause.hidden = false;
 }
 function renderBuy(){
   const p = G.player, free = G.practice || !!G.dm;
@@ -9942,7 +9946,7 @@ addEventListener("keydown", ev => {
   if (ev.target instanceof HTMLInputElement && ev.target.type === "text") return;
   if (!overKeys.hidden && ev.code === "Escape"){ closeKeys(); return; }
   // 購買選單開著（滑鼠沒鎖定）：按購買鍵或 ESC 關掉
-  if (!overBuy.hidden && (BINDS.buy.includes(ev.code) || ev.code === "Escape")){ ev.preventDefault(); closeBuy(); return; }
+  if (!overBuy.hidden && (BINDS.buy.includes(ev.code) || ev.code === "Escape")){ ev.preventDefault(); closeBuy(ev.code !== "Escape"); return; }
   if (actionsOf(ev.code).length) ev.preventDefault();
   if (ev.repeat) return;
   keys.add(ev.code);

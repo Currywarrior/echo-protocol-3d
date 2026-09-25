@@ -36,6 +36,9 @@
   世界 99x69m，用 `size` 指定，換圖時 `resizeWorld()` 重建地板、天空、陰影範圍與遠裁切面）
 - 牆可以懸空（`base`），`house()` 用它產生走得進去的房子（門窗洞、窗台窗楣、樓板、室內樓梯、屋頂）；
   敵人用格子 A* 尋路（`buildNav` / `navStep`），沒看到玩家時會往玩家附近搜索
+- Valorant 死鬥的敵人戰術在 `index.html` 的「VAL_AI 開始／結束」區段（`botTactics`）：開槍前急停（有加減速 `b.vK`，
+  散布照 `valSpread` 的規則用自己的速度算）、打完一串或被打中退到掩體再探頭、失去視線先架角、搜索途中在看得到門口的位置架槍。
+  主選單的難度存在 `SET.aiDiff`（`AI_LEVELS`）。`shots/dm-ai-sim.js` 會整段搬這個區段進模擬，另外量開槍時速度、掩體後比例與每幀耗時
 - 移動與射擊一比一照 Apex Legends（見下方決定表）；按鍵全部可重新綁定（`ACTIONS` / `BINDS`）
 
 ---

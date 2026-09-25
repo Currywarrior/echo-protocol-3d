@@ -245,6 +245,13 @@
           <option value="range">訓練場 · 假人不會開槍</option>
         </select>
       </label>
+      <label class="mapPicker" for="diffSelect" data-for="valorant" hidden>難度
+        <select id="diffSelect">
+          <option value="easy">簡單 · 反應慢、常常還沒停穩就開槍</option>
+          <option value="normal">普通</option>
+          <option value="hard">困難 · 反應快、一定急停到位才開槍</option>
+        </select>
+      </label>
       <div class="keys" data-for="apex">
         <div class="key"><b data-act="forward left back right">W A S D</b><span>移動</span></div>
         <div class="key"><b>MOUSE</b><span>視角</span></div>
@@ -6323,6 +6330,218 @@ function botRouteClear(b, dx, dy, dist){
   return true;
 }
 
+// ── VAL_AI 開始：Valorant 敵人的戰術（急停、掩體探頭、卡角架槍、難度）──
+// 目標是「像真人玩家」而不是一直衝過來邊跑邊打。所有判斷只看幾何（NAV 格、視線）與當下狀態，
+// 不看地圖名稱：換一張新地圖（例如之後的爆破圖）照樣能用（AGENTS.md：AI 不准依地圖名稱分支）。
+// shots/dm-ai-sim.js 會把「VAL_AI 開始」到「VAL_AI 結束」整段搬進模擬環境，所以這裡不能碰 DOM 或 three.js。
+//
+// 難度（主選單，存在 SET.aiDiff）。數字都是自調，參考的是一般玩家的量級：
+// react 看到人到開槍的反應時間（秒，人類視覺反應約 0.2～0.3 秒，簡單版故意慢一點）；
+// aim 剛看到人的第一槍瞄準誤差、settle 追瞄一陣子之後收斂到的誤差（度，1° 在 10m 外是 17cm，玩家身體半徑約 39cm）；
+// lag 追移動目標時準心落後幾秒（跑動的玩家比較難打，但玩家跑動時自己也打不準，逼雙方都急停）；
+// stop 開槍前要把速度降到自己跑速的幾成以下（Valorant 的移動誤差死區是 27.5%，見 valSpread：困難版一定停到死區內，簡單版常常還在滑就開槍）；
+// counter 急停時按反方向（照玩家的加速度 VAL.accel）而不是只放開（VAL.brake）的機率
+const AI_LEVELS = {
+  easy:  {react:0.42, aim:4.2, settle:1.9, lag:0.13, stop:0.65, counter:0.2},
+  normal:{react:0.30, aim:2.8, settle:1.1, lag:0.08, stop:0.35, counter:0.6},
+  hard:  {react:0.21, aim:1.7, settle:0.6, lag:0.05, stop:0.2,  counter:0.95},
+};
+// SET 在檔案後段才宣告，模擬環境裡也沒有，所以用 typeof 取；沒設定就是普通
+function aiLevel(){ return AI_LEVELS[(typeof SET !== "undefined" && SET.aiDiff) || "normal"] || AI_LEVELS.normal; }
+function angDiff(a, b){ return Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b))); }
+// 身邊擠著別的敵人：站著不動的敵人擋在走廊或門口時，後面的人會被互相推開的分離卡住，這時要讓路
+function botCrowded(b){
+  for (const o of G.bots) if (o !== b && !o.dummy && Math.hypot(o.x - b.x, o.y - b.y) < b.rad + o.rad + 12) return true;
+  return false;
+}
+
+// 反應時間：每次重新看到玩家都重抽（±25%），真人不會每次都一樣快。
+// TYPES 的 reaction 比例保留下來（LANCER 拿 Marshal 要開鏡、比較慢；STALKER 最快），開根號壓縮差距，免得狙擊手慢到打不到人。
+// 玩家出現在背後要先轉身：每轉 180° 多 0.25 秒（自調）。正在架槍、玩家剛好從架的方向出來時快 20%（架槍的優勢）
+function botReaction(b, T, p){
+  const L = aiLevel(), face = Math.atan2(p.y - b.y, p.x - b.x), turn = angDiff(face, b.angle);
+  let r = L.react * Math.sqrt(T.reaction / TYPES.grunt.reaction) * (0.75 + Math.random()*0.5) + turn / Math.PI * 0.25;
+  if (b.holdT > 0 && angDiff(face, b.holdA) < 0.6) r *= 0.8;
+  return r;
+}
+
+// 敵人的散布（度）：規則照玩家的 valSpread（首發、連射長到上限、移動誤差有 27.5% 死區），
+// 只是「跑速」換成這隻敵人自己的最高速度、速度用它實際移動的速度 b.vel。回傳 [散布, 是否站定]
+function botValSpread(b, T, g){
+  // 狙擊手一定開鏡再打（腰射 Marshal 首發 1°，沒有人會這樣架槍）
+  const s4 = g.cat === "sniper" && g.ads ? g.ads.spr : g.spr;
+  const n = T.burstSize - b.burst;                      // 這一串的第幾發（0 = 首發）
+  let s = s4[0] + (s4[2] - s4[0]) * Math.min(1, n / g.rc.grow);
+  const run = T.speed * ENEMY_SPEED_K, sp = b.vel || 0, dz = run * VAL.deadzone, mv = g.mv;
+  if (b.jz > 0) return [s + mv[3], false];
+  if (sp <= dz) return [s, true];
+  const walk = run * VAL.walkMul;
+  s += sp <= walk ? mv[1] * (sp - dz) / (walk - dz) : mv[1] + (mv[2] - mv[1]) * Math.min(1, (sp - walk) / (run - walk));
+  return [s, false];
+}
+// 這一發偏多少：人的瞄準誤差 + 槍的散布 + 追移動目標的落後。回傳 [水平偏角（弧度）, 垂直偏移（公尺）]
+function botValAim(b, dist){
+  const L = aiLevel(), T = TYPES[b.type], g = VAL_GUNS[BOT_VAL[b.type] || "vandal"], p = G.player;
+  // 剛看到人時甩過來的準心不準，追瞄越久越穩（時間常數 0.5 秒，自調）
+  const track = Math.max(0, b.see - (b.reactT || 0));
+  const human = L.settle + (L.aim - L.settle) * Math.exp(-track / 0.5);
+  const [spr, still] = botValSpread(b, T, g);
+  // 人的誤差：半徑均勻抽，偏向中心（大部分落在附近、偶爾大偏）；槍的散布照玩家：站定時中心偏置、移動時平均分布
+  const t1 = Math.random()*Math.PI*2, r1 = human * Math.random();
+  const t2 = Math.random()*Math.PI*2, r2 = spr * Math.pow(Math.random(), still ? VAL.bias : 0.5);
+  let ex = Math.cos(t1)*r1 + Math.cos(t2)*r2, ey = Math.sin(t1)*r1 + Math.sin(t2)*r2;
+  // 追瞄落後：準心停在玩家 lag 秒前的位置（只算垂直視線的橫向速度）
+  const ux = (p.x - b.x) / dist, uy = (p.y - b.y) / dist, lat = -p.vx*uy + p.vy*ux;
+  ex -= Math.atan2(lat * L.lag, dist) / DEG;
+  return [ex * DEG, Math.tan(ey * DEG) * dist * S];
+}
+
+// 常見入口：NAV 格裡「一個方向很窄、另一個方向走得通」的格子（門、走廊口、兩棟房子之間的縫）。
+// 只看障礙物的形狀，任何地圖都算得出來；每張地圖算一次，掛在 NAV 上（換圖時 buildNav 會重建 NAV，快取跟著失效）。
+// 每 3m 見方只留一格，免得一條走廊產生幾十個點。完全空曠的地圖沒有窄口，改用出生點（玩家重生也是從那裡出來）
+function navChokes(){
+  if (!NAV || NAV.map !== activeMap) buildNav();
+  if (NAV.chokes) return NAV.chokes;
+  const {cols, rows, g} = NAV, out = [], seen = new Set(), MAX = 12, BUCKET = 3 / (NAV_CELL * S);
+  const run = (i, j, di, dj) => { let n = 0; for (let k=1;k<=MAX;k++){ const ii = i + di*k, jj = j + dj*k;
+    if (ii < 0 || jj < 0 || ii >= cols || jj >= rows || g[jj*cols + ii]) break; n++; } return n; };
+  for (let j=1;j<rows-1;j+=2) for (let i=1;i<cols-1;i+=2){
+    if (g[j*cols + i]) continue;
+    // 兩側的牆已經被 NAV_PAD 膨脹過，窄的那一軸 ≤ 5 格（約 1.8m 可走，實際開口約 2.6m）才算門口
+    const nx = run(i, j, 1, 0) + run(i, j, -1, 0), ny = run(i, j, 0, 1) + run(i, j, 0, -1);
+    const narrow = Math.min(nx, ny), wide = Math.max(nx, ny);
+    if (narrow > 5 || wide < MAX) continue;
+    const key = Math.floor(i / BUCKET) + "," + Math.floor(j / BUCKET);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({x:(i + 0.5)*NAV_CELL, y:(j + 0.5)*NAV_CELL});
+  }
+  NAV.chokes = out.length ? out : SPAWNS.map(s => ({x:s.x, y:s.y}));
+  return NAV.chokes;
+}
+// 卡角架槍的位置：在 (gx, gy) 附近 2m 內找一個看得到某個入口（4.5～18m 外）的點，面向那個入口。
+// 入口太近（< 4.5m）等於貼著門站，出來的人一轉頭就看到你；太遠打不準。
+// 只挑前方（和 heading 夾角 < 100°）的點：往回走兩步再停下來，看起來就是原地掉頭。
+// 走過去的路要用敵人自己的半徑檢查（botRouteClear）：NAV 格只保證 NAV_PAD，體型大的 WARDEN 會被卡在牆邊的點
+function botPickHold(b, heading){
+  const gx = b.x, gy = b.y;
+  const E = navChokes(), near = [];
+  for (const e of E){ const d = Math.hypot(e.x - gx, e.y - gy); if (d > 150 && d < 600) near.push(e); }
+  if (!near.length) return null;
+  let best = null, bs = -1e9;
+  for (let k=0;k<7;k++){
+    const a = k * Math.PI*2/6, sx = k ? gx + Math.cos(a)*60 : gx, sy = k ? gy + Math.sin(a)*60 : gy;
+    if (k && (angDiff(a, heading) > 1.75 || navBlocked(sx, sy) || !botRouteClear(b, Math.cos(a), Math.sin(a), 60))) continue;
+    for (let t=0;t<5;t++){
+      const e = near[(Math.random()*near.length) | 0], d = Math.hypot(e.x - sx, e.y - sy);
+      if (!hasLOS(sx, sy, e.x, e.y)) continue;
+      // 偏好 10m 左右（步槍的舒適距離）；亂數讓每次架的點不同，玩家背不起來
+      const sc = -Math.abs(d - 330) + Math.random()*150;
+      if (sc > bs){ bs = sc; best = {x:sx, y:sy, a:Math.atan2(e.y - sy, e.x - sx)}; }
+    }
+  }
+  return best;
+}
+// 掩體：身邊 1.4～4m 一圈裡，站過去玩家就看不到、而且往旁邊跨 0.9～2.1m 就能再看到玩家（探頭點）的位置。
+// 兩個條件都要：光是看不到的點（例如牆後很深的地方）只能躲、不能打，真人會躲在牆角邊
+function botFindCover(b, T, p){
+  const eh = 1.85*botK(b.type), ph = eyeH();
+  let best = null, bc = 1e9;
+  for (const ring of [45, 85, 130]) for (let k=0;k<10;k++){
+    const a = k * Math.PI/5 + ring*0.01, cx = b.x + Math.cos(a)*ring, cy = b.y + Math.sin(a)*ring;
+    if (navBlocked(cx, cy) || !lineClear(b.x, b.y, cx, cy) || hasLOS(cx, cy, p.x, p.y, eh, ph)) continue;
+    const dp = Math.hypot(p.x - cx, p.y - cy);
+    if (dp > T.range*0.95) continue;
+    const toP = Math.atan2(p.y - cy, p.x - cx);
+    for (const side of [1, -1]) for (const step of [30, 50, 70]){
+      const qx = cx + Math.cos(toP + side*Math.PI/2)*step, qy = cy + Math.sin(toP + side*Math.PI/2)*step;
+      if (navBlocked(qx, qy) || !lineClear(cx, cy, qx, qy)) break;
+      if (!hasLOS(qx, qy, p.x, p.y, eh, ph)) continue;
+      // 近的掩體優先；太靠近玩家（比 keepDist 的一半還近）扣分，免得躲到玩家臉上
+      const cost = ring + step*0.5 + (dp < T.keepDist*0.5 ? 200 : 0);
+      if (cost < bc){ bc = cost; best = {x:cx, y:cy, px:qx, py:qy}; }
+      break;
+    }
+  }
+  return best;
+}
+// 每幀的戰術目標。回傳 null 表示照原本的追擊／側移；否則回傳 {x, y, still, face}：
+// 要走去的點、是不是要站著不動、不動時面向哪裡
+function botTactics(b, T, p, los, dt){
+  if (los){ b.seenT = G.t; b.holdT = 0; }
+  const engaged = G.t - (b.seenT ?? -99) < 5, hurt = G.t - (b.hurtAt ?? -99) < 0.25;
+  // 掩體只給 keepDist > 0 的敵人（保持距離的射手）：keepDist = 0 的 STALKER 是貼臉打法，
+  // 像 Valorant 的突破手一樣直接壓上去，但開槍前一樣會急停（見 update 的 aiming）
+  if (engaged && T.keepDist > 0){
+    let c = b.cov;
+    if (c && G.t >= (b.covCheckT || 0)){
+      b.covCheckT = G.t + 0.3;
+      // 玩家換了位置：掩體被看穿、或玩家跑出射程，這個掩體就不要了
+      if (hasLOS(c.x, c.y, p.x, p.y, 1.85*botK(b.type), eyeH()) || Math.hypot(p.x - c.x, p.y - c.y) > T.range) c = b.cov = null;
+    }
+    // 打完一串或被打中時才找掩體（真人是先開槍、再縮回去）；全場每幀最多找一次，避免五隻同一幀一起算
+    if (!c && (hurt || (los && b.burstEndT > (b.seeStartT ?? 0))) && G.t >= (b.covSearchT || 0) && G.aiSearchT !== G.t){
+      G.aiSearchT = G.t; b.covSearchT = G.t + 0.8;
+      c = b.cov = botFindCover(b, T, p);
+      // 找到掩體也一樣先站穩再退（見下面的 covBack），不然剛打完一串就立刻掉頭
+      if (c){ b.covPhase = "hide"; b.covWait = 0; b.covBack = 0.6 + Math.random()*0.6; }
+    }
+    if (c){
+      const face = Math.atan2(p.y - b.y, p.x - b.x);
+      // 探頭中被打中就縮回去，多躲一下再探（真人被打到會先退、等對方換位置或換彈）。
+      // 縮回去前要先站定 0.6 秒（通常正在急停開槍，順便把這一串打完）：一邊往外走一邊立刻掉頭，
+      // 畫面上就是牆角左右抖，也就是 dm-ai-sim 的「方向反轉」
+      if (hurt && b.covPhase === "peek") b.covBack = 1.2 + Math.random()*1.0;
+      if (b.covPhase === "peek" && b.burstEndT > b.peekT && G.t - b.burstEndT > 0.15 && !b.covBack) b.covBack = 0.6 + Math.random()*0.8;
+      if (b.covBack){
+        if ((b.stillT || 0) < 0.6) return {x:b.x, y:b.y, still:true, face};
+        b.covPhase = "hide"; b.covWait = b.covBack; b.covBack = 0;
+      }
+      if (b.covPhase === "hide"){
+        // 縮回掩體的路上不停下來開槍（retreat），不然會卡在半路、一半身體露在外面
+        if (Math.hypot(c.x - b.x, c.y - b.y) > 10) return {x:c.x, y:c.y, retreat:true};
+        // 躲好之後至少停 0.6 秒再探頭：馬上又出去的話，是在牆角左右抖（也是 dm-ai-sim 的「方向反轉」）
+        if ((b.covWait -= dt) > 0) return {x:b.x, y:b.y, still:true, face};
+        b.covPhase = "peek"; b.peekT = G.t; b.peekMissT = 0; b.covBack = 0;
+      }
+      // 探頭：走到探頭點，看到人就交給 update 急停開槍；打完一串（burstEndT 在探頭之後）就縮回去（上面的 covBack）
+      if (!los && Math.hypot(c.px - b.x, c.py - b.y) < 10){
+        // 站在探頭點卻看不到人：玩家已經走了，放棄這個掩體改用原本的追擊
+        if ((b.peekMissT += dt) > 1.0){ b.cov = null; return null; }
+        return {x:b.x, y:b.y, still:true, face};
+      }
+      return {x:c.px, y:c.py};
+    }
+    // 沒有掩體、剛失去視線：先在原地架著玩家消失的方向 1.5～3 秒，再去追（真人不會一看不到人就直接衝過去）。
+    // 少了這段，保持距離的敵人會「太近往後退 → 看不到 → 追回去 → 看到又太近往後退」，在視線邊緣來回走
+    if (!los){
+      if (b.edgeFrom !== b.seenT){ b.edgeFrom = b.seenT; b.edgeUntil = G.t + 1.5 + Math.random()*1.5; }
+      if (G.t < b.edgeUntil && !botCrowded(b)) return {x:b.x, y:b.y, still:true, face:Math.atan2(b.lastY - b.y, b.lastX - b.x)};
+    }
+    return null;
+  }
+  b.cov = null;
+  if (engaged || b.chase) return null;
+  // 沒在交火：搜索途中有機會停下來卡角。每次搜索目標換新（= 走到上一個目標）時擲一次，
+  // 六成機率在附近找一個看得到入口的點架 3～7 秒（自調），其他時候照原本的搜索繼續走
+  if (b.goalX !== b.tacGX || b.goalY !== b.tacGY){
+    b.tacGX = b.goalX; b.tacGY = b.goalY;
+    if (!(b.holdT > 0) && Math.random() < 0.6 && G.aiSearchT !== G.t){
+      G.aiSearchT = G.t;
+      const h = botPickHold(b, b.angle);
+      if (h){ b.holdX = h.x; b.holdY = h.y; b.holdA = h.a; b.holdT = 3 + Math.random()*4; }
+    }
+  }
+  if (b.holdT > 0 && botCrowded(b)) b.holdT = 0;         // 擋到隊友就不架了，讓路
+  if (b.holdT > 0){
+    if (Math.hypot(b.holdX - b.x, b.holdY - b.y) > 12) return {x:b.holdX, y:b.holdY};
+    b.holdT -= dt;                       // 走到了才開始計時
+    return {x:b.x, y:b.y, still:true, face:b.holdA};
+  }
+  return null;
+}
+// ── VAL_AI 結束 ──
+
 function rosterFor(round){
   const n = Math.min(1 + round, 7);
   const list = [];
@@ -7367,6 +7586,7 @@ function valApplyHit(b, raw, zone, at, farPellet){
     if (zone === "head") rs.heads++;
   }
   b.tagT = VAL.tagT; b.tagAmt = farPellet ? VAL.tagFar : VAL.tag;
+  b.hurtAt = G.t;                          // 敵人 AI 用：被打中就縮回掩體（botTactics）
   // 中彈不後仰、不甩頭：Valorant 的角色中彈幾乎不晃，只有減速（tag）。受擊動畫的力道歸零
   b.flash = 0.1; b.hitT = 0.25;
   b.hitAngle = Math.atan2(b.y - G.player.y, b.x - G.player.x);
@@ -7691,10 +7911,12 @@ function valBuyArmor(k){
 }
 function botShoot(b){
   const p = G.player, T = TYPES[b.type];
-  const a = Math.atan2(p.y-b.y, p.x-b.x) + (Math.random()*2-1)*T.spread;
   const bh = 1.15 * botK(b.type);                 // 槍口高度
   const dist = Math.max(1, Math.hypot(p.x-b.x, p.y-b.y));
-  const aimH = eyeH() - 0.30 + (Math.random()*2-1)*0.14;   // 瞄胸口，帶一點垂直散布
+  // Valorant：誤差照玩家的規則算（人的瞄準 + 槍的散布 + 移動誤差，見 botValAim）；Apex 維持 TYPES 的固定散布
+  const e = G.val ? botValAim(b, dist) : null;
+  const a = Math.atan2(p.y-b.y, p.x-b.x) + (e ? e[0] : (Math.random()*2-1)*T.spread);
+  const aimH = eyeH() - 0.30 + (e ? e[1] : (Math.random()*2-1)*0.14);   // 瞄胸口，帶一點垂直散布
   // 飛行時間要有下限：貼身時距離趨近零，除下去垂直速度會爆成每秒數百公尺，
   // 子彈等於垂直射向天花板
   // Valorant 是即時命中（hitscan）：子彈用和玩家一樣的 1800m/s，50m 內不到 0.03 秒，
@@ -8458,7 +8680,11 @@ function update(dt){
       const los = d < T.range && hasLOS(b.x,b.y,p.x,p.y,1.85*botK(b.type),eyeH());
       // 卡住計時的邊界比戰術側移帶寬一些，免得距離在門檻附近抖動時每幀清零。
       const stuckBand = los && T.keepDist > 0 && Math.abs(d - T.keepDist) < 120;
-      if (los){ b.see += dt; b.lastX = p.x; b.lastY = p.y; b.chase = true; } else b.see = 0;
+      if (los){
+        // Valorant：每次重新看到都重抽反應時間（見 botReaction）；Apex 維持 TYPES 的固定反應
+        if (G.val && b.see === 0){ b.reactT = botReaction(b, T, p); b.seeStartT = G.t; b.counter = Math.random() < aiLevel().counter; }
+        b.see += dt; b.lastX = p.x; b.lastY = p.y; b.chase = true;
+      } else b.see = 0;
 
       let tx, ty;
       if (los){ tx = p.x; ty = p.y; }
@@ -8488,7 +8714,13 @@ function update(dt){
         }
         tx = b.goalX; ty = b.goalY;
       }
-      const keepBand = los && T.keepDist > 0 && Math.abs(d - T.keepDist) < 90;
+      // Valorant：掩體探頭、卡角架槍（botTactics）。有戰術目標時不做原本的保持距離側移，否則會被切線方向拉離掩體
+      const tac = G.val ? botTactics(b, T, p, los, dt) : null;
+      if (tac){ tx = tac.x; ty = tac.y; b.keepGoal = false; }
+      // 準備開槍：看到人、反應時間快到了（提前 0.1 秒開始煞車），而且正在打一串或下一串快開始。
+      // Valorant 移動中開槍會不準（valSpread 的移動誤差），真人會先急停；兩串之間的空檔才移動
+      const aiming = G.val && los && G.mode === "fight" && !(tac && tac.retreat) && b.see > (b.reactT || 0) - 0.1 && (b.burst < T.burstSize || b.cool < 0.15);
+      const keepBand = los && !tac && !aiming && T.keepDist > 0 && Math.abs(d - T.keepDist) < 90;
       let sideX = 0, sideY = 0;
       if (keepBand){
         const t2 = Math.atan2(p.y-b.y, p.x-b.x) + Math.PI/2*b.strafe;
@@ -8508,7 +8740,7 @@ function update(dt){
       let ax = tx-b.x, ay = ty-b.y;
       const al = Math.hypot(ax,ay) || 1;
       ax /= al; ay /= al;
-      if (!b.keepGoal && los && d < T.keepDist){ ax = -ax; ay = -ay; }
+      if (!b.keepGoal && !tac && los && d < T.keepDist){ ax = -ax; ay = -ay; }
       if (keepBand && !b.keepGoal){ ax = sideX; ay = sideY; }
       // 只有另一側確實有淨空才翻轉切線；兩側都堵住時沿牆法線側閃，避免固定來回撞同一柱。
       if (keepBand && !b.keepGoal && b.stuck > 0.3 && (b.hitX || b.hitY) && !b.keepEscapeUsed){
@@ -8538,7 +8770,8 @@ function update(dt){
         // 已依碰撞軸選過可走側；未脫困時再反轉會讓 AI 每秒在同一段牆邊折返。
         if (b.stuck > 0.95) b.stuck = 0;
       }
-      if (T.speed * ENEMY_SPEED_K >= 120){
+      // 站定時（ax、ay 都是 0）不轉：atan2(0,0) = 0 會把行進方向慢慢轉向東邊，再起步時先往東走一小段
+      if (T.speed * ENEMY_SPEED_K >= 120 && (ax || ay)){
         // 單幀位移較大的敵人若立刻翻轉方向，會跨過路徑點後再折返；更慢的敵人不需要額外慣性。
         const want = Math.atan2(ay,ax);
         if (!Number.isFinite(b.moveHeading)) b.moveHeading = want;
@@ -8549,12 +8782,25 @@ function update(dt){
         }
         ax = Math.cos(b.moveHeading); ay = Math.sin(b.moveHeading);
       }
+      // Valorant 的敵人和玩家一樣有加減速：vK 是跑速的幾成。急停時按反方向用 VAL.accel、只放開用 VAL.brake（難度決定比例）；
+      // 原本速度是瞬間到位，開槍時的移動誤差就沒有「停下來的過程」可言
+      const still = aiming || (tac && tac.still);
+      if (G.val){
+        const run = T.speed * ENEMY_SPEED_K, want = still ? 0 : 1, vK = b.vK || 0;
+        const acc = (want < vK && !b.counter ? VAL.brake : VAL.accel) / run * dt;
+        b.vK = want > vK ? Math.min(want, vK + acc) : Math.max(want, vK - acc);
+        // 要站定時目標就是自己的位置：卡住偵測（與 dm-ai-sim 的 stuck 指標）不會把刻意停下誤判成卡住
+        if (still){ tx = b.x; ty = b.y; }
+      }
       b.px = b.x; b.py = b.y;
-      const spd = T.speed * ENEMY_SPEED_K * (b.tagT > 0 ? 1 - b.tagAmt * b.tagT / VAL.tagT : 1);   // 中彈減速（Valorant）
+      const spd = T.speed * ENEMY_SPEED_K * (b.tagT > 0 ? 1 - b.tagAmt * b.tagT / VAL.tagT : 1)   // 中彈減速（Valorant）
+                * (G.val ? b.vK : 1);
       const bhit = moveWithCollision(b, ax*spd*dt, ay*spd*dt);
       b.hitX = bhit.x; b.hitY = bhit.y;
       const bmoved = Math.hypot(b.x-b.px, b.y-b.py);
       b.moved = bmoved;
+      b.vel = bmoved / dt;                 // 實際移動速度（px/s），開槍的移動誤差用它（botValSpread）
+      b.stillT = b.vel < 5 ? (b.stillT || 0) + dt : 0;   // 站定多久了（botTactics：縮回掩體前要先站穩）
       const blockedMove = (bhit.x || bhit.y) && bmoved < spd*dt*0.4;
       // 一幀擦出牆邊不代表脫困；短暫沒碰撞時保留卡住時間，讓固定側閃完成。
       if (stuckBand && blockedMove){ b.stuck += dt; b.keepClearT = 0; }
@@ -8581,12 +8827,20 @@ function update(dt){
         else moveWithCollision(b, minD, 0);
       }
 
-      b.angle = los ? Math.atan2(p.y-b.y, p.x-b.x) : Math.atan2(ay,ax);
-      if (los && b.see > T.reaction && b.cool <= 0 && G.mode === "fight"){
+      // 站著不動時 ax、ay 是 0，atan2(0,0) 會讓人突然面向東邊；改面向戰術指定的方向（架的入口、掩體外的玩家）
+      b.angle = los ? Math.atan2(p.y-b.y, p.x-b.x) : tac && tac.still ? tac.face : (ax || ay) ? Math.atan2(ay,ax) : b.angle;
+      // Valorant：速度要降到跑速的 stop 成以下才開槍（難度決定）；被推著走停不下來時最多等 0.35 秒就照打
+      let steady = true;
+      if (G.val && aiming){
+        steady = (b.vel || 0) <= aiLevel().stop * T.speed * ENEMY_SPEED_K;
+        b.stopWait = steady ? 0 : (b.stopWait || 0) + dt;
+        if (b.stopWait > 0.35) steady = true;
+      }
+      if (los && b.see > (G.val ? b.reactT : T.reaction) && b.cool <= 0 && G.mode === "fight" && steady){
         botShoot(b);
         b.burst--;
         if (b.burst > 0) b.cool = T.burstGap;
-        else { b.burst = T.burstSize; b.cool = T.burstRest*(0.8+Math.random()*0.45); }
+        else { b.burst = T.burstSize; b.cool = T.burstRest*(0.8+Math.random()*0.45); b.burstEndT = G.t; }
       }
     }
 
@@ -10259,7 +10513,7 @@ frame.addEventListener("click", (ev) => {
 });
 
 // ── 設定：存在瀏覽器本機，下次開還在 ──
-const SET = {sens:1, fov:78, music:0.35, autoFs:1};
+const SET = {sens:1, fov:78, music:0.35, autoFs:1, aiDiff:"normal"};
 try {
   const raw = localStorage.getItem("echo3d.set");
   if (raw) Object.assign(SET, JSON.parse(raw));
@@ -10267,6 +10521,10 @@ try {
 function saveSettings(){
   try { localStorage.setItem("echo3d.set", JSON.stringify(SET)); } catch(e){}
 }
+// Valorant 敵人難度（見 AI_LEVELS）：只換反應、瞄準、急停，敵人血量與槍不變。隨時改、下一幀就生效
+const diffSelect = document.getElementById("diffSelect");
+diffSelect.value = AI_LEVELS[SET.aiDiff] ? SET.aiDiff : "normal";
+diffSelect.addEventListener("change", () => { SET.aiDiff = diffSelect.value; saveSettings(); });
 const elSens = document.getElementById("setSens");
 const elFov  = document.getElementById("setFov");
 const elMusic = document.getElementById("setMusic");

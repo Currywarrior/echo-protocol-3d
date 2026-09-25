@@ -638,16 +638,21 @@ const MAPS = {
       neutral:true,
       walls:[0xB8BEBC, 0xB0B6B4, 0xC0C4C0], edge:0x6E7470,
       trim:0xD4D6D0, panel:0xA8AEAA, strip:0x5FC8C0,
-      floor:0xA8ACA4, ceiling:0x000000, light:0xFFFFFF,
+      floor:0x80847E, ceiling:0x000000, light:0xFFFFFF,
       glow:0xFFFFFF, cold:0x98A09C, pipe:0x7E8480, terrain:0x8E948E,
       propMetal:0x7E8480, propDark:0x4A4E4C,
       ashlar:false, bags:0xA8946C, stone:0x9CA29E, stoneDark:0x7E8480,
       topGrime:false,
+      // 地面與牆的世界座標風化開一半：整片同樣的金屬地板一路鋪到 50m，格子重複得很明顯
+      weather:0.5,
     },
     atmo:{
-      bg:0xE4E8EA, fog:0.002, hemiSky:0xB8D0EC, hemiGround:0x9A9A90, hemi:0.8,
+      // 太陽在靶道右手邊（南方）斜照、仰角約 44 度：北牆整面亮、隔牆朝靶道那面在陰影裡，
+      // 假人一側亮一側暗、影子往北牆拉，看得出立體與距離。不放在射擊線正後方：順光打在假人正面，又是一片平的。
+      // 原本太陽接近頭頂、天光 0.8、地板接近白色，整條靶道是一片平的亮灰
+      bg:0xE4E8EA, fog:0.002, hemiSky:0xB0C6E2, hemiGround:0x80827C, hemi:0.6,
       sensor:0, bloom:0.06, threshold:0.95, vignette:0.15, grade:0.3, exposure:0.95,
-      sunColor:0xFFF0DC, sunI:1.9, sunDir:[0.35,0.75,0.3],
+      sunColor:0xF6F2EA, sunI:2.1, sunDir:[0.15,0.62,0.62],
       skyTop:0x4E8AD6, skyHorizon:0xE0E6EA,
       aberr:0, scan:0, noise:0, sharp:0.5, ao:1, env:true,
     },
@@ -892,12 +897,19 @@ const MAPS = {
       propMetal:0x6C7478, propDark:0x3C4246,
       ashlar:true, bags:0x979A94, stone:0x98A0A2, stoneDark:0x788084,
       topGrime:false,
+      // 立面（STYLES.building）：一樓石砌、二樓以上灰泥，窗框、百葉、門、石板瓦都用冷色或中性色（暖色只屬於敵人）
+      weather:1, plaster:[0x9FA5A6, 0x949CA2, 0xA7A59E], frame:0x3A4248, shutter:0x56646E, door:0x34424A, slate:0x5A6268,
+      walk:0xA4A8A4,
+      // 貨箱的木頭乘上偏冷的灰：原本的黃褐木色在斜陽下飽和成橘色，和敵人撞色；風吹日曬的舊木本來就是灰的
+      crateTint:0x98A4AC,
     },
     atmo:{
-      // 微陰的冷白天光：太陽偏白、天空偏灰藍，陰影靠天光補成冷色
-      bg:0xDCE2E8, fog:0.003, hemiSky:0xB6CAE0, hemiGround:0x8C9294, hemi:0.8,
-      sensor:0, bloom:0.06, threshold:0.95, vignette:0.18, grade:0.3, exposure:0.95,
-      sunColor:0xF2F5FA, sunI:1.8, sunDir:[0.4,0.72,0.3],
+      // 冷白天光。太陽放低（仰角約 36 度）、從東南方斜照：南北向與東西向的街，兩面牆一亮一暗、
+      // 另外兩面是介於中間的斜射，建築的每個面才分得出層次；原本太陽接近頭頂、天光 0.8，
+      // 亮面和暗面只差一點點，整個畫面是平的。天光降到 0.62，暗部留在冷灰藍而不是被洗成淺灰
+      bg:0xDCE2E8, fog:0.003, hemiSky:0xAEC4DE, hemiGround:0x767C80, hemi:0.62,
+      sensor:0, bloom:0.06, threshold:0.95, vignette:0.18, grade:0.3, exposure:1.0,
+      sunColor:0xF4F4F0, sunI:2.25, sunDir:[0.62,0.52,0.36],
       skyTop:0x5A86C0, skyHorizon:0xDAE2EA,
       aberr:0, scan:0, noise:0, sharp:0.5, ao:1, env:true, clouds:0.6,
     },
@@ -933,6 +945,15 @@ const MAPS = {
       {x:2400,y:1880,w:42,h:42,ht:0.8,crate:true},{x:2200,y:1760,w:100,h:34,ht:0.95,style:"sandbags"},
       // ── 路燈 ──
       {x:1215,y:1215,w:10,h:10,ht:5.5,style:"lamp"},{x:1775,y:1275,w:10,h:10,ht:5.5,style:"lamp"},
+      // ── 街道物件（2026-09-25）：都貼著樓牆或放在寬敞處，不擋 3m 寬的窄道；碰撞就是長方形，
+      // 高度 ≤ 1.05m 的跳得上去（花槽、油桶、長椅），配電箱 1.5m 站著也擋得住 ──
+      {x:1150,y:2378,w:48,h:22,ht:0.75,style:"planter"},{x:1800,y:2378,w:48,h:22,ht:0.75,style:"planter"},
+      {x:200,y:1990,w:15,h:27,ht:1.5,style:"cabinet"},{x:962,y:2040,w:36,h:36,ht:1.0,style:"barrels"},
+      {x:2785,y:1780,w:15,h:27,ht:1.5,style:"cabinet"},{x:2400,y:2078,w:48,h:22,ht:0.75,style:"planter"},
+      {x:2002,y:1850,w:20,h:40,ht:1.0,style:"barrels"},
+      {x:600,y:200,w:48,h:22,ht:0.75,style:"planter"},{x:2350,y:202,w:54,h:16,ht:0.48,style:"bench"},
+      {x:900,y:385,w:27,h:15,ht:1.5,style:"cabinet"},{x:740,y:500,w:27,h:15,ht:1.5,style:"cabinet"},
+      {x:1380,y:1170,w:16,h:60,ht:0.48,style:"bench"},{x:1604,y:1170,w:16,h:60,ht:0.48,style:"bench"},
     ],
     // 死鬥與生存用的出生點：散在兩個包點、大廳、中路與兩方出生區
     spawns:[
@@ -1552,29 +1573,59 @@ function sfxNoise(dur,vol,hz){
 // 在一個看不見背後的遊戲裡，這是玩家最重要的感測器
 // 走廊殘響：指數衰減的噪音就是最基本的房間脈衝響應。
 // 這個場景是密閉的金屬空間，乾聲聽起來會像在真空裡
-let convolver = null, reverbIn = null;
-function initReverb(){
-  if (!actx || convolver) return;
-  const len = Math.floor(actx.sampleRate * 1.15);
-  const ir = actx.createBuffer(2, len, actx.sampleRate);
+// 兩種聲學環境（換圖時 setAcoustics 切換）：
+//  室內：原本的密集殘響，指數衰減的噪音，1.15 秒，偏悶（金屬走廊）。
+//  露天：開闊的街道沒有「房間」的尾音，聽到的是遠處牆面一個個分開的回聲（25～230ms），
+//        加上很淡、很長的散射尾巴。用室內那種密集殘響，城鎮聽起來像在倉庫裡開槍
+let convolver = null, reverbIn = null, reverbLp = null, acoustic = "indoor", irBuilt = "";
+function buildIR(){
+  const sr = actx.sampleRate, out = acoustic === "outdoor";
+  const len = Math.floor(sr * (out ? 1.6 : 1.15));
+  const ir = actx.createBuffer(2, len, sr);
   for (let ch=0; ch<2; ch++){
     const d = ir.getChannelData(ch);
-    for (let i=0;i<len;i++){
-      const t = i/len;
-      // 前 8 毫秒留白當作直達聲與反射之間的間隙
-      const gap = i < actx.sampleRate*0.008 ? 0 : 1;
-      d[i] = (Math.random()*2-1) * Math.pow(1-t, 2.8) * gap;
+    if (!out){
+      for (let i=0;i<len;i++){
+        const t = i/len;
+        // 前 8 毫秒留白當作直達聲與反射之間的間隙
+        const gap = i < sr*0.008 ? 0 : 1;
+        d[i] = (Math.random()*2-1) * Math.pow(1-t, 2.8) * gap;
+      }
+      continue;
+    }
+    for (let i=0;i<len;i++) d[i] = (Math.random()*2-1) * 0.09 * Math.exp(-i/(sr*0.42)) * Math.min(1, i/(sr*0.04));
+    // 分開的回聲：左右聲道各自一組，時間與強度錯開，聽起來是四周不同距離的牆
+    for (let k=0;k<11;k++){
+      const at = Math.floor(sr*(0.025 + Math.pow(Math.random(), 1.3)*0.21)), amp = (0.25 + Math.random()*0.45) * Math.exp(-at/(sr*0.16));
+      for (let j=0;j<sr*0.004 && at + j < len;j++) d[at + j] += (Math.random()*2-1) * amp * (1 - j/(sr*0.004));
     }
   }
+  return ir;
+}
+function initReverb(){
+  if (!actx) return;
+  if (!reverbIn){
+    reverbLp = actx.createBiquadFilter();
+    reverbLp.type = "lowpass";
+    const wet = actx.createGain();
+    wet.gain.value = 0.55;
+    reverbIn = actx.createGain();
+    reverbIn.gain.value = 1;
+    reverbLp.connect(wet).connect(actx.destination);
+  }
+  if (irBuilt === acoustic) return;
+  irBuilt = acoustic;
+  // 換環境就換一顆新的 ConvolverNode（不重設舊節點的 buffer，舊版瀏覽器只准設一次）
+  if (convolver){ reverbIn.disconnect(); convolver.disconnect(); }
   convolver = actx.createConvolver();
-  convolver.buffer = ir;
-  const lp = actx.createBiquadFilter();
-  lp.type = "lowpass"; lp.frequency.value = 2300;   // 金屬走廊的殘響偏悶
-  const wet = actx.createGain();
-  wet.gain.value = 0.55;
-  reverbIn = actx.createGain();
-  reverbIn.gain.value = 1;
-  reverbIn.connect(convolver).connect(lp).connect(wet).connect(actx.destination);
+  convolver.buffer = buildIR();
+  reverbIn.connect(convolver).connect(reverbLp);
+  // 金屬走廊的殘響偏悶；露天的回聲是石牆反射回來的，高頻留多一點
+  reverbLp.frequency.value = acoustic === "outdoor" ? 3600 : 2300;
+}
+function setAcoustics(outdoor){
+  acoustic = outdoor ? "outdoor" : "indoor";
+  initReverb();
 }
 // 把一個節點分一份訊號送進殘響
 function sendReverb(node, amount){
@@ -1601,7 +1652,9 @@ function spatial(wx, wy, baseVol){
   }
   const lp = actx.createBiquadFilter();
   lp.type = "lowpass";
-  lp.frequency.value = blocked ? 420 : 14000;   // 隔牆只剩低頻
+  // 隔牆只剩低頻；沒隔牆時高頻也隨距離被空氣吃掉（10m 約 11kHz、30m 約 6kHz）：
+  // 遠處的槍聲與腳步是悶的、近的清脆，和音量一起判斷遠近
+  lp.frequency.value = blocked ? 420 : 14000 / (1 + dist/800);
   const g = actx.createGain();
   g.gain.value = att * (blocked ? 0.55 : 1);
   let tail = lp; lp.connect(g); tail = g;
@@ -1639,6 +1692,271 @@ function sfxNoiseAt(wx,wy,dur,vol,hz){
   src.start(t0, Math.random()*0.15, dur);
 }
 
+// ── 合成的小零件（Valorant 的槍聲、腳步、命中音用）──
+// 一個聲部：振盪器或共用的噪音緩衝 → 濾波 → 包絡 → out。t 是相對現在的起始時間（秒），
+// 用來排「擊發 → 衝擊 → 機械聲」這種有先後的段落，而不是全部疊在同一瞬間糊成一團
+function voice(out, o){
+  // 噪音緩衝只有 0.6 秒、起播點最多往後 0.15 秒：噪音聲部最長 0.44 秒，包絡跟著縮，不會在半路被切掉
+  const t0 = actx.currentTime + (o.t || 0), dur = o.noise ? Math.min(o.dur, 0.44) : o.dur;
+  let src;
+  if (o.noise){
+    src = actx.createBufferSource();
+    src.buffer = noiseBuf();
+    src.playbackRate.value = o.rate || 1;
+    src.start(t0, Math.random()*0.15, dur + 0.02);
+  } else {
+    src = actx.createOscillator();
+    src.type = o.type || "sine";
+    src.frequency.setValueAtTime(o.f, t0);
+    if (o.f1) src.frequency.exponentialRampToValueAtTime(Math.max(20, o.f1), t0 + dur);
+    src.start(t0); src.stop(t0 + dur + 0.03);
+  }
+  let node = src;
+  if (o.filt){
+    const f = actx.createBiquadFilter();
+    f.type = o.filt; f.frequency.value = o.hz; f.Q.value = o.q || 0.7;
+    node.connect(f); node = f;
+  }
+  const g = actx.createGain();
+  // 起音不是 0：短短 2ms 的斜升避免爆音，但保留打擊的硬度
+  const att = o.att || 0.002;
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.linearRampToValueAtTime(o.vol, t0 + att);
+  g.gain.exponentialRampToValueAtTime(0.0006, t0 + att + dur);
+  node.connect(g).connect(out);
+  return g;
+}
+// 一發聲音的輸出匯流排：直達聲到喇叭，另外分一份到殘響
+function sfxBus(vol, rev){
+  const b = actx.createGain();
+  b.gain.value = vol;
+  b.connect(actx.destination);
+  sendReverb(b, rev);
+  return b;
+}
+// 隨機微調：同一個聲音每次高低差幾 %，連射與連續腳步才不會像機關槍一樣完全一樣
+const jit = (k) => 1 + (Math.random()*2 - 1)*k;
+
+// ── 腳下的地面材質 ──
+// 站在東西上（z > 5cm）看腳下那面牆是什麼；站在地上看地形區塊（草地、石板、鋼板），
+// 其餘用地圖的預設地面：室內圖是鋼格柵、石砌主題是石板、其他露天圖是水泥
+function surfaceAt(x, y, z){
+  if (z > 0.05){
+    for (const w of WALLS){
+      if (x < w.x || x > w.x + w.w || y < w.y || y > w.y + w.h) continue;
+      if (Math.abs(topAt(w, x, y) - z) > 0.12) continue;
+      if (w.crate || w.part === "floor" || w.style === "bench") return "wood";
+      if (w.style === "sandbags") return "dirt";
+      if (w.style === "barrels" || w.style === "cabinet" || w.style === "container" || w.style === "tank") return "metal";
+      return activeMap.outdoor ? (activeMap.theme.ashlar ? "stone" : "concrete") : "metal";
+    }
+  }
+  for (const t of activeMap.terrain || []){
+    if (x < t.x || x > t.x + t.w || y < t.y || y > t.y + t.h) continue;
+    if (t.kind === "grass") return "grass";
+    if (t.kind === "paving") return "stone";
+    if (t.kind === "channel" || t.kind === "pad") return "metal";
+  }
+  if (!activeMap.outdoor) return "metal";
+  // 樓房四周 1.5m 的人行道（theme.walk）是小方磚
+  if (activeMap.theme.walk) for (const w of WALLS){
+    if (w.style === "building" && x > w.x - 50 && x < w.x + w.w + 50 && y > w.y - 50 && y < w.y + w.h + 50) return "tile";
+  }
+  return activeMap.theme.ground || (activeMap.theme.ashlar ? "stone" : "concrete");
+}
+// 腳步：每種地面一組聲部。共通的是「腳跟著地的低頻悶響」＋「材質本身的聲音」＋「腳掌離地的擦聲」（晚 30～50ms），
+// 三段分開才聽得出是一步一步。石板清脆、水泥粗糙、鋼板有不和諧的金屬泛音、木頭是空心的敲擊、草地只有沙沙聲
+function stepVoices(out, mat, k){
+  const J = jit(0.08);
+  switch (mat){
+    case "stone":
+      voice(out, {noise:true, filt:"bandpass", hz:2400*J, q:1.3, dur:0.035, vol:0.9*k});
+      voice(out, {f:95*J, f1:50, dur:0.05, vol:0.5*k});
+      voice(out, {noise:true, filt:"highpass", hz:3200, dur:0.05, vol:0.22*k, t:0.035}); break;
+    case "tile":
+      voice(out, {noise:true, filt:"bandpass", hz:3000*J, q:1.5, dur:0.03, vol:0.85*k});
+      voice(out, {f:105*J, f1:55, dur:0.045, vol:0.45*k}); break;
+    case "metal":
+      voice(out, {noise:true, filt:"bandpass", hz:3200*J, q:6, dur:0.08, vol:0.7*k});
+      voice(out, {f:1850*J, dur:0.12, vol:0.07*k});
+      voice(out, {f:2630*J, dur:0.08, vol:0.05*k});
+      voice(out, {f:110*J, f1:60, dur:0.06, vol:0.5*k}); break;
+    case "wood":
+      voice(out, {type:"triangle", f:190*J, f1:120, dur:0.07, vol:0.45*k});
+      voice(out, {noise:true, filt:"lowpass", hz:1800, dur:0.05, vol:0.6*k}); break;
+    case "grass":
+      voice(out, {noise:true, filt:"highpass", hz:2600*J, dur:0.12, vol:0.4*k, att:0.02});
+      voice(out, {noise:true, filt:"lowpass", hz:700, dur:0.08, vol:0.3*k}); break;
+    case "dirt":
+      voice(out, {noise:true, filt:"bandpass", hz:1800*J, q:0.8, dur:0.05, vol:0.6*k});
+      voice(out, {noise:true, filt:"bandpass", hz:2400*J, q:0.8, dur:0.04, vol:0.4*k, t:0.03});
+      voice(out, {f:60, f1:40, dur:0.05, vol:0.35*k}); break;
+    default:  // concrete
+      voice(out, {noise:true, filt:"lowpass", hz:1400*J, dur:0.06, vol:0.8*k});
+      voice(out, {f:72*J, f1:45, dur:0.06, vol:0.6*k});
+      voice(out, {noise:true, filt:"bandpass", hz:4000, q:1, dur:0.03, vol:0.2*k, t:0.04});
+  }
+}
+// 玩家自己的腳步：總音量和原本一樣壓得很低，不能蓋過敵人的腳步
+function playerStepSfx(){
+  if (!actx) return;
+  const p = G.player;
+  stepVoices(sfxBus(0.028, 0.12), surfaceAt(p.x, p.y, p.z), 1);
+}
+// 敵人的腳步：走 spatial（距離衰減、左右、隔牆變悶），音量和原本的一樣
+function botStepSfx(b){
+  const chain = spatial(b.x, b.y, 0.3);
+  if (!chain) return;
+  stepVoices(chain.input, surfaceAt(b.x, b.y, b.z || 0), 1);
+}
+
+// ── Valorant 槍聲 ──
+// 每把槍一組參數（自調，照各槍的口徑、槍管長度與機構去想像）：
+//  crack 擊發的高頻爆裂 [濾波中心 Hz, 音量, 長度]：決定連射時每一發分不分得開
+//  body  衝擊 [起始 Hz, 結束 Hz, 長度, 音量, 波形]：這把槍的「音高」，口徑越大越低、越長
+//  sub   低頻的胸腔感 [Hz, 長度, 音量]
+//  tail  尾音 [低通 Hz, 長度, 音量]
+//  mech  射擊後的機械聲 [類型, 延遲秒]：pump 泵動、bolt 拉栓、hammer 擊錘
+//  sil   滅音：沒有爆裂，只有「噗」的氣流聲與機件聲
+//  g     整體音量：用 OfflineAudioContext 量過，讓每把槍的 RMS 和改版前同類別的槍聲一樣大（換了音色，不改響度）
+const GUN_SFX = {
+  classic: {g:1.56, crack:[6500, 0.09, 0.012], body:[300, 90, 0.045, 0.05, "square"],   sub:[110, 0.06, 0.05], tail:[1600, 0.08, 0.03]},
+  shorty:  {g:1.37, crack:[5000, 0.12, 0.016], body:[160, 45, 0.10, 0.065, "sawtooth"], sub:[70, 0.12, 0.08],  tail:[1100, 0.16, 0.05]},
+  frenzy:  {g:2.0, crack:[7500, 0.08, 0.010], body:[340, 110, 0.035, 0.045, "square"], sub:[120, 0.04, 0.035], tail:[1800, 0.05, 0.025]},
+  ghost:   {g:2.65, sil:[2000, 190], mech:["slide", 0.03]},
+  bandit:  {g:1.27, crack:[6000, 0.1, 0.012],  body:[260, 75, 0.05, 0.055, "square"],   sub:[95, 0.07, 0.06],  tail:[1500, 0.1, 0.035]},
+  sheriff: {g:0.74, crack:[5200, 0.13, 0.016], body:[200, 50, 0.08, 0.08, "sawtooth"],  sub:[70, 0.12, 0.1],   tail:[1200, 0.2, 0.06], mech:["hammer", 0.09]},
+  stinger: {g:2.18, crack:[8000, 0.075, 0.008], body:[360, 120, 0.03, 0.04, "square"],  sub:[130, 0.035, 0.03], tail:[2200, 0.045, 0.02]},
+  spectre: {g:2.44, sil:[1700, 160], mech:["slide", 0.02]},
+  bucky:   {g:0.93, crack:[4200, 0.14, 0.02],  body:[130, 38, 0.13, 0.08, "sawtooth"],  sub:[60, 0.16, 0.1],   tail:[900, 0.25, 0.07], mech:["pump", 0.36]},
+  judge:   {g:1.15, crack:[4600, 0.13, 0.018], body:[150, 42, 0.11, 0.075, "sawtooth"], sub:[65, 0.13, 0.09],  tail:[1000, 0.2, 0.06]},
+  bulldog: {g:1.35, crack:[7000, 0.1, 0.012],  body:[230, 62, 0.06, 0.06, "square"],    sub:[90, 0.07, 0.07],  tail:[1500, 0.11, 0.04]},
+  guardian:{g:1.02, crack:[6000, 0.12, 0.016], body:[190, 48, 0.08, 0.07, "sawtooth"],  sub:[70, 0.1, 0.09],   tail:[1200, 0.18, 0.06]},
+  phantom: {g:2.53, sil:[1500, 140], mech:["slide", 0.015]},
+  vandal:  {g:1.26, crack:[6200, 0.11, 0.012], body:[210, 55, 0.07, 0.07, "sawtooth"],  sub:[80, 0.08, 0.08],  tail:[1300, 0.12, 0.045]},
+  marshal: {g:1.22, crack:[5500, 0.14, 0.018], body:[150, 40, 0.11, 0.08, "sawtooth"],  sub:[65, 0.14, 0.1],   tail:[1000, 0.3, 0.07], mech:["bolt", 0.42]},
+  outlaw:  {g:1.09, crack:[5200, 0.14, 0.018], body:[140, 38, 0.12, 0.08, "sawtooth"],  sub:[60, 0.15, 0.11],  tail:[950, 0.3, 0.07]},
+  operator:{g:0.77, crack:[4800, 0.16, 0.02],  body:[120, 32, 0.16, 0.09, "sawtooth"],  sub:[50, 0.2, 0.13],   tail:[800, 0.45, 0.08], mech:["bolt", 0.6]},
+  ares:    {g:1.51, crack:[6800, 0.1, 0.012],  body:[240, 70, 0.055, 0.055, "square"],  sub:[85, 0.06, 0.06],  tail:[1400, 0.08, 0.035], rattle:true},
+  odin:    {g:1.41, crack:[6200, 0.1, 0.013],  body:[200, 58, 0.06, 0.06, "sawtooth"],  sub:[75, 0.07, 0.07],  tail:[1300, 0.09, 0.04], rattle:true},
+};
+// 機械聲：泵動是「喀—嚓」兩段、拉栓是往後再往前、擊錘是一聲小的金屬扣
+function gunMech(out, kind, t, k){
+  if (kind === "pump"){
+    voice(out, {noise:true, filt:"bandpass", hz:2200, q:3, dur:0.05, vol:0.35*k, t});
+    voice(out, {noise:true, filt:"bandpass", hz:3000, q:3, dur:0.06, vol:0.4*k, t:t + 0.16});
+  } else if (kind === "bolt"){
+    voice(out, {noise:true, filt:"bandpass", hz:2600, q:4, dur:0.04, vol:0.3*k, t});
+    voice(out, {noise:true, filt:"bandpass", hz:1900, q:4, dur:0.05, vol:0.3*k, t:t + 0.2});
+    voice(out, {f:2400, dur:0.03, vol:0.04*k, t:t + 0.2});
+  } else if (kind === "hammer"){
+    voice(out, {noise:true, filt:"bandpass", hz:4200, q:5, dur:0.02, vol:0.25*k, t});
+  } else {
+    voice(out, {noise:true, filt:"bandpass", hz:3400, q:4, dur:0.025, vol:0.25*k, t});
+  }
+}
+// 一發槍聲的聲部。out 是這一發的輸出（玩家：直接到喇叭；敵人：spatial 的鏈），
+// far 是遠近（0 貼身、1 約 40m 外）：遠的爆裂變小、衝擊晚到（超音速的爆裂聲比槍口的悶響先到），尾音變長變低
+function gunVoices(out, id, alt, far){
+  const P = GUN_SFX[id] || GUN_SFX.vandal, J = jit(0.03);
+  const g = actx.createGain();
+  g.gain.value = P.g || 1;
+  g.connect(out); out = g;
+  if (P.sil){
+    voice(out, {noise:true, filt:"bandpass", hz:P.sil[0]*J, q:1.2, dur:0.03, vol:0.35});
+    voice(out, {f:P.sil[1]*J, f1:P.sil[1]*0.45, dur:0.05, vol:0.3});
+    voice(out, {noise:true, filt:"lowpass", hz:1400, dur:0.06, vol:0.2});
+    gunMech(out, P.mech[0], P.mech[1], 0.6);
+    return;
+  }
+  // 右鍵的散射（Classic 三發、Shorty 那種）用同一把槍的聲音，但更短更散
+  const cr = P.crack, bd = P.body, sb = P.sub, tl = P.tail, lag = far*0.06;
+  voice(out, {noise:true, filt:"highpass", hz:cr[0]*J, dur:cr[2], vol:cr[1]*(1 - far*0.7)/0.1});
+  voice(out, {type:bd[4], f:bd[0]*J, f1:bd[1], dur:bd[2]*(alt ? 0.8 : 1), vol:bd[3]/0.06, t:lag});
+  voice(out, {f:sb[0]*J, f1:sb[0]*0.6, dur:sb[1], vol:sb[2]/0.06*(1 + far*0.4), t:lag});
+  voice(out, {noise:true, filt:"lowpass", hz:tl[0]*(1 - far*0.5), dur:tl[1]*(1 + far*1.5), vol:tl[2]/0.06, t:lag + 0.01, att:0.01});
+  if (P.rattle) voice(out, {noise:true, filt:"bandpass", hz:2800*J, q:5, dur:0.03, vol:0.25, t:0.025});
+  if (P.mech && !alt && far < 0.5) gunMech(out, P.mech[0], P.mech[1], 1 - far*2);
+}
+// 周圍的牆有多遠：往八個方向每 1m 探一次，最多 30m。露天圖上拿來排槍聲的回聲（離牆越近、回聲越快越響）。
+// 玩家沒怎麼移動就用上次的結果（連射一秒十發，不必每發都重算）
+const _echo = {x:-1e9, y:-1e9, t:-1, taps:[]};
+function echoTaps(){
+  const p = G.player;
+  if (Math.hypot(p.x - _echo.x, p.y - _echo.y) < 30 && G.t - _echo.t < 0.5) return _echo.taps;
+  _echo.x = p.x; _echo.y = p.y; _echo.t = G.t;
+  const taps = [];
+  for (let i=0;i<8;i++){
+    const a = i/8*Math.PI*2, dx = Math.cos(a), dy = Math.sin(a);
+    for (let m=1.5; m<=30; m+=1){
+      const x = p.x + dx*m/S, y = p.y + dy*m/S;
+      if (x < 0 || y < 0 || x > W || y > H) break;
+      if (inWallAt(x, y, 2.5)){ taps.push({m, a}); break; }
+    }
+  }
+  taps.sort((u, v) => u.m - v.m);
+  _echo.taps = taps.slice(0, 4);
+  return _echo.taps;
+}
+// 玩家開槍（Valorant）：乾聲到喇叭；露天圖再加最近幾面牆的回聲（延遲 = 來回距離 / 音速，方位跟著牆的方向），
+// 窄巷裡是快速的「啪啪」、開闊的包點上是晚到而淡的回聲——這就是室內外與空間大小的差別
+function valPlayerShotSfx(d, alt){
+  if (!actx) return;
+  const id = Object.keys(VAL_GUNS).find(k => VAL_GUNS[k] === d) || "vandal";
+  const bus = sfxBus(0.06, activeMap.outdoor ? 0.1 : 0.3);
+  gunVoices(bus, id, alt, 0);
+  if (!activeMap.outdoor || d.silenced) return;
+  const p = G.player;
+  for (const tp of echoTaps()){
+    const dl = actx.createDelay(0.3), lp = actx.createBiquadFilter(), g = actx.createGain();
+    dl.delayTime.value = Math.min(0.29, 2*tp.m/343);
+    lp.type = "lowpass"; lp.frequency.value = 2600;
+    g.gain.value = 0.32 / (1 + tp.m/8);
+    bus.connect(dl).connect(lp).connect(g);
+    let tail = g;
+    if (actx.createStereoPanner){
+      const pan = actx.createStereoPanner();
+      pan.pan.value = Math.max(-1, Math.min(1, Math.sin(tp.a - p.angle)*0.8));
+      tail.connect(pan); tail = pan;
+    }
+    tail.connect(actx.destination);
+  }
+}
+// 敵人開槍（Valorant）：同一把槍的聲音走 spatial，遠近決定爆裂與衝擊的比例和時間差
+function valBotShotSfx(b){
+  const dist = Math.hypot(b.x - G.player.x, b.y - G.player.y);
+  const chain = spatial(b.x, b.y, b.type === "lancer" ? 0.2 : 0.12);
+  if (!chain) return;
+  gunVoices(chain.input, BOT_VAL[b.type] || "vandal", false, Math.min(1, dist/1300));
+}
+// 子彈打到牆或地面的聲音（Valorant）：依打到的東西換材質——石牆「噠」、木箱「叩」、鋼板「叮」、沙包悶的「噗」
+function valImpactSfx(x, y, h){
+  // 打地板比打牆小聲（原本 0.055 對 0.16）
+  const chain = spatial(x, y, h <= 0.05 ? 0.07 : 0.18);
+  if (!chain) return;
+  let mat = h <= 0.05 ? surfaceAt(x, y, 0) : "stone";
+  if (h > 0.05) for (const w of WALLS){
+    if (x < w.x || x > w.x + w.w || y < w.y || y > w.y + w.h) continue;
+    mat = w.crate || w.style === "bench" ? "wood" : w.style === "sandbags" ? "dirt"
+        : w.style === "barrels" || w.style === "cabinet" || w.style === "container" || w.style === "tank" || !activeMap.outdoor ? "metal" : "stone";
+    break;
+  }
+  const J = jit(0.06);
+  if (mat === "metal"){
+    voice(chain.input, {noise:true, filt:"bandpass", hz:3600*J, q:5, dur:0.05, vol:0.8});
+    voice(chain.input, {f:2900*J, dur:0.14, vol:0.12});
+    voice(chain.input, {f:4150*J, dur:0.09, vol:0.07});
+  } else if (mat === "wood"){
+    voice(chain.input, {type:"triangle", f:320*J, f1:180, dur:0.06, vol:0.5});
+    voice(chain.input, {noise:true, filt:"bandpass", hz:1500, q:1, dur:0.05, vol:0.6});
+  } else if (mat === "dirt" || mat === "grass"){
+    voice(chain.input, {noise:true, filt:"lowpass", hz:900*J, dur:0.07, vol:0.8});
+  } else {
+    voice(chain.input, {noise:true, filt:"bandpass", hz:2600*J, q:1.4, dur:0.04, vol:0.9});
+    // 石屑掉落：晚一點的細碎高頻
+    voice(chain.input, {noise:true, filt:"highpass", hz:5000, dur:0.08, vol:0.2, t:0.04, att:0.01});
+  }
+}
 
 // ─────────────────────────────────────────────
 // 配樂：播放玩家自選的本機音檔
@@ -2154,6 +2472,115 @@ let STONE_SURF = null, PAVE_SURF = null;
 function stoneSurf(){ return STONE_SURF || (STONE_SURF = buildAshlarSurface()); }
 // 地板貼圖一張約 4m：6 皮、每塊石板 0.5～1.1m，灰縫較寬，是廣場鋪面的尺度
 function paveSurf(){ return PAVE_SURF || (PAVE_SURF = buildAshlarSurface({rows:6, minW:0.13, spanW:0.15, mortar:10, seed:4471})); }
+// 人行道的小方磚：同一個產生器，8 皮、每塊約 0.25m 見方，灰縫細。和廣場的大石板一眼就分得出是兩種鋪面
+let WALK_SURF = null;
+function walkSurf(){ return WALK_SURF || (WALK_SURF = buildAshlarSurface({rows:8, minW:0.115, spanW:0.02, mortar:5, seed:9127})); }
+
+// 灰泥（STONEGATE 樓房二樓以上的外牆）：輸出灰階，顏色交給材質。
+// 整面純色的牆在日光下像塑膠，真的灰泥有三個尺度的變化：大片的深淺斑（批次與風化）、
+// 抹刀留下的短筆觸、細顆粒；再加幾道髮絲裂縫和幾塊剝落露出底下石塊的破口。
+// 一張貼圖約 2.4m（和石砌牆一樣的 UV 密度）
+function buildPlasterSurface(){
+  const N = 1024, c = mkCanvas(N), x = c.getContext("2d"), h = mkCanvas(N), hx = h.getContext("2d");
+  const rc = mkCanvas(N), rx = rc.getContext("2d");
+  let seed = 31337;
+  const R = () => (seed = (seed*1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+  x.fillStyle = "rgb(178,178,178)"; x.fillRect(0,0,N,N);
+  hx.fillStyle = "#808080"; hx.fillRect(0,0,N,N);
+  rx.fillStyle = "#E6E6E6"; rx.fillRect(0,0,N,N);
+  // 貼圖要能無縫重複：靠邊的東西在對側再畫一次
+  const wrap = (fn) => { for (const ox of [-N,0,N]) for (const oy of [-N,0,N]) fn(ox, oy); };
+  for (let i=0;i<90;i++){
+    const px = R()*N, py = R()*N, rad = 60 + R()*160, v = R() < 0.5 ? 70 : 235, a = 0.035 + R()*0.05;
+    wrap((ox, oy) => {
+      const gr = x.createRadialGradient(px+ox, py+oy, 0, px+ox, py+oy, rad);
+      gr.addColorStop(0, `rgba(${v},${v},${v},${a})`); gr.addColorStop(1, `rgba(${v},${v},${v},0)`);
+      x.fillStyle = gr; x.fillRect(px+ox-rad, py+oy-rad, rad*2, rad*2);
+    });
+  }
+  // 抹刀筆觸：短、微彎、同方向略有起伏，顏色與高度一起畫，法線才會有一片片的鏝面
+  x.lineCap = hx.lineCap = "round";
+  for (let i=0;i<1400;i++){
+    const px = R()*N, py = R()*N, len = 18 + R()*40, ang = (R()-0.5)*0.9 + (R() < 0.5 ? 0 : Math.PI/2), lw = 6 + R()*14;
+    const light = R() < 0.5, v = light ? 255 : 40;
+    x.strokeStyle = `rgba(${v},${v},${v},0.035)`; x.lineWidth = lw;
+    hx.strokeStyle = light ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)"; hx.lineWidth = lw;
+    for (const g of [x, hx]){ g.beginPath(); g.moveTo(px, py); g.quadraticCurveTo(px + Math.cos(ang)*len*0.5 + (R()-0.5)*6, py + Math.sin(ang)*len*0.5 + (R()-0.5)*6, px + Math.cos(ang)*len, py + Math.sin(ang)*len); g.stroke(); }
+  }
+  for (let i=0;i<26000;i++){
+    const px = R()*N, py = R()*N, d = R() < 0.5;
+    x.fillStyle = d ? "rgba(40,40,40,.13)" : "rgba(255,255,255,.1)"; x.fillRect(px, py, 1.5, 1.5);
+    hx.fillStyle = d ? "rgba(0,0,0,.18)" : "rgba(255,255,255,.14)"; hx.fillRect(px, py, 1.5, 1.5);
+  }
+  // 剝落：不規則多邊形挖掉灰泥，露出底下較暗的石塊（高度比灰泥面低，邊緣一圈亮的斷口）
+  for (let i=0;i<3;i++){
+    const cx = 120 + R()*(N-240), cy = 120 + R()*(N-240), r0 = 26 + R()*40, pts = [];
+    for (let k=0;k<11;k++){ const a = k/11*Math.PI*2, rr = r0*(0.55 + R()*0.7); pts.push([cx + Math.cos(a)*rr*1.5, cy + Math.sin(a)*rr]); }
+    const poly = (g) => { g.beginPath(); pts.forEach(([a, b], k) => k ? g.lineTo(a, b) : g.moveTo(a, b)); g.closePath(); };
+    x.fillStyle = "rgb(122,122,122)"; poly(x); x.fill();
+    x.strokeStyle = "rgba(235,235,235,.5)"; x.lineWidth = 2; poly(x); x.stroke();
+    hx.fillStyle = "#4A4A4A"; poly(hx); hx.fill();
+    rx.fillStyle = "#FFFFFF"; poly(rx); rx.fill();
+    // 破口裡的石塊灰縫
+    x.save(); poly(x); x.clip();
+    x.strokeStyle = "rgba(60,60,60,.7)"; x.lineWidth = 3;
+    for (let yy = cy - r0*1.2; yy < cy + r0*1.2; yy += 30){ x.beginPath(); x.moveTo(cx - r0*2, yy); x.lineTo(cx + r0*2, yy); x.stroke(); }
+    x.restore();
+  }
+  // 髮絲裂縫：隨機遊走的細線，只壓暗與壓低，不畫亮邊
+  for (let i=0;i<7;i++){
+    let px = R()*N, py = R()*N, ang = R()*Math.PI*2;
+    x.strokeStyle = "rgba(50,50,50,.45)"; hx.strokeStyle = "rgba(0,0,0,.5)"; x.lineWidth = 1.2; hx.lineWidth = 2;
+    x.beginPath(); hx.beginPath(); x.moveTo(px, py); hx.moveTo(px, py);
+    for (let k=0;k<20 + R()*30;k++){
+      ang += (R()-0.5)*0.9; px += Math.cos(ang)*7; py += Math.sin(ang)*7;
+      x.lineTo(px, py); hx.lineTo(px, py);
+    }
+    x.stroke(); hx.stroke();
+  }
+  return {color:c, normal:heightToNormal(h, 2.2), rough:rc};
+}
+// 石板瓦屋頂：一排排互相壓住的長方形石板，每排錯半片。高度圖在每片石板內由上往下變高
+// （下緣疊在下一排上面），法線才會畫出一階一階的瓦緣。一張貼圖約 2m
+function buildSlateSurface(){
+  const N = 512, c = mkCanvas(N), x = c.getContext("2d"), h = mkCanvas(N), hx = h.getContext("2d");
+  let seed = 7771;
+  const R = () => (seed = (seed*1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+  const rows = 10, rh = N/rows;
+  x.fillStyle = "#555"; x.fillRect(0,0,N,N);
+  for (let r=0;r<rows;r++){
+    const y0 = r*rh, sw = N/8;
+    for (let k=-1;k<9;k++){
+      const x0 = k*sw + (r % 2)*sw/2 + (R()-0.5)*4, v = 120 + R()*50 | 0;
+      x.fillStyle = `rgb(${v},${v},${v})`; x.fillRect(x0 + 1.5, y0, sw - 3, rh - 1);
+      const gr = hx.createLinearGradient(0, y0, 0, y0 + rh);
+      gr.addColorStop(0, "#404040"); gr.addColorStop(1, "#C8C8C8");
+      hx.fillStyle = gr; hx.fillRect(x0 + 1.5, y0, sw - 3, rh - 1);
+      // 瓦緣的陰影：下緣一條深色細帶
+      x.fillStyle = "rgba(0,0,0,.35)"; x.fillRect(x0 + 1.5, y0 + rh - 4, sw - 3, 3);
+    }
+  }
+  for (let i=0;i<6000;i++){ x.fillStyle = R() < 0.5 ? "rgba(0,0,0,.1)" : "rgba(255,255,255,.08)"; x.fillRect(R()*N, R()*N, 1.5, 1.5); }
+  return {color:c, normal:heightToNormal(h, 2.5)};
+}
+// 百葉窗：外框加一片片斜的葉片
+function buildLouvreSurface(){
+  const c = mkCanvas(128), x = c.getContext("2d"), h = mkCanvas(128), hx = h.getContext("2d");
+  x.fillStyle = "#9A9A9A"; x.fillRect(0,0,128,128);
+  hx.fillStyle = "#909090"; hx.fillRect(0,0,128,128);
+  for (let y=10;y<118;y+=9){
+    const gr = hx.createLinearGradient(0, y, 0, y + 9);
+    gr.addColorStop(0, "#D0D0D0"); gr.addColorStop(1, "#303030");
+    hx.fillStyle = gr; hx.fillRect(10, y, 108, 9);
+    x.fillStyle = "rgba(0,0,0,.28)"; x.fillRect(10, y + 7, 108, 2);
+  }
+  x.strokeStyle = "#7A7A7A"; x.lineWidth = 8; x.strokeRect(4, 4, 120, 120);
+  return {color:c, normal:heightToNormal(h, 3)};
+}
+let PLASTER_SURF = null, SLATE_SURF = null, LOUVRE_SURF = null;
+function plasterSurf(){ return PLASTER_SURF || (PLASTER_SURF = buildPlasterSurface()); }
+function slateSurf(){ return SLATE_SURF || (SLATE_SURF = buildSlateSurface()); }
+function louvreSurf(){ return LOUVRE_SURF || (LOUVRE_SURF = buildLouvreSurface()); }
 
 // 貨箱的木板貼圖：一面四片直向木板，板縫深、木紋是細的波浪線、偶爾一個節疤。
 // stencil 為真時在中央噴一組模板字，只給側面用（頂面有字很怪）
@@ -2317,6 +2744,35 @@ const floorMat = new THREE.MeshStandardMaterial({
   color:0x9C86FF, roughness:1.0, metalness:0.30,
 });
 floorMat.normalScale.set(0.85,0.85);
+// 地面的世界座標風化（和牆的 addGrime 同一套雜訊）：大片深淺、零星的髒污斑。
+// 地板與鋪面的貼圖每 2～4m 重複，空曠的包點上一眼就看得出格子；強度由地圖的 theme.weather 決定，
+// 共用一個 uniform，換圖時在 buildMapGeometry 設定
+const GROUND_WEATHER = {value:0};
+function addGroundWeather(m){
+  m.onBeforeCompile = (sh) => {
+    sh.uniforms.uGW = GROUND_WEATHER;
+    sh.vertexShader = sh.vertexShader
+      .replace("#include <common>", "#include <common>\nvarying vec2 vGWP;")
+      .replace("#include <project_vertex>", "#include <project_vertex>\nvGWP = (modelMatrix * vec4(transformed, 1.0)).xz;");
+    sh.fragmentShader = sh.fragmentShader
+      .replace("#include <common>", `#include <common>
+        varying vec2 vGWP;
+        uniform float uGW;
+        float gHash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+        float gNoise(vec2 p){
+          vec2 i = floor(p), f = fract(p); f = f*f*(3.0 - 2.0*f);
+          return mix(mix(gHash(i), gHash(i + vec2(1,0)), f.x), mix(gHash(i + vec2(0,1)), gHash(i + vec2(1,1)), f.x), f.y);
+        }`)
+      .replace("#include <map_fragment>", `#include <map_fragment>
+        if (uGW > 0.0){
+          float fm = gNoise(vGWP * 0.18) * 0.55 + gNoise(vGWP * 0.9 + 3.0) * 0.45;
+          float dirt = smoothstep(0.58, 0.9, gNoise(vGWP * 0.07 + 11.0)) * (0.6 + 0.4 * gNoise(vGWP * 2.3));
+          diffuseColor.rgb *= mix(1.0, (0.86 + 0.24 * fm) * (1.0 - 0.22 * dirt), uGW);
+        }`);
+  };
+  return m;
+}
+addGroundWeather(floorMat);
 // 原本的地板貼圖留著：地板材質跨地圖共用，換到石板鋪面的地圖後，換回來時要還原
 const FLOOR_ORIG = {normal:floorMat.normalMap, rough:floorMat.roughnessMap, metal:floorMat.metalness};
 let floorPave = null;
@@ -2425,7 +2881,10 @@ const doorPaintMat = (() => {
 // ── 接觸陰影 ──
 // 沒有即時陰影可用（太貴），所以把牆腳的暗角預先畫成一張遮罩，
 // 用一層半透明黑鋪在地板上。少了這個，牆會像是浮在地面上
+// 場景裡少數要吃環境貼圖的材質（窗玻璃）：每次建圖重新登記，applyAtmo 算好環境貼圖後掛上去
+let ENV_SCENE_MATS = [];
 function buildMapGeometry(){
+  ENV_SCENE_MATS = [];
   while (mapLayer.children.length){
     mapLayer.remove(mapLayer.children[mapLayer.children.length-1]);
   }
@@ -2459,6 +2918,28 @@ function buildMapGeometry(){
     x.fillRect((w.x-pad)*k, (w.y-pad)*k, (w.w+pad*2)*k, (w.h+pad*2)*k);
   }
   x.restore();
+
+  // 風化主題的地面髒污：畫在同一張疊層上（它本來就是整張圖一張、只會壓暗），不多一個 draw call。
+  // 零星的深色污斑、樓腳一圈雨水濺起的深色帶（比接觸陰影寬、淡）
+  if (theme.weather){
+    let sd = 5150;
+    const R = () => (sd = (sd*1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+    for (let i=0;i<Math.round(W*H/2500);i++){
+      const px = R()*PX, py = R()*PY, rad = (20 + R()*90)*k, a = 0.05 + R()*0.1;
+      const gr = x.createRadialGradient(px, py, 0, px, py, rad);
+      gr.addColorStop(0, `rgba(0,0,0,${a})`); gr.addColorStop(1, "rgba(0,0,0,0)");
+      x.fillStyle = gr;
+      x.save(); x.translate(px, py); x.scale(1, 0.4 + R()*0.8); x.rotate(R()*3); x.fillRect(-rad, -rad, rad*2, rad*2); x.restore();
+    }
+    x.save();
+    x.filter = "blur(10px)";
+    x.fillStyle = "rgba(0,0,0,0.22)";
+    for (const w of WALLS){
+      if (w.style !== "building") continue;
+      x.fillRect((w.x-24)*k, (w.y-24)*k, (w.w+48)*k, (w.h+48)*k);
+    }
+    x.restore();
+  }
 
   const tex = new THREE.CanvasTexture(c);
   tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
@@ -2517,17 +2998,36 @@ if (theme.ashlar){
 const wallMap = texFrom(WALL_COL), wallNormal = texFrom(WALL_NRM);
 // 牆腳髒污：貼圖每 2.4m 重複一次，底邊對不到牆腳，所以改在 shader 裡依世界高度壓暗。
 // 髒污線的高度隨水平位置起伏，才不會是一條尺畫的水平線
-function addGrime(m){
+// weather（0～1）：世界座標的風化。貼圖每 2.4m 重複一次，整棟 90m 長的樓看得出一格格同樣的花樣；
+// 用世界位置的低頻雜訊壓一層大片深淺，再加幾道由上往下的雨水垂痕（沿牆方向高頻、垂直方向低頻的雜訊），
+// 重複感就被打散了。強度用 uniform 而不是寫死在字串裡：程式快取是用 onBeforeCompile 的原始碼當鍵，
+// 字串不同但函式原始碼相同的話會拿到別人的著色器
+function addGrime(m, weather){
   m.onBeforeCompile = (sh) => {
+    sh.uniforms.uWeather = {value:weather || 0};
     sh.vertexShader = sh.vertexShader
       .replace("#include <common>", "#include <common>\nvarying vec3 vGrimeP;")
       .replace("#include <project_vertex>", "#include <project_vertex>\nvGrimeP = (modelMatrix * vec4(transformed, 1.0)).xyz;");
     sh.fragmentShader = sh.fragmentShader
-      .replace("#include <common>", "#include <common>\nvarying vec3 vGrimeP;")
+      .replace("#include <common>", `#include <common>
+        varying vec3 vGrimeP;
+        uniform float uWeather;
+        float wHash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+        float wNoise(vec2 p){
+          vec2 i = floor(p), f = fract(p); f = f*f*(3.0 - 2.0*f);
+          return mix(mix(wHash(i), wHash(i + vec2(1,0)), f.x), mix(wHash(i + vec2(0,1)), wHash(i + vec2(1,1)), f.x), f.y);
+        }`)
       .replace("#include <map_fragment>", `#include <map_fragment>
         float gw = vGrimeP.x * 1.7 + vGrimeP.z * 1.3;
         float gh = 0.55 + 0.22 * sin(gw) * sin(gw * 0.37 + 1.3) + 0.08 * sin(gw * 4.1);
         diffuseColor.rgb *= mix(0.42, 1.0, smoothstep(0.0, gh, vGrimeP.y));
+        if (uWeather > 0.0){
+          // 沿牆方向的座標：東西向的牆 x 在變、南北向的牆 z 在變，相加兩種牆都有變化
+          float wu = vGrimeP.x + vGrimeP.z;
+          float macro = wNoise(vec2(wu, vGrimeP.y) * 0.3) * 0.6 + wNoise(vec2(wu, vGrimeP.y) * 1.3 + 17.0) * 0.4;
+          float streak = smoothstep(0.6, 0.95, wNoise(vec2(wu * 2.4, vGrimeP.y * 0.16 + 5.0)));
+          diffuseColor.rgb *= mix(1.0, (0.86 + 0.24 * macro) * (1.0 - 0.2 * streak), uWeather);
+        }
         // 牆頂靠近天花板也積一點灰。主題可以用 topGrime:false 關掉：高樓的 3.2m 以上會整片變暗
         ${activeMap.theme.topGrime === false ? "" : `diffuseColor.rgb *= mix(1.0, 0.7, smoothstep(${(WALL_H-0.7).toFixed(2)}, ${WALL_H.toFixed(2)}, vGrimeP.y));`}`);
   };
@@ -2539,7 +3039,7 @@ const wallMats = WALL_VARIANTS.map(v => {
     color:v.color, roughness:v.roughness, metalness:v.metalness,
   });
   m.normalScale.set(1.1,1.1);
-  return addGrime(m);
+  return addGrime(m, theme.weather);
 });
 const wallMat = wallMats[0];
 // 邊緣線保留：熱像儀對溫差邊界特別敏感，這是這個畫面的識別特徵
@@ -2550,7 +3050,7 @@ const edgeMat = new THREE.LineBasicMaterial({color:0xE0703A, transparent:true, o
 const trimMat = addGrime(new THREE.MeshStandardMaterial({
   map: texFrom(WALL_COL, 3, 1),
   color:0xA994E8, roughness:0.55, metalness:0.55,
-}));
+}), theme.weather);
 // 嵌板與橫樑的 UV 已按實際尺寸縮放，貼圖不必再重複，比例才會和牆面一致
 const panelMat = new THREE.MeshStandardMaterial({
   map:       texFrom(WALL_COL),
@@ -2571,6 +3071,9 @@ const spillMat = new THREE.MeshBasicMaterial({
   for (let i=0;i<wallMats.length;i++) wallMats[i].color.setHex(theme.walls[i]);
   edgeMat.color.setHex(theme.edge);
   trimMat.color.setHex(theme.trim);
+  // 會風化的石材主題：線腳是石頭不是金屬，金屬度拿掉（沒有環境貼圖時金屬面只會變暗變髒）
+  if (theme.weather){ trimMat.metalness = 0.02; trimMat.roughness = 0.85; }
+  GROUND_WEATHER.value = theme.weather || 0;
   panelMat.color.setHex(theme.panel);
   terrainMat.color.setHex(theme.terrain);
   stripMat.color.setHex(theme.strip);
@@ -2598,10 +3101,10 @@ const spillMat = new THREE.MeshBasicMaterial({
   let pavingMat = null, lineMat = null;
   if ((activeMap.terrain || []).some(t => t.kind === "paving")){
     const ps = paveSurf();
-    pavingMat = new THREE.MeshStandardMaterial({
+    pavingMat = addGroundWeather(new THREE.MeshStandardMaterial({
       map:texFrom(ps.color), normalMap:texFrom(ps.normal), roughnessMap:texFrom(ps.rough),
       color:theme.paving ?? 0xB09474, roughness:1,
-    });
+    }));
   }
   for (const t of (activeMap.terrain || [])){
     if (t.kind === "paving"){
@@ -2656,6 +3159,32 @@ const spillMat = new THREE.MeshBasicMaterial({
         const rail = new THREE.Mesh(railZ, stripMat);
         rail.position.set(x*S, 0.045, (t.y+t.h/2)*S);
         mapLayer.add(rail);
+      }
+    }
+  }
+  // 人行道（theme.walk）：每棟樓四周一圈 1.5m 的小方磚，高出地面 1.5cm（比廣場石板高一點，重疊處不閃）。
+  // 貼圖座標直接用世界 x/z：兩棟樓的人行道在窄巷裡重疊時，重疊處的花紋完全一樣，不會看到兩層打架。
+  // 純外觀，沒有碰撞（1.5cm 腳底感覺不到）
+  if (theme.walk){
+    const ws = walkSurf();
+    const walkMat = addGroundWeather(new THREE.MeshStandardMaterial({
+      map:texFrom(ws.color), normalMap:texFrom(ws.normal), roughnessMap:texFrom(ws.rough), color:theme.walk, roughness:1}));
+    const inB = (px, py) => WALLS.some(o => o.style === "building" && px > o.x && px < o.x + o.w && py > o.y && py < o.y + o.h);
+    const WD = 50;
+    for (const b of WALLS){
+      if (b.style !== "building") continue;
+      for (const r of [{x:b.x - WD, y:b.y - WD, w:b.w + WD*2, h:WD}, {x:b.x - WD, y:b.y + b.h, w:b.w + WD*2, h:WD},
+                       {x:b.x - WD, y:b.y, w:WD, h:b.h}, {x:b.x + b.w, y:b.y, w:WD, h:b.h}]){
+        const x0 = Math.max(0, r.x), y0 = Math.max(0, r.y), x1 = Math.min(W, r.x + r.w), y1 = Math.min(H, r.y + r.h);
+        if (x1 - x0 < 4 || y1 - y0 < 4) continue;
+        // 整條都埋在別棟樓裡就不畫（看不到，只是多三角形）
+        if (inB(x0 + 2, y0 + 2) && inB(x1 - 2, y1 - 2) && inB((x0 + x1)/2, (y0 + y1)/2)) continue;
+        const gw = (x1 - x0)*S, gd = (y1 - y0)*S, cx = (x0 + x1)/2*S, cz = (y0 + y1)/2*S;
+        const geo = new THREE.BoxGeometry(gw, 0.03, gd), P = geo.attributes.position, U = geo.attributes.uv;
+        for (let i=0;i<P.count;i++) U.setXY(i, (P.getX(i) + cx)*0.5, (P.getZ(i) + cz)*0.5);
+        const m = new THREE.Mesh(geo, walkMat);
+        m.position.set(cx, 0, cz);
+        mapLayer.add(m);
       }
     }
   }
@@ -2833,6 +3362,9 @@ const crateSideMat = new THREE.MeshStandardMaterial({map:texFrom(woodSide().colo
 const crateTopMat  = new THREE.MeshStandardMaterial({map:texFrom(woodTop().color), normalMap:texFrom(woodTop().normal), roughness:0.85});
 const crateFrameMat = new THREE.MeshStandardMaterial({map:texFrom(woodTop().color), color:0x9A8878, roughness:0.8});
 const crateMetalMat = new THREE.MeshStandardMaterial({color:0x55524E, roughness:0.4, metalness:0.85});
+// 主題可以把木頭染成偏冷的灰（theme.crateTint）
+const crateTint = new THREE.Color(theme.crateTint ?? 0xFFFFFF);
+crateSideMat.color.copy(crateTint); crateTopMat.color.copy(crateTint); crateFrameMat.color.multiply(crateTint);
 function makeCrate(gw, gd, hh){
   const g = new THREE.Group();
   // 箱身略內縮，外框才凸得出來。材質順序：+x, -x, +y, -y, +z, -z
@@ -2894,9 +3426,6 @@ const bagCoreMat = new THREE.MeshStandardMaterial({color:new THREE.Color(theme.b
 function put(g, geo, mat, x, y, z){
   const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); g.add(m); return m;
 }
-// 建築用的窗玻璃與門：窗偏冷的深藍灰（環境裝飾一律冷色或暗色，暖色留給敵人）
-const glassMat = new THREE.MeshStandardMaterial({color:0x26313C, roughness:0.22, metalness:0.55});
-const doorMat  = new THREE.MeshStandardMaterial({color:theme.propDark ?? 0x4A3E34, roughness:0.8});
 // 貨櫃的顏色：低彩度的藍、綠、灰、灰紫（暖色留給敵人）
 const CONTAINER_TONES = [0x5A7A8C, 0x6E8466, 0x8A8F94, 0x6C6680, 0x7C8A92];
 const containerMats = CONTAINER_TONES.map(c => new THREE.MeshStandardMaterial({
@@ -2912,6 +3441,103 @@ function rockNoise(x, y, z){
   const L = (a, b, t) => a + (b - a)*t;
   return L(L(L(h(xi,yi,zi), h(xi+1,yi,zi), u), L(h(xi,yi+1,zi), h(xi+1,yi+1,zi), u), v),
            L(L(h(xi,yi,zi+1), h(xi+1,yi,zi+1), u), L(h(xi,yi+1,zi+1), h(xi+1,yi+1,zi+1), u), v), w2) * 2 - 1;
+}
+// ── 立面構件的合批（STYLES.building 用）──
+// 一棟樓有上百個窗框、窗台、門板，一個一個 new 網格的話，建圖時光是物件就上萬個。
+// 這裡只記「哪個幾何、哪個矩陣」，同一種材質、落在同一塊 16m 區域（和 batchStatic 同尺度，保留視錐裁切）的先合成一個網格。
+// 未貼圖的小構件共用單位方塊，用縮放決定尺寸；要貼圖的（線腳、煙囪）另外依尺寸縮放 UV
+const UNIT_BOX = new THREE.BoxGeometry(1, 1, 1), UNIT_CYL = new THREE.CylinderGeometry(1, 1, 1, 10);
+function facadeBatch(g){
+  const lists = new Map(), m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), UP = new THREE.Vector3(0, 1, 0);
+  const v = new THREE.Vector3(), sc = new THREE.Vector3();
+  const add = (mat, geo) => {
+    const key = mat.uuid + "|" + Math.floor((g.position.x + m4.elements[12])/16) + "," + Math.floor((g.position.z + m4.elements[14])/16);
+    let L = lists.get(key);
+    if (!L) lists.set(key, L = {mat, items:[]});
+    L.items.push({geometry:geo, matrix:m4.clone()});
+  };
+  return {
+    // 一個面：法線 (fx, fz)、面到中心的距離 dep/2、rot 是把本地 +z 轉到法線的角度；
+    // u 沿著牆面（切線 = (cos rot, -sin rot)），out 是離牆面多遠
+    face(fx, fz, dep, rot, ox = 0, oz = 0){
+      const tx = Math.cos(rot), tz = -Math.sin(rot), h = dep/2;
+      return {rot, lx:(u, out) => ox + fx*(h + out) + tx*u, lz:(u, out) => oz + fz*(h + out) + tz*u};
+    },
+    // 貼在面上的方塊：sx 沿牆、sy 高、sz 垂直牆面
+    box(mat, f, u, y, out, sx, sy, sz){
+      m4.compose(v.set(f.lx(u, out), y, f.lz(u, out)), q.setFromAxisAngle(UP, f.rot), sc.set(sx, sy, sz));
+      add(mat, UNIT_BOX);
+    },
+    cyl(mat, f, u, y, out, r, h){
+      m4.compose(v.set(f.lx(u, out), y, f.lz(u, out)), q.identity(), sc.set(r, h, r));
+      add(mat, UNIT_CYL);
+    },
+    // 軸對齊、貼圖依尺寸縮放的方塊（樓本地座標）
+    tbox(mat, x, y, z, sx, sy, sz){
+      m4.makeTranslation(x, y, z);
+      add(mat, rescaleBoxUV(new THREE.BoxGeometry(sx, sy, sz), sx, sy, sz, 0.42));
+    },
+    flush(){
+      for (const L of lists.values()) g.add(new THREE.Mesh(mergeGeometries(L.items, true), L.mat));
+      lists.clear();
+    },
+  };
+}
+// 四坡屋頂：底面 Lx x Lz、屋脊高 rise，屋脊沿長邊、兩端的斜脊在平面上是 45 度。
+// 每個面各自投影貼圖座標，石板瓦的一排排都和簷口平行
+function roofGeo(Lx, Lz, rise){
+  const along = Lx >= Lz, L = along ? Lx : Lz, D = along ? Lz : Lx, rh = Math.max(0, L/2 - D/2);
+  const P = (u, y, v) => along ? [u, y, v] : [v, y, u];
+  const c = [P(-L/2, 0, -D/2), P(L/2, 0, -D/2), P(L/2, 0, D/2), P(-L/2, 0, D/2), P(-rh, rise, 0), P(rh, rise, 0)];
+  const uvOf = (p, hip) => { const u = along ? p[0] : p[2], w = along ? p[2] : p[0]; return hip ? [w*0.5, u*0.5 + p[1]*0.5] : [u*0.5, w*0.5 + p[1]*0.5]; };
+  const tris = [[0, 1, 5, 0], [0, 5, 4, 0], [2, 3, 4, 0], [2, 4, 5, 0], [3, 0, 4, 1], [1, 2, 5, 1]];
+  const pos = [], uv = [], A = new THREE.Vector3(), B = new THREE.Vector3(), C = new THREE.Vector3();
+  for (const [i, j, k, hip] of tris){
+    // 法線朝外（離開屋頂中心）才是正面；算出來朝內就把後兩點對調
+    A.fromArray(c[i]); B.fromArray(c[j]); C.fromArray(c[k]);
+    const n = B.clone().sub(A).cross(C.clone().sub(A)), mid = A.clone().add(B).add(C).divideScalar(3);
+    const order = n.dot(mid.setY(mid.y - rise*0.3)) >= 0 ? [i, j, k] : [i, k, j];
+    for (const t of order){ pos.push(...c[t]); uv.push(...uvOf(c[t], hip)); }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+  geo.setIndex([...Array(pos.length/3).keys()]);
+  geo.computeVertexNormals();
+  return geo;
+}
+// 立面材質：換圖時依主題建一次（貼圖只上傳一份，三種灰泥色共用）
+let FACADE = null;
+function facadeMats(){
+  if (FACADE) return FACADE;
+  const ps = plasterSurf(), ss = slateSurf(), ls = louvreSurf();
+  const pm = texFrom(ps.color), pn = texFrom(ps.normal), pr = texFrom(ps.rough);
+  const std = o => new THREE.MeshStandardMaterial(o);
+  FACADE = {
+    plaster:(theme.plaster || theme.walls).map(c => addGrime(std({map:pm, normalMap:pn, roughnessMap:pr, color:c, roughness:1}), theme.weather)),
+    rustic:addGrime(std({map:wallMap, normalMap:wallNormal, color:theme.stone ?? theme.trim, roughness:0.9}), theme.weather),
+    frame:std({color:theme.frame ?? 0x3A4248, roughness:0.55, metalness:0.1}),
+    // 玻璃吃環境貼圖（applyAtmo 設定）：反射天空才像玻璃，否則只是一塊深色的板子
+    glass:std({color:0x222A32, roughness:0.14, metalness:0.6, envMapIntensity:0.4}),
+    shutter:std({map:texFrom(ls.color), normalMap:texFrom(ls.normal), color:theme.shutter ?? 0x56646E, roughness:0.7}),
+    door:std({color:theme.door ?? 0x34424A, roughness:0.65}),
+    sign:std({color:0x2C3236, roughness:0.6}),
+    unit:std({color:0x9AA0A4, roughness:0.5, metalness:0.4}),
+    slate:std({map:texFrom(ss.color), normalMap:texFrom(ss.normal), color:theme.slate ?? 0x5A6268, roughness:0.82}),
+    lamp:lampGlowMat,
+  };
+  ENV_SCENE_MATS.push(FACADE.glass);
+  return FACADE;
+}
+// 街道物件用的材質：沿用立面材質，再加油桶（冷色系的藍灰、深灰）與舊木頭（灰色）
+function facadeProps(){
+  const F = facadeMats();
+  if (!F.barrelA){
+    F.barrelA = new THREE.MeshStandardMaterial({color:0x4E6470, roughness:0.55, metalness:0.45});
+    F.barrelB = new THREE.MeshStandardMaterial({color:0x5C6266, roughness:0.6, metalness:0.4});
+    F.wood = new THREE.MeshStandardMaterial({map:texFrom(woodTop().color), normalMap:texFrom(woodTop().normal), color:0x8A8C88, roughness:0.85});
+  }
+  return F;
 }
 const STYLES = {
   // 懸崖：地圖外圍的岩壁。細分的方塊把頂點照雜訊往外推（最多 0.5m），平面變成一面面的岩石切面；
@@ -2979,55 +3605,215 @@ const STYLES = {
     put(g, new THREE.BoxGeometry(0.9, 0.06, 0.06), steelDarkMat, 0.42, wh - 0.1, 0);
     put(g, new THREE.BoxGeometry(0.34, 0.1, 0.2), lampGlowMat, 0.82, wh - 0.18, 0);
   },
-  // 建築（小鎮地圖）：實心量體，碰撞就是整塊長方體，屋頂站得上去（攀牆翻越上去）。
-  // 外觀：每約 3 公尺一道樓層線腳、每層一排窗、較長的那一面一樓開一扇門、屋頂一圈矮女兒牆。
-  // 窗與門都凸出牆面 3cm，不和牆面共平面；窗用 InstancedMesh，要關掉視錐裁切
-  building(g, gw, gd, wh){
-    const seed = Math.floor(gw*131 + gd*71 + wh*17);
-    const body = put(g, rescaleBoxUV(new THREE.BoxGeometry(gw, wh, gd), gw, wh, gd, 0.42),
-                     wallMats[seed % wallMats.length], 0, wh/2, 0);
-    const e = new THREE.LineSegments(new THREE.EdgesGeometry(body.geometry), edgeMat);
-    e.position.copy(body.position); g.add(e);
+  // 建築：實心量體，碰撞就是整塊長方體。外觀全部是貼在牆面外的構件，凸出最多約 0.25m
+  // （人物的碰撞半徑約 0.4m，走到牆邊也不會穿進任何看得到的東西）：
+  // 一樓石砌勒腳、二樓以上灰泥；每層一道石線腳；窗有外框、十字窗櫺、窗台與窗楣，部分樓房加百葉；
+  // 一樓是門、店面櫥窗與窗交錯，門有石門框、門階與壁燈；轉角有落水管；頂上是三層的簷口。
+  // 高過攀爬上限（約 6.4m）的樓才加屋頂造型（石板瓦斜屋頂，或女兒牆加煙囪、樓梯間、冷氣機）：
+  // 這些在碰撞頂面之上，玩家上不去，不會踩進看得到卻摸不到的東西。
+  // 看不到的面（貼著地圖邊界或緊鄰另一棟樓）不放窗與門。
+  // 小構件不一個一個 new 網格：同一種材質、落在同一塊 16m 區域的先合成一個（facadeBatch），batchStatic 再跨樓合併
+  building(g, gw, gd, wh, w){
+    let a = Math.floor(w.x*7.3 + w.y*3.1 + wh*101) & 0x7fffffff;
+    const R = () => (a = (a*1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+    const fb = facadeBatch(g);
+    const plaster = !!theme.plaster;
+    const bodyMat = plaster ? facadeMats().plaster[Math.floor(R()*facadeMats().plaster.length)] : wallMats[Math.floor(R()*wallMats.length)];
+    const FM = facadeMats();
+    put(g, rescaleBoxUV(new THREE.BoxGeometry(gw, wh, gd), gw, wh, gd, 0.42), bodyMat, 0, wh/2, 0);
     const floors = Math.max(1, Math.round(wh / 3)), fh = wh / floors;
-    for (let k=1;k<floors;k++) put(g, new THREE.BoxGeometry(gw + 0.1, 0.16, gd + 0.1), trimMat, 0, k*fh, 0);
-    // 屋簷頂面比屋頂高 2cm，站在屋頂低頭看不會和屋頂面重合而閃
-    put(g, new THREE.BoxGeometry(gw + 0.14, 0.22, gd + 0.14), trimMat, 0, wh - 0.09, 0);
-    const pt = 0.18, ph = 0.32;
-    put(g, new THREE.BoxGeometry(gw, ph, pt), trimMat, 0, wh + ph/2, -gd/2 + pt/2);
-    put(g, new THREE.BoxGeometry(gw, ph, pt), trimMat, 0, wh + ph/2,  gd/2 - pt/2);
-    put(g, new THREE.BoxGeometry(pt, ph, gd - pt*2), trimMat, -gw/2 + pt/2, wh + ph/2, 0);
-    put(g, new THREE.BoxGeometry(pt, ph, gd - pt*2), trimMat,  gw/2 - pt/2, wh + ph/2, 0);
-    // 窗：四個面、每層一排，間距約 2.4m
-    const mats = [], m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0,1,0);
-    const doorFront = gw >= gd;          // 門開在較長的那一面（+z 或 +x）
-    const faces = [[0, 1, gw, 0], [0, -1, gw, Math.PI], [1, 0, gd, Math.PI/2], [-1, 0, gd, -Math.PI/2]];
-    for (const [fx, fz, len, rot] of faces){
-      const n = Math.floor((len - 1.0) / 2.4);
-      if (n < 1) continue;
-      const gap = len / n;
-      for (let k=0;k<floors;k++) for (let i=0;i<n;i++){
-        const u = -len/2 + gap*(i + 0.5);
-        const isDoor = k === 0 && i === Math.floor(n/2) && ((doorFront && fz === 1) || (!doorFront && fx === 1));
-        if (isDoor) continue;
-        const y = k*fh + fh*0.55;
-        const px = fx ? fx*(gw/2 + 0.03) : u, pz = fz ? fz*(gd/2 + 0.03) : u;
-        q.setFromAxisAngle(up, rot);
-        mats.push(m4.clone().compose(new THREE.Vector3(px, y, pz), q, new THREE.Vector3(1, 1, 1)));
+    // 一樓勒腳：石砌外皮凸出 2cm，到一樓線腳為止
+    if (plaster) put(g, rescaleBoxUV(new THREE.BoxGeometry(gw + 0.04, fh - 0.05, gd + 0.04), gw, fh, gd, 0.42), FM.rustic, 0, (fh - 0.05)/2, 0);
+    // 牆腳的踢腳石：比勒腳再凸出一點點，接地那條線才有厚度
+    fb.tbox(trimMat, 0, 0.14, 0, gw + 0.1, 0.28, gd + 0.1);
+    for (let k=1;k<floors;k++) fb.tbox(trimMat, 0, k*fh, 0, gw + 0.12, 0.2, gd + 0.12);
+    // 簷口：三層由內往外挑出，最上層頂面比屋頂高 2cm（低頭看不會和屋頂面重合而閃）
+    fb.tbox(trimMat, 0, wh - 0.34, 0, gw + 0.12, 0.12, gd + 0.12);
+    fb.tbox(trimMat, 0, wh - 0.19, 0, gw + 0.26, 0.18, gd + 0.26);
+    fb.tbox(trimMat, 0, wh - 0.03, 0, gw + 0.4, 0.1, gd + 0.4);
+
+    // 這一點外面是不是空地：地圖外、或被別棟樓蓋住的面不放門窗
+    const cx = g.position.x, cz = g.position.z;
+    const open = (lx, lz) => {
+      const px = (cx + lx)/S, py = (cz + lz)/S;
+      if (px < 5 || py < 5 || px > W - 5 || py > H - 5) return false;
+      for (const o of WALLS) if (o.style === "building" && o !== w && px > o.x && px < o.x + o.w && py > o.y && py < o.y + o.h) return false;
+      return true;
+    };
+    const shutters = R() < 0.45, keystone = R() < 0.5;
+    const faces = [[0, 1, gw, gd, 0], [0, -1, gw, gd, Math.PI], [1, 0, gd, gw, Math.PI/2], [-1, 0, gd, gw, -Math.PI/2]];
+    for (const [fx, fz, len, dep, rot] of faces){
+      const f = fb.face(fx, fz, dep, rot);
+      const n = Math.max(1, Math.floor(len / 3.0)), bay = len / n;
+      // 門：長邊那一面的中間一格，另外每五格一扇
+      const mainFace = gw >= gd ? fz === 1 : fx === 1;
+      for (let i=0;i<n;i++){
+        const u = -len/2 + bay*(i + 0.5);
+        if (Math.abs(u) > len/2 - 0.9) continue;
+        if (!open(f.lx(u, 0.6), f.lz(u, 0.6))) continue;
+        // 一樓
+        const kind = (mainFace && i === Math.floor(n/2)) || (i % 5 === 2 && R() < 0.8) ? "door"
+                   : R() < 0.35 ? "shop" : R() < 0.75 ? "win" : "blank";
+        if (kind === "door") addDoor(f, u, fh, R);
+        else if (kind === "shop") addShop(f, u, fh);
+        else if (kind === "win") addWindow(f, u, fh*0.42, Math.min(1.3, fh*0.45), 0.95, false, keystone, R);
+        // 二樓以上
+        for (let k=1;k<floors;k++){
+          const wh2 = Math.min(1.6, fh*0.55);
+          addWindow(f, u, k*fh + fh*0.5, wh2, 1.0, shutters, keystone, R);
+        }
       }
-      // 門：一樓中間那格
-      if (k0Door(fx, fz)){
-        const u = -len/2 + gap*(Math.floor(n/2) + 0.5);
-        const d = put(g, new THREE.BoxGeometry(1.2, 2.2, 0.06), doorMat,
-                      fx ? fx*(gw/2 + 0.03) : u, 1.1, fz ? fz*(gd/2 + 0.03) : u);
-        d.rotation.y = rot;
+      // 落水管：這一面的右端，從簷口下到地面，離牆 8cm
+      const pu = len/2 - 0.25;
+      if (open(f.lx(pu, 0.6), f.lz(pu, 0.6))){
+        fb.cyl(steelDarkMat, f, pu, (wh - 0.3)/2, 0.08, 0.05, wh - 0.3);
+        for (let y=1.2; y<wh - 0.5; y+=2.4) fb.box(steelDarkMat, f, pu, y, 0.04, 0.14, 0.04, 0.08);
       }
     }
-    function k0Door(fx, fz){ return (doorFront && fz === 1) || (!doorFront && fx === 1); }
-    if (mats.length){
-      const win = new THREE.InstancedMesh(new THREE.BoxGeometry(1.0, 1.25, 0.06), glassMat, mats.length);
-      mats.forEach((m, i) => win.setMatrixAt(i, m));
-      win.frustumCulled = false;
-      g.add(win);
+
+    // 屋頂造型：只給上不去的高樓（見上面的說明）
+    const short = Math.min(gw, gd), long = Math.max(gw, gd), along = gw >= gd;
+    if (wh > 6.4){
+      const roofY = wh + 0.02, roll = R();
+      if (short <= 7 || roll < 0.45){
+        // 石板瓦的四坡屋頂：屋脊沿長邊、兩端 45 度斜切；窄長的樓看起來就是一條長長的坡頂，寬的樓是金字塔形
+        // 挑出的寬度和最上層簷口一樣（0.2m），否則從街上往上看，屋簷底下會露出一條縫看到天空（屋面背面不畫）
+        const ov = 0.2, rise = Math.min(4.2, short*(short <= 7 ? 0.42 : 0.3));
+        const roof = new THREE.Mesh(roofGeo(gw + ov*2, gd + ov*2, rise), FM.slate);
+        roof.position.y = roofY;
+        g.add(roof);
+        // 煙囪穿出屋面
+        const nc = 1 + Math.floor(long / 18);
+        for (let i=0;i<nc;i++){
+          const u = -long/2 + long*(i + 0.5)/nc + (R() - 0.5)*2, v = (R() < 0.5 ? -1 : 1)*short*0.18;
+          const ch = rise*0.9 + 0.8;
+          fb.tbox(FM.rustic, along ? u : v, roofY + ch/2, along ? v : u, 0.6, ch, 0.8);
+          fb.tbox(trimMat, along ? u : v, roofY + ch + 0.05, along ? v : u, 0.76, 0.1, 0.96);
+        }
+      } else {
+        // 平屋頂：女兒牆加壓頂石，頂上是樓梯間、煙囪、冷氣機
+        const pt = 0.2, ph = 0.65;
+        for (const s of [-1, 1]){
+          fb.tbox(bodyMat, 0, roofY + ph/2, s*(gd/2 - pt/2), gw, ph, pt);
+          fb.tbox(bodyMat, s*(gw/2 - pt/2), roofY + ph/2, 0, pt, ph, gd - pt*2);
+          fb.tbox(trimMat, 0, roofY + ph + 0.04, s*(gd/2 - pt/2), gw + 0.08, 0.08, pt + 0.1);
+          fb.tbox(trimMat, s*(gw/2 - pt/2), roofY + ph + 0.04, 0, pt + 0.1, 0.08, gd - pt*2);
+        }
+        // 屋頂上的東西離女兒牆至少 2m，從街上看得到頂端、不會貼在牆邊
+        const inset = span => (R() - 0.5)*Math.max(0, span - 4);
+        if (R() < 0.7){
+          const sx = inset(gw), sz = inset(gd);
+          fb.tbox(bodyMat, sx, roofY + 1.1, sz, 2.6, 2.2, 2.4);
+          fb.tbox(trimMat, sx, roofY + 2.25, sz, 2.8, 0.1, 2.6);
+          fb.box(FM.door, fb.face(0, 1, 2.4, 0, sx, sz), 0, roofY + 0.95, 0.03, 0.9, 1.9, 0.05);
+        }
+        for (let i=0;i<2 + Math.floor(long/15);i++){
+          const x = inset(gw), z = inset(gd);
+          if (R() < 0.5){ fb.tbox(FM.rustic, x, roofY + 0.7, z, 0.55, 1.4, 0.7); fb.tbox(trimMat, x, roofY + 1.44, z, 0.7, 0.08, 0.85); }
+          else { fb.tbox(FM.unit, x, roofY + 0.4, z, 1.0, 0.8, 0.7); }
+        }
+      }
+    } else {
+      // 矮樓（屋頂上得去）：維持原本的矮女兒牆，頂面就是碰撞的屋頂
+      const pt = 0.18, ph = 0.32;
+      fb.tbox(trimMat, 0, wh + ph/2, -gd/2 + pt/2, gw, ph, pt);
+      fb.tbox(trimMat, 0, wh + ph/2,  gd/2 - pt/2, gw, ph, pt);
+      fb.tbox(trimMat, -gw/2 + pt/2, wh + ph/2, 0, pt, ph, gd - pt*2);
+      fb.tbox(trimMat,  gw/2 - pt/2, wh + ph/2, 0, pt, ph, gd - pt*2);
+    }
+    fb.flush();
+
+    // 窗：玻璃、四邊外框、十字窗櫺、窗台、窗楣（可加拱心石），可選百葉（15% 關著）
+    function addWindow(f, u, yc, hh, ww, withShutters, key, R){
+      fb.box(FM.glass, f, u, yc, 0.01, ww, hh, 0.02);
+      fb.box(FM.frame, f, u - ww/2 - 0.04, yc, 0.03, 0.08, hh + 0.16, 0.06);
+      fb.box(FM.frame, f, u + ww/2 + 0.04, yc, 0.03, 0.08, hh + 0.16, 0.06);
+      fb.box(FM.frame, f, u, yc + hh/2 + 0.04, 0.03, ww, 0.08, 0.06);
+      fb.box(FM.frame, f, u, yc - hh/2 - 0.04, 0.03, ww, 0.08, 0.06);
+      fb.box(FM.frame, f, u, yc, 0.025, 0.045, hh, 0.035);
+      fb.box(FM.frame, f, u, yc + hh*0.2, 0.025, ww, 0.045, 0.035);
+      fb.box(trimMat, f, u, yc - hh/2 - 0.12, 0.08, ww + 0.34, 0.07, 0.16);
+      fb.box(trimMat, f, u, yc + hh/2 + 0.17, 0.035, ww + 0.36, 0.16, 0.07);
+      if (key) fb.box(trimMat, f, u, yc + hh/2 + 0.19, 0.06, 0.16, 0.22, 0.1);
+      if (withShutters){
+        if (R() < 0.15) for (const s of [-1, 1]) fb.box(FM.shutter, f, u + s*ww/4, yc, 0.06, ww/2 - 0.01, hh + 0.1, 0.03);
+        else for (const s of [-1, 1]) fb.box(FM.shutter, f, u + s*(ww*0.75 + 0.1), yc, 0.03, ww/2, hh + 0.1, 0.03);
+      }
+    }
+    // 門：門扇（兩塊凸起的門板）、門楣上的氣窗、石門框與門楣、門階、門邊的壁燈
+    function addDoor(f, u, fh, R){
+      const dw = 1.15, dh = Math.min(2.25, fh - 0.55);
+      fb.box(FM.door, f, u, dh/2, 0.02, dw, dh, 0.04);
+      for (const y of [dh*0.3, dh*0.72]) fb.box(FM.door, f, u, y, 0.045, dw - 0.3, dh*0.32, 0.02);
+      fb.box(FM.glass, f, u, dh + 0.2, 0.01, dw, 0.3, 0.02);
+      fb.box(FM.frame, f, u, dh + 0.03, 0.03, dw, 0.06, 0.06);
+      for (const s of [-1, 1]) fb.box(trimMat, f, u + s*(dw/2 + 0.1), (dh + 0.4)/2, 0.06, 0.2, dh + 0.4, 0.12);
+      fb.box(trimMat, f, u, dh + 0.48, 0.08, dw + 0.6, 0.18, 0.16);
+      fb.box(trimMat, f, u, 0.06, 0.14, dw + 0.5, 0.12, 0.28);
+      if (R() < 0.6){
+        const lu = u + (dw/2 + 0.45);
+        fb.box(steelDarkMat, f, lu, dh + 0.1, 0.1, 0.04, 0.04, 0.2);
+        fb.box(FM.lamp, f, lu, dh - 0.05, 0.18, 0.14, 0.24, 0.14);
+        fb.box(steelDarkMat, f, lu, dh + 0.1, 0.18, 0.18, 0.04, 0.18);
+      }
+    }
+    // 店面：大片櫥窗、窗框、石框與上方的招牌板
+    function addShop(f, u, fh){
+      const sw = 1.9, sh = Math.min(2.1, fh - 0.75), y0 = 0.4;
+      fb.box(FM.glass, f, u, y0 + sh/2, 0.01, sw, sh, 0.02);
+      for (const s of [-1, 1]) fb.box(FM.frame, f, u + s*(sw/2 + 0.04), y0 + sh/2, 0.03, 0.08, sh + 0.08, 0.06);
+      fb.box(FM.frame, f, u, y0 + sh + 0.04, 0.03, sw + 0.16, 0.08, 0.06);
+      fb.box(FM.frame, f, u, y0 + sh*0.78, 0.025, sw, 0.05, 0.035);
+      fb.box(trimMat, f, u, y0 - 0.05, 0.08, sw + 0.3, 0.1, 0.16);
+      fb.box(FM.sign, f, u, y0 + sh + 0.32, 0.05, sw + 0.2, 0.36, 0.06);
+    }
+  },
+  // ── 街道物件（STONEGATE）：碰撞就是長方形本身，外觀填滿碰撞範圍，看到多大就擋多大 ──
+  // 石花槽：石框加一叢矮灌木（灌木高出碰撞一點，枝葉不擋子彈是合理的）
+  planter(g, gw, gd, wh){
+    put(g, rescaleBoxUV(new THREE.BoxGeometry(gw, wh - 0.06, gd), gw, wh, gd, 0.42), facadeProps().rustic, 0, (wh - 0.06)/2, 0);
+    put(g, new THREE.BoxGeometry(gw + 0.06, 0.08, gd + 0.06), trimMat, 0, wh - 0.04, 0);
+    put(g, new THREE.BoxGeometry(gw - 0.16, 0.04, gd - 0.16), slitMat, 0, wh + 0.005, 0);
+    const n = Math.max(2, Math.round(Math.max(gw, gd) / 0.45)), along = gw >= gd, L = Math.max(gw, gd), D = Math.min(gw, gd);
+    for (let i=0;i<n;i++){
+      const u = -L/2 + L*(i + 0.5)/n, r = D*0.42 + (i % 2)*0.06;
+      const m = put(g, LEAF_GEOS[i % 3], leafCoreMat, along ? u : 0, wh + r*0.55, along ? 0 : u);
+      m.scale.set(r*1.1, r*0.9, r*1.1);
+    }
+  },
+  // 配電箱：灰色鋼板箱，前面兩扇門、門縫、通風百葉與頂上的遮雨斜板
+  cabinet(g, gw, gd, wh){
+    const FM = facadeProps();
+    put(g, new THREE.BoxGeometry(gw - 0.02, wh - 0.1, gd - 0.02), FM.unit, 0, (wh - 0.1)/2 + 0.1, 0);
+    put(g, new THREE.BoxGeometry(gw, 0.1, gd), steelDarkMat, 0, 0.05, 0);
+    put(g, new THREE.BoxGeometry(gw + 0.06, 0.05, gd + 0.06), FM.unit, 0, wh - 0.02, 0);
+    const along = gw >= gd;
+    for (const s of [-1, 1]){
+      // 門縫與百葉：朝外兩面都畫（配電箱靠牆放，但不知道是哪一面靠牆）
+      const o = (along ? gd : gw)/2 + 0.004;
+      const seam = put(g, new THREE.BoxGeometry(along ? 0.012 : 0.01, wh - 0.35, along ? 0.01 : 0.012), steelDarkMat, along ? 0 : s*o, wh/2 + 0.05, along ? s*o : 0);
+      const vent = put(g, new THREE.BoxGeometry(along ? gw*0.6 : 0.01, 0.16, along ? 0.01 : gd*0.6), FM.shutter, along ? 0 : s*o, wh - 0.3, along ? s*o : 0);
+      seam.castShadow = vent.castShadow = false;
+    }
+  },
+  // 油桶：約 0.58m 的標準桶排成格子填滿碰撞範圍，鋼桶身、上下兩道加強環、桶蓋的小口
+  barrels(g, gw, gd, wh){
+    const nx = Math.max(1, Math.round(gw/0.6)), nz = Math.max(1, Math.round(gd/0.6)), r = Math.min(gw/nx, gd/nz)/2 - 0.01;
+    const mats = [facadeProps().barrelA, facadeProps().barrelB];
+    for (let i=0;i<nx*nz;i++){
+      const x = -gw/2 + gw*((i % nx) + 0.5)/nx, z = -gd/2 + gd*(Math.floor(i/nx) + 0.5)/nz;
+      put(g, new THREE.CylinderGeometry(r, r, wh, 18), mats[i % 2], x, wh/2, z);
+      for (const y of [wh*0.3, wh*0.7]) put(g, new THREE.CylinderGeometry(r + 0.012, r + 0.012, 0.03, 18), steelDarkMat, x, y, z);
+      put(g, new THREE.CylinderGeometry(0.035, 0.035, 0.02, 8), steelDarkMat, x + r*0.5, wh + 0.01, z);
+    }
+  },
+  // 長椅：兩個石墩加三條椅面木條（木頭壓成灰色的舊木，暖色留給敵人）
+  bench(g, gw, gd, wh){
+    const along = gw >= gd, L = Math.max(gw, gd), D = Math.min(gw, gd);
+    for (const s of [-1, 1]) put(g, new THREE.BoxGeometry(along ? 0.16 : D, wh - 0.06, along ? D : 0.16), facadeProps().rustic, along ? s*(L/2 - 0.12) : 0, (wh - 0.06)/2, along ? 0 : s*(L/2 - 0.12));
+    for (let i=0;i<3;i++){
+      const v = -D/2 + D*(i + 0.5)/3;
+      put(g, new THREE.BoxGeometry(along ? L : D/3 - 0.02, 0.05, along ? D/3 - 0.02 : L), facadeProps().wood, along ? 0 : v, wh - 0.025, along ? v : 0);
     }
   },
   // 古典圓柱：方形柱礎標出碰撞範圍，柱身是 16 面的圓柱，柱頭外張再壓一塊方形頂板
@@ -3927,7 +4713,9 @@ function applyAtmo(){
     renderer.shadowMap.needsUpdate = true;
   }
   ENV_TEX = (out && ATMO.env) ? buildEnv(ATMO) : null;
+  setAcoustics(out);
   for (const m of VM_MATS){ m.envMap = ENV_TEX; m.needsUpdate = true; }
+  for (const m of ENV_SCENE_MATS){ m.envMap = ENV_TEX; m.needsUpdate = true; }
   // 槍模有自己的場景與燈光。室內維持原本偏紫的環境光；露天改用這張圖的天光與太陽色，
   // 手上的槍才會跟周圍的世界在同一種光線下
   if (out){
@@ -4091,6 +4879,19 @@ function soldierTex(){
       x.fillStyle = rnd() < 0.5 ? "rgba(0,0,0,0.07)" : "rgba(255,255,255,0.05)";
       x.fillRect(rnd()*N, rnd()*N, 1+rnd()*2, 1);
     }
+    // 褪色與灰塵：大片淡淡的亮斑，迷彩才不像剛印好的新布
+    for (let i=0;i<14;i++){
+      const px = rnd()*N, py = rnd()*N, rad = 50 + rnd()*110;
+      const gr = x.createRadialGradient(px, py, 0, px, py, rad);
+      gr.addColorStop(0, "rgba(200,196,186,0.09)"); gr.addColorStop(1, "rgba(200,196,186,0)");
+      x.fillStyle = gr; x.fillRect(px - rad, py - rad, rad*2, rad*2);
+    }
+    // 縱向的車縫線：深色的縫、兩側一排虛線針腳。貼圖沿身體一圈重複，軀幹兩側、褲管內外側各會有一條縫
+    for (const sx of [N*0.25, N*0.75]){
+      x.fillStyle = "rgba(0,0,0,0.35)"; x.fillRect(sx, 0, 2, N);
+      x.fillStyle = "rgba(255,255,255,0.13)";
+      for (let y=0;y<N;y+=7){ x.fillRect(sx - 4, y, 1, 4); x.fillRect(sx + 5, y + 3, 1, 4); }
+    }
     return texFrom(c);
   };
   // 布料的法線：細密的斜紋編織加上幾道壓出來的皺褶
@@ -4108,6 +4909,32 @@ function soldierTex(){
     fx.beginPath(); fx.moveTo(x0, y0); fx.lineTo(x0 + Math.cos(a)*120, y0 + Math.sin(a)*120); fx.stroke();
   }
   fx.restore();
+  // 布料的粗糙度：大多很粗（布不反光），磨亮的地方粗糙度低一點，受光時才有一點點不均勻的光澤
+  const fr = mkCanvas(256), frx = fr.getContext("2d");
+  frx.fillStyle = "#EEEEEE"; frx.fillRect(0,0,256,256);
+  for (let i=0;i<40;i++){
+    const px = rnd()*256, py = rnd()*256, rad = 10 + rnd()*40;
+    const gr = frx.createRadialGradient(px, py, 0, px, py, rad);
+    gr.addColorStop(0, "rgba(150,150,150,0.35)"); gr.addColorStop(1, "rgba(150,150,150,0)");
+    frx.fillStyle = gr; frx.fillRect(px - rad, py - rad, rad*2, rad*2);
+  }
+  // 皮膚：只露出顴骨與眼睛一圈，但純色的皮膚在日光下像塑膠。淡淡的血色斑、毛孔，
+  // 法線給一點點起伏，粗糙度才不會是一整片均勻的高光
+  const sk = mkCanvas(128), skx = sk.getContext("2d"), skh = mkCanvas(128), skhx = skh.getContext("2d");
+  skx.fillStyle = "#D8D8D8"; skx.fillRect(0,0,128,128);
+  skhx.fillStyle = "#808080"; skhx.fillRect(0,0,128,128);
+  for (let i=0;i<30;i++){
+    const px = rnd()*128, py = rnd()*128, rad = 8 + rnd()*22;
+    const gr = skx.createRadialGradient(px, py, 0, px, py, rad);
+    const warm = rnd() < 0.5;
+    gr.addColorStop(0, warm ? "rgba(235,190,180,0.25)" : "rgba(170,165,160,0.2)"); gr.addColorStop(1, "rgba(0,0,0,0)");
+    skx.fillStyle = gr; skx.fillRect(px - rad, py - rad, rad*2, rad*2);
+  }
+  for (let i=0;i<2500;i++){
+    const px = rnd()*128, py = rnd()*128;
+    skx.fillStyle = "rgba(90,70,60,0.08)"; skx.fillRect(px, py, 1, 1);
+    skhx.fillStyle = "rgba(0,0,0,0.3)"; skhx.fillRect(px, py, 1, 1);
+  }
   // 戰術背心：MOLLE 織帶一條條橫過去，加上縫線
   const ve = mkCanvas(256), vx = ve.getContext("2d");
   vx.fillStyle = "#9A9A9A"; vx.fillRect(0,0,256,256);
@@ -4134,7 +4961,8 @@ function soldierTex(){
 
   SOLDIER_TEX = {
     camo: Object.fromEntries(Object.keys(SOLDIER).map(t => [t, camo(SOLDIER[t].camo)])),
-    fabricN: texFrom(heightToNormal(fab, 1.6)),
+    fabricN: texFrom(heightToNormal(fab, 1.6)), fabricR: texFrom(fr),
+    skin: texFrom(sk), skinN: texFrom(heightToNormal(skh, 0.8)),
     vest: texFrom(ve), vestN: texFrom(heightToNormal(ve, 2.2)),
     shadow: new THREE.CanvasTexture(sh), flash: new THREE.CanvasTexture(mf),
   };
@@ -4228,6 +5056,14 @@ function soldierGeo(){
     scarf: new THREE.TorusGeometry(0.064, 0.024, 8, 22),
     bedroll: new THREE.CylinderGeometry(0.060, 0.060, 0.300, 14),
     groin: roundBox(0.180, 0.160, 0.030, 0.012),
+    // 細節（都在原本的外形之內，不改比例與判定）：彈匣頂端露出彈匣袋、上衣領口、手套袖口、
+    // 上臂口袋、左腰的收納袋、頭盔下巴帶、鞋頭補強與鞋帶
+    mag: roundBox(0.052, 0.040, 0.026, 0.006),
+    collar: sectionGeo([[0.0,0.066,0.064,0.072],[0.055,0.060,0.056,0.066]], 16),
+    armPocket: roundBox(0.022, 0.085, 0.080, 0.008),
+    chinStrap: roundBox(0.008, 0.095, 0.012, 0.003),
+    toeCap: roundBox(0.094, 0.050, 0.070, 0.018),
+    laces: roundBox(0.030, 0.012, 0.100, 0.004),
     shadow: new THREE.CircleGeometry(0.42, 22),
     flash: new THREE.PlaneGeometry(0.26, 0.26),
   });
@@ -4317,11 +5153,11 @@ function makeBotObject(type){
   // 材質每隻獨立：屍體淡出時會逐一把材質改成半透明，共用的話活著的也會跟著變透明
   const std = o => new THREE.MeshStandardMaterial(Object.assign({envMap:ENV_TEX, envMapIntensity:0.55}, o));
   const M = {
-    camo:  std({map:tex.camo[type], normalMap:tex.fabricN, roughness:0.92}),
+    camo:  std({map:tex.camo[type], normalMap:tex.fabricN, roughnessMap:tex.fabricR, roughness:0.97}),
     vest:  std({map:tex.vest, normalMap:tex.vestN, color:C.vest, roughness:0.85}),
     gear:  std({color:0x1F1E1C, normalMap:tex.fabricN, roughness:0.8}),
     mask:  std({color:C.mask, normalMap:tex.fabricN, roughness:0.95}),
-    skin:  std({color:0x7E5A46, roughness:0.62}),
+    skin:  std({map:tex.skin, normalMap:tex.skinN, color:0x8E6650, roughness:0.58}),
     eye:   std({color:0x1A1410, roughness:0.2}),
     shell: std({map:tex.camo[type], color:0xC8C0B0, roughness:0.65, metalness:0.05}),
     poly:  std({color:0x202124, roughness:0.62, metalness:0.1}),
@@ -4348,6 +5184,7 @@ function makeBotObject(type){
   belt.scale.set(bulk, 1, bulk);
   for (const x of [-0.13, 0.13]) put(geo.smallPouch, M.vest, x*bulk, 0.02, 0.06, hips).rotation.y = x > 0 ? 0.9 : -0.9;
   put(geo.buckle, M.metal, 0, 0.058, -0.121*bulk, hips);
+  put(geo.pouch, M.vest, -0.165*bulk, -0.06, 0.05, hips).scale.set(1.2, 1, 1.3);
   // 重甲的護襠：從腰帶前緣垂下來一片
   if (C.shield) put(geo.groin, M.vest, 0, -0.07, -(0.100*bulk + 0.016), hips).rotation.x = 0.12;
 
@@ -4365,7 +5202,10 @@ function makeBotObject(type){
   vest.scale.set(bulk, 1, bulk);
   put(geo.plate, M.vest, 0, 0.45, -0.150*bulk, upper).scale.x = bulk;
   put(geo.plate, M.vest, 0, 0.45,  0.140*bulk, upper).scale.x = bulk;
-  for (const x of [-0.08, 0, 0.08]) put(geo.pouch, M.vest, x*bulk, 0.33, -0.188*bulk, upper);
+  for (const x of [-0.08, 0, 0.08]){
+    put(geo.pouch, M.vest, x*bulk, 0.33, -0.188*bulk, upper);
+    put(geo.mag, M.poly, x*bulk, 0.39, -0.186*bulk, upper);
+  }
   for (const x of [-0.115, 0.115]) put(geo.strap, M.vest, x*bulk, 0.665, 0, upper);
   // 胸前的魔鬼氈名牌板；步槍兵、衝鋒槍兵左胸掛兩顆手榴彈
   put(geo.admin, M.gear, 0, 0.545, -0.176*bulk, upper);
@@ -4386,6 +5226,7 @@ function makeBotObject(type){
   if (C.shield) put(geo.band, M.vest, 0, 0.80, 0, upper).scale.set(1.45, 1.8, 1.4);
 
   put(geo.neck, M.mask, 0, 0, 0, upper);
+  if (!C.shield) put(geo.collar, M.camo, 0, 0.745, 0.004, upper).scale.set(bulk, 1, bulk);
   const head = new THREE.Group();
   head.position.y = 0.97;
   // 抵銷上半身的前傾與側轉，視線維持朝前
@@ -4423,6 +5264,8 @@ function makeBotObject(type){
       put(geo.nvgMount, M.poly, 0, 0.098, -0.118, head);
       // 夜視鏡的配重電池包掛在頭盔後緣，前後都有東西，頭盔的側面輪廓才對
       put(geo.counterweight, M.vest, 0, 0.065, 0.128, head).rotation.x = -0.45;
+      // 下巴帶：從耳罩前面斜斜收到下巴
+      for (const x of [-1, 1]) put(geo.chinStrap, M.gear, x*0.072, -0.06, -0.035, head).rotation.set(0.35, 0, -x*0.28);
     } else {
       // 重甲：整片深色面罩蓋住臉
       put(geo.visor, M.glass, 0, 0.0, 0, head).scale.set(0.108, 0.118, 0.118);
@@ -4456,6 +5299,9 @@ function makeBotObject(type){
     put(geo.thumb, M.gear, -s*0.028, -LF + 0.03, -0.03, a.lo).rotation.x = 0.8;
     a.up.position.set(s*0.185*bulk, 0.70, 0);
     upper.add(a.up);
+    // 手套的袖口、上臂外側的口袋
+    put(geo.band, M.gear, 0, -0.262, 0, a.lo).scale.set(0.6*bulk, 0.9, 0.6*bulk);
+    put(geo.armPocket, M.camo, s*0.066*bulk, -0.215, 0, a.up);
     return a;
   });
   const [armL, armR] = arms;
@@ -4468,6 +5314,8 @@ function makeBotObject(type){
     const l = mkLimb(geo.thigh, geo.shin, 0.46, geo.kneePad, -0.06, geo.boot, M.gear);
     l.end.position.set(0, -0.415, -0.035);
     put(geo.sole, M.poly, 0, -0.455, -0.035, l.lo);
+    put(geo.toeCap, M.poly, 0, -0.438, -0.13, l.lo);
+    put(geo.laces, M.poly, 0, -0.365, -0.075, l.lo).rotation.x = 0.45;
     l.up.position.set(s*0.095*bulk, -0.02, 0);
     hips.add(l.up);
     // 大腿外側的側袋
@@ -7668,17 +8516,10 @@ function valFire(alt, queued){
   valShotSfx(d, !!A);
   return true;
 }
-// 槍聲分三層：極短的高頻爆裂（決定連射時每一發聽不聽得出來）、低頻下掃的衝擊、短尾音。
-// 原本是一個方波加一段噪音，連射時糊成一片。各類別的音高與長度自調
-function valShotSfx(d, alt){
-  if (d.silenced){ sfxNoise(0.012, 0.035, 5200); sfx("sine", 150, 0.05, 0.04, 70); sfxNoise(0.05, 0.03, 1600); return; }
-  const cat = d.pellets || alt ? "shotgun" : d.cat;
-  const T = {sidearm:[260, 80, 0.05, 0.09], smg:[320, 95, 0.04, 0.07], rifle:[210, 55, 0.07, 0.11], heavy:[190, 50, 0.07, 0.1],
-             shotgun:[140, 40, 0.12, 0.18], sniper:[120, 34, 0.16, 0.22]}[cat] || [220, 60, 0.06, 0.1];
-  sfxNoise(0.014, cat === "sniper" || cat === "shotgun" ? 0.13 : 0.1, 8000);        // 擊發
-  sfx("square", T[0], T[2], 0.055, T[1]); sfx("sine", T[0]*0.5, T[2]*1.4, 0.075, T[1]*0.6);   // 衝擊
-  sfxNoise(T[3], 0.04, 1300);                                                        // 尾音
-}
+// 槍聲仍是分層的：極短的高頻爆裂（決定連射時每一發聽不聽得出來）、低頻下掃的衝擊、尾音，
+// 2026-09-25 起每把槍一組參數（GUN_SFX），再加機械聲（泵動、拉栓）與露天圖的牆面回聲，見 valPlayerShotSfx。
+// 原本只分六類，同類的槍（Vandal 與 Bulldog、Marshal 與 Operator）聽起來一樣
+function valShotSfx(d, alt){ valPlayerShotSfx(d, alt); }
 // 刀：前方 2m、左右約 30 度內最近的一隻；從背後出手傷害加倍（wiki）
 function valKnife(alt){
   const p = G.player, d = gun().val;
@@ -7714,7 +8555,7 @@ function valApplyHit(b, raw, zone, at, farPellet){
   const r = valArmorHit(b, raw);
   if (b.test && zone === "head" && b.hp <= 0) b.testHeadKill = true;
   // 破甲只給聲音，不畫 Apex 那圈擴散的破盾弧線：Valorant 沒有，而且一槍爆頭常同時破甲，看起來像爆頭圓環（Leo 否決過）
-  if (r.broke){ b.armor = 0; sfx("triangle", 1500, 0.14, 0.045, 600); }
+  if (r.broke){ b.armor = 0; valArmorBreakSfx(); }
   if (b.dummy){
     if (b.firstHit < 0) b.firstHit = G.t;
     b.lastHit = G.t;
@@ -7738,13 +8579,8 @@ function valApplyHit(b, raw, zone, at, farPellet){
                color:r.armor ? "#8FD3FF" : null, kill:b.hp <= 0});
   G.hitMark = 1;
   // 命中音效：身體是悶的肉聲、爆頭是清脆的金屬聲，擊殺再加一聲上揚的確認音（Valorant 沒有命中標記，全靠聲音分辨）
-  if (zone === "head"){
-    G.headMark = 1;
-    sfx("triangle", 3200, 0.12, 0.05, 2900); sfx("sine", 5200, 0.06, 0.02, 5000); sfxNoise(0.025, 0.05, 7000);
-  } else {
-    const k = zone === "leg" ? 0.7 : 1;
-    sfxNoise(0.07, 0.06*k, 700); sfx("sine", 150, 0.08, 0.06*k, 70);
-  }
+  if (zone === "head") G.headMark = 1;
+  valHitSfx(zone, r.armor);
   if (b.hp <= 0) valKillFeedback();
 }
 // 子彈打到牆或地板：暖黃火花＋一團慢慢散開的灰色粉塵，從實際命中的高度噴出（彈孔貼花另外由 addDecal 處理）。
@@ -7763,10 +8599,43 @@ function valKillFeedback(){
   G.killBanner = {t:G.t, n:G.killStreak};
   // 每多一殺升兩個半音；第 3 殺起多疊一個高八度的泛音，第 5 殺再加長尾音
   const n = G.killStreak, f = 560 * Math.pow(2, (n - 1) * 2/12);
-  sfx("triangle", f, 0.16, 0.055, f*1.5);
-  sfx("sine", f*2, 0.11, 0.028, f*2.6);
-  if (n >= 3) sfx("sine", f*3, 0.14, 0.018, f*3.4);
-  if (n >= 5) sfx("triangle", f*1.5, 0.35, 0.03, f*2);
+  if (!actx) return;
+  // 兩個音一前一後（「噠—叮」）：先一聲短的根音，60ms 後上行五度的主音帶一點上滑。
+  // 仍是一發一發的短音，有明確的起點與結束，不是持續的音
+  const bus = sfxBus(1, 0.22);
+  voice(bus, {type:"triangle", f, dur:0.07, vol:0.04});
+  voice(bus, {type:"triangle", f:f*1.5, f1:f*1.62, dur:0.16, vol:0.055, t:0.06});
+  voice(bus, {f:f*3, f1:f*3.1, dur:0.11, vol:0.022, t:0.06});
+  if (n >= 3) voice(bus, {f:f*4.5, dur:0.14, vol:0.014, t:0.06});
+  if (n >= 5) voice(bus, {type:"triangle", f:f*2, f1:f*2.4, dur:0.35, vol:0.028, t:0.12});
+}
+// 命中音（Valorant 沒有命中標記，全靠聲音分辨，每一發一個短促、有頭有尾的聲音）：
+//  身體：打進肉的悶響（中低頻噪音＋下掃的低音）加一個極短的高頻頭，才聽得出是「命中」而不是腳步；
+//        有護甲時多一聲短的硬物「噠」（打在防彈板上）
+//  爆頭：金屬的「叮」，三個不和諧泛音（像敲到頭盔），比身體高很多，一聽就分得開
+//  腿：身體的聲音再小一點、悶一點
+function valHitSfx(zone, armor){
+  if (!actx) return;
+  const bus = sfxBus(1, 0.12), J = jit(0.03);
+  if (zone === "head"){
+    voice(bus, {noise:true, filt:"highpass", hz:6000, dur:0.015, vol:0.05});
+    voice(bus, {type:"triangle", f:3150*J, f1:2950, dur:0.13, vol:0.05});
+    voice(bus, {f:4720*J, dur:0.09, vol:0.022});
+    voice(bus, {f:6900*J, dur:0.06, vol:0.012});
+    return;
+  }
+  const k = zone === "leg" ? 0.7 : 1;
+  voice(bus, {noise:true, filt:"highpass", hz:4500, dur:0.008, vol:0.02*k});
+  voice(bus, {noise:true, filt:"bandpass", hz:(zone === "leg" ? 600 : 800)*J, q:0.9, dur:0.06, vol:0.07*k});
+  voice(bus, {f:160*J, f1:70, dur:0.08, vol:0.06*k});
+  if (armor) voice(bus, {noise:true, filt:"bandpass", hz:2400*J, q:4, dur:0.03, vol:0.05*k, t:0.005});
+}
+// 破甲：一聲往下掉的玻璃質碎裂（高頻噪音帶＋下滑的三角波），只給聲音、不畫圓環
+function valArmorBreakSfx(){
+  if (!actx) return;
+  const bus = sfxBus(1, 0.15);
+  voice(bus, {noise:true, filt:"bandpass", hz:4500, q:2, dur:0.12, vol:0.05});
+  voice(bus, {type:"triangle", f:1500, f1:600, dur:0.14, vol:0.04, t:0.01});
 }
 // 擊殺旗幟：菱形徽記＋連殺數的小刻度，跳出時放大再回彈，1.1 秒後淡出
 function drawKillBanner(w, h, cx){
@@ -8080,7 +8949,8 @@ function botShoot(b){
   b.muzzle = 0.05;
   spawnSpark(b.x + Math.cos(a)*20, b.y + Math.sin(a)*20, 0xFFC27A, 3);
   flashLightAt(b.x, b.y, b.type === "lancer" ? 7 : 4.2);
-  if (b.type === "lancer"){ sfxAt(b.x,b.y,"sawtooth",120,0.2,0.5,45); sfxNoiseAt(b.x,b.y,0.16,0.4,1100); }
+  if (G.val) valBotShotSfx(b);
+  else if (b.type === "lancer"){ sfxAt(b.x,b.y,"sawtooth",120,0.2,0.5,45); sfxNoiseAt(b.x,b.y,0.16,0.4,1100); }
   else { sfxAt(b.x,b.y,"sawtooth",210,0.07,0.28,70); sfxNoiseAt(b.x,b.y,0.06,0.22,2200); }
 }
 
@@ -8758,8 +9628,9 @@ function update(dt){
     if (!G.sliding && !(G.val && (G.walking || G.crouching))) vm.stepDist += G.moved;    // 滑行、Valorant 的靜步與蹲走沒有腳步聲
     if (vm.stepDist > 62){
       vm.stepDist = 0;
-      sfxNoise(0.07, 0.022, 520);
-      sfx("sine", 68, 0.07, 0.02, 44);
+      // Valorant：腳步依腳下的地面材質（surfaceAt）；Apex 維持原本的悶響
+      if (G.val) playerStepSfx();
+      else { sfxNoise(0.07, 0.022, 520); sfx("sine", 68, 0.07, 0.02, 44); }
     }
 
     // Valorant 留最多一幀的負值，valFire 接上這個餘數，射速才不會被幀率吃掉
@@ -8959,8 +9830,8 @@ function update(dt){
       if (b.step > 58){
         b.step = 0;
         addFootprint(b.x, b.y, T.color);
-        sfxNoiseAt(b.x, b.y, 0.06, 0.30, 430);
-        sfxAt(b.x, b.y, "sine", 62, 0.06, 0.22, 40);
+        if (G.val) botStepSfx(b);
+        else { sfxNoiseAt(b.x, b.y, 0.06, 0.30, 430); sfxAt(b.x, b.y, "sine", 62, 0.06, 0.22, 40); }
       }
 
       // 分離：敵人不能站進玩家身體裡。少了這個，貼臉的 STALKER 會直接
@@ -9050,13 +9921,13 @@ function update(dt){
       // 露天地圖沒有天花板，子彈可以飛過牆頂，飛得夠高才消失
       if (bl.h <= 0.02 || bl.h >= (activeMap.outdoor ? 40 : WALL_H-0.02)){
         if (bl.val) valImpact(bl); else spawnSpark(bl.x,bl.y,0x9B6BE8,3);
-        sfxNoiseAt(bl.x,bl.y,0.04,0.055,3200);
+        if (G.val) valImpactSfx(bl.x, bl.y, bl.h); else sfxNoiseAt(bl.x,bl.y,0.04,0.055,3200);
         dead = true; break;
       }
       if (inWallAt(bl.x,bl.y,bl.h)){
         if (bl.val) valImpact(bl); else spawnSpark(bl.x,bl.y,0x9B6BE8,4);
         addDecal(bl.x, bl.y, bl.h);
-        sfxNoiseAt(bl.x,bl.y,0.05,0.16,1600);
+        if (G.val) valImpactSfx(bl.x, bl.y, bl.h); else sfxNoiseAt(bl.x,bl.y,0.05,0.16,1600);
         dead = true; break;
       }
       if (bl.friendly){

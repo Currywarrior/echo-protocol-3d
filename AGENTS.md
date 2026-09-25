@@ -38,6 +38,13 @@
   （Valorant 訓練場固定 THE RANGE）。資料裡已有 `sites`、`spawnsAtk`、`spawnsDef`、`barriers` 給爆破規則用，
   規則本身還沒做。樓用 `block()` 產生：ht 7.2～9.6m 的實心樓加一塊不畫的內芯（`core:true`），
   因為不帶高度的 2D 視線判定（出生點安全、聲音悶住、聲納）只看沒有 ht 的牆
+- STONEGATE 的外觀（2026-09-25）：`STYLES.building` 產生立面（一樓石砌、二樓以上灰泥、窗框百葉、門、簷口、落水管，
+  高過攀爬上限的樓才加石板瓦屋頂或屋頂雜物），小構件先用 `facadeBatch` 依材質＋16m 區域合批再交給 `batchStatic`。
+  主題欄位 `weather`（世界座標風化，`addGrime` / `addGroundWeather`）、`plaster`、`walk`（人行道）、`crateTint`。
+  街道物件（`planter` / `cabinet` / `barrels` / `bench`）碰撞一律是長方形，外觀填滿碰撞範圍
+- VALORANT 的聲音（2026-09-25）：槍聲每把一組參數 `GUN_SFX`（`g` 是量過的整體音量，讓 RMS 和舊版一樣），
+  露天圖加最近幾面牆的回聲（`echoTaps`）、`setAcoustics` 依室內外換殘響；腳步與彈著音依 `surfaceAt` 的地面材質。
+  APEX 模式的聲音沒有改
 - 牆可以懸空（`base`），`house()` 用它產生走得進去的房子（門窗洞、窗台窗楣、樓板、室內樓梯、屋頂）；
   敵人用格子 A* 尋路（`buildNav` / `navStep`），沒看到玩家時會往玩家附近搜索
 - Valorant 死鬥的敵人戰術在 `index.html` 的「VAL_AI 開始／結束」區段（`botTactics`）：開槍前急停（有加減速 `b.vK`，

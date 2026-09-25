@@ -6470,6 +6470,16 @@ function botFindCover(b, T, p){
 function botTactics(b, T, p, los, dt){
   if (los){ b.seenT = G.t; b.holdT = 0; }
   const engaged = G.t - (b.seenT ?? -99) < 5, hurt = G.t - (b.hurtAt ?? -99) < 0.25;
+  // 換一段路（追到最後看見玩家的位置、或搜索換了下一個目標）時，如果新方向幾乎是往回走（> 120°），先停下來看一下 0.8～1.5 秒再轉身。
+  // 真人走到目標會先確認四周；AI 原本到點的同一幀就掉頭往回走，畫面上是原地 180° 折返（dm-ai-sim 的「方向反轉」）
+  const newLeg = b.goalX !== b.tacGX || b.goalY !== b.tacGY;
+  if (newLeg){ b.tacGX = b.goalX; b.tacGY = b.goalY; }
+  if (!los && (newLeg || (b.tacChase && !b.chase))){
+    const gx = b.chase ? b.lastX : b.goalX, gy = b.chase ? b.lastY : b.goalY;
+    if (angDiff(Math.atan2(gy - b.y, gx - b.x), b.angle) > 2.1) b.pauseUntil = G.t + 0.8 + Math.random()*0.7;
+  }
+  b.tacChase = b.chase;
+  const pause = !los && G.t < (b.pauseUntil || 0) ? {x:b.x, y:b.y, still:true, face:b.angle} : null;
   // 掩體只給 keepDist > 0 的敵人（保持距離的射手）：keepDist = 0 的 STALKER 是貼臉打法，
   // 像 Valorant 的突破手一樣直接壓上去，但開槍前一樣會急停（見 update 的 aiming）
   if (engaged && T.keepDist > 0){
@@ -6489,12 +6499,12 @@ function botTactics(b, T, p, los, dt){
     if (c){
       const face = Math.atan2(p.y - b.y, p.x - b.x);
       // 探頭中被打中就縮回去，多躲一下再探（真人被打到會先退、等對方換位置或換彈）。
-      // 縮回去前要先站定 0.6 秒（通常正在急停開槍，順便把這一串打完）：一邊往外走一邊立刻掉頭，
+      // 縮回去前要先站定 0.8 秒（通常正在急停開槍，順便把這一串打完）：一邊往外走一邊立刻掉頭，
       // 畫面上就是牆角左右抖，也就是 dm-ai-sim 的「方向反轉」
       if (hurt && b.covPhase === "peek") b.covBack = 1.2 + Math.random()*1.0;
       if (b.covPhase === "peek" && b.burstEndT > b.peekT && G.t - b.burstEndT > 0.15 && !b.covBack) b.covBack = 0.6 + Math.random()*0.8;
       if (b.covBack){
-        if ((b.stillT || 0) < 0.6) return {x:b.x, y:b.y, still:true, face};
+        if ((b.stillT || 0) < 0.8) return {x:b.x, y:b.y, still:true, face};
         b.covPhase = "hide"; b.covWait = b.covBack; b.covBack = 0;
       }
       if (b.covPhase === "hide"){
@@ -6512,20 +6522,24 @@ function botTactics(b, T, p, los, dt){
       }
       return {x:c.px, y:c.py};
     }
+    if (pause) return pause;
     // 沒有掩體、剛失去視線：先在原地架著玩家消失的方向 1.5～3 秒，再去追（真人不會一看不到人就直接衝過去）。
     // 少了這段，保持距離的敵人會「太近往後退 → 看不到 → 追回去 → 看到又太近往後退」，在視線邊緣來回走
     if (!los){
       if (b.edgeFrom !== b.seenT){ b.edgeFrom = b.seenT; b.edgeUntil = G.t + 1.5 + Math.random()*1.5; }
-      if (G.t < b.edgeUntil && !botCrowded(b)) return {x:b.x, y:b.y, still:true, face:Math.atan2(b.lastY - b.y, b.lastX - b.x)};
+      if (G.t < b.edgeUntil) return {x:b.x, y:b.y, still:true, face:Math.atan2(b.lastY - b.y, b.lastX - b.x)};
     }
     return null;
   }
   b.cov = null;
+  if (pause) return pause;
+  // 貼臉打法（keepDist = 0）壓到 1.7m 內就站著打，不再往身上撞：撞進玩家身體只會被分離推來推去（前後抖），
+  // 也不是真人的打法（Valorant 近距離一樣要停下來才打得準）
+  if (los && T.keepDist === 0 && Math.hypot(p.x - b.x, p.y - b.y) < b.rad + p.rad + 30) return {x:b.x, y:b.y, still:true, face:Math.atan2(p.y - b.y, p.x - b.x)};
   if (engaged || b.chase) return null;
   // 沒在交火：搜索途中有機會停下來卡角。每次搜索目標換新（= 走到上一個目標）時擲一次，
   // 六成機率在附近找一個看得到入口的點架 3～7 秒（自調），其他時候照原本的搜索繼續走
-  if (b.goalX !== b.tacGX || b.goalY !== b.tacGY){
-    b.tacGX = b.goalX; b.tacGY = b.goalY;
+  if (newLeg){
     if (!(b.holdT > 0) && Math.random() < 0.6 && G.aiSearchT !== G.t){
       G.aiSearchT = G.t;
       const h = botPickHold(b, b.angle);

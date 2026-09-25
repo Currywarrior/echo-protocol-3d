@@ -361,6 +361,9 @@
         <p class="tracknote">可以直接貼上 Valorant 的準心代碼（設定 → 準心 → 匯入設定檔）。尺寸是螢幕實體像素，和遊戲裡一樣</p>
       </div>
       <div class="settings" id="rangeSet" hidden>
+        <label class="opt" for="rgRespawn">假人重生位置
+          <select id="rgRespawn"><option value="random">隨機</option><option value="home">原位</option></select>
+        </label>
         <label class="opt" for="rgMove">假人／機器人移動
           <select id="rgMove"><option value="still">靜止</option><option value="strafe">左右平移</option></select>
         </label>
@@ -6344,12 +6347,13 @@ const CROUCH_DROP = 0.28;       // 蹲下時骨盆降多少（模型尺度，乘
 const LANE = [8, 15, 22, 30];
 const LANE_SIDE = [-1.8, 1.8, -1.2, 1.2];
 
-const RANGE = {move:"strafe", speed:"mid", stance:"stand", random:1, shield:2, infinite:1, jump:0, board:10, testDifficulty:"medium"};
+const RANGE = {move:"strafe", speed:"mid", stance:"stand", random:1, shield:2, infinite:1, jump:0, board:10, testDifficulty:"medium", respawn:"random"};
 try {
   const raw = localStorage.getItem("echo3d.range");
   if (raw) Object.assign(RANGE, JSON.parse(raw));
 } catch(e){}
 if (!["easy","medium","hard"].includes(RANGE.testDifficulty)) RANGE.testDifficulty = "medium";
+if (!["random","home"].includes(RANGE.respawn)) RANGE.respawn = "random";
 
 // 假人外觀：同一套人形，迷彩換成素色訓練服，和敵人一眼分得出來
 function dummyObject(){
@@ -6407,6 +6411,35 @@ function laneSpots(p, ang){
     if (hit){ spots.push(hit); prev = hit.d; }
   }
   return {spots, ax, ay};
+}
+// 選點時就鎖定位置，避免多人接連倒下時都排到同一處；軸向跟著玩家視線轉正
+function dummyRespawnSpot(b){
+  if (RANGE.respawn !== "random") return {x:b.homeX, y:b.homeY, ax:b.ax, ay:b.ay};
+  const p = G.player, isRange = activeMap === MAPS.range, minGap = 2.5*PXM;
+  const clearOfDummies = (x,y) => {
+    for (const d of G.bots) if (d.dummy && d !== b && Math.hypot(d.x-x,d.y-y) < minGap) return false;
+    for (const r of G.respawns) if (Math.hypot(r.x-x,r.y-y) < minGap) return false;
+    return true;
+  };
+  const makeSpot = (x,y) => {
+    const dx = x-p.x, dy = y-p.y, d = Math.hypot(dx,dy);
+    return {x,y,ax:-dy/d,ay:dx/d};
+  };
+  for (let i=0;i<60;i++){
+    let x, y;
+    if (isRange){
+      x = 250 + (8 + Math.random()*32)*PXM;
+      y = 24 + 1.5*PXM + Math.random()*(676 - 3*PXM);
+    } else {
+      const a = p.angle + (Math.random()*2-1)*55*DEG;
+      const d = (8 + Math.random()*22)*PXM;
+      x = p.x + Math.cos(a)*d;
+      y = p.y + Math.sin(a)*d;
+    }
+    if (spotFree(x,y,TYPES.grunt.rad+4) && hasLOS(p.x,p.y,x,y,eyeH(),1.4) && clearOfDummies(x,y)) return makeSpot(x,y);
+  }
+  const fallback = makeSpot(b.homeX,b.homeY);
+  return Number.isFinite(fallback.ax) ? fallback : {x:b.homeX, y:b.homeY, ax:b.ax, ay:b.ay};
 }
 // T：沿著視線方向佈置，平移軸和視線垂直，所以假人是在你眼前左右移動。
 // auto（剛進訓練場時）：出生點朝向不一定開闊，改成 16 個方向裡挑放得最多的那個，
@@ -8550,10 +8583,11 @@ function update(dt){
                       tiltQuat:new THREE.Quaternion()});
       G.bots.splice(i,1);
       if (b.dummy){
-        // 假人不算分，記下 TTK（第一發命中到倒下）之後在原位重生
+        // 假人不算分，記下 TTK（第一發命中到倒下）並排入重生
         const ttk = G.t - b.firstHit;
         G.rs.kills++; G.rs.ttk = ttk;
-        G.respawns.push({t:DUMMY_RESPAWN, x:b.homeX, y:b.homeY, ax:b.ax, ay:b.ay});
+        const spot = dummyRespawnSpot(b);
+        G.respawns.push({t:DUMMY_RESPAWN, ...spot});
         G.feed.unshift({text:"DOWN · TTK " + ttk.toFixed(2) + "s", score:0, life:2.6, max:2.6, pickup:true});
         if (G.feed.length > 5) G.feed.pop();
         if (!G.val) sfxAt(b.x,b.y,"triangle",420,0.22,0.5,110);   // Valorant 的擊殺音在 valApplyHit
@@ -10124,7 +10158,7 @@ refreshKeyHints();
 
 // 訓練場設定：和其他設定一樣存在瀏覽器本機
 const rangeSet = document.getElementById("rangeSet");
-const RANGE_EL = {move:"rgMove", speed:"rgSpeed", stance:"rgStance", random:"rgRandom", shield:"rgShield", infinite:"rgInfinite", jump:"rgJump", board:"rgBoard", testDifficulty:"rgTestDifficulty"};
+const RANGE_EL = {respawn:"rgRespawn", move:"rgMove", speed:"rgSpeed", stance:"rgStance", random:"rgRandom", shield:"rgShield", infinite:"rgInfinite", jump:"rgJump", board:"rgBoard", testDifficulty:"rgTestDifficulty"};
 for (const [key, id] of Object.entries(RANGE_EL)){
   const el = document.getElementById(id);
   el.value = String(RANGE[key]);

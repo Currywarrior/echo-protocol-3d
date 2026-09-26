@@ -9205,7 +9205,7 @@ function sdPlanTick(){
   if (pl.fake && pl.exec[pl.site] && G.t - pl.execT[pl.site] > 6)
     for (const b of G.bots) if (b.team === sd.atk && b.sdGroup === pl.fake){ b.sdGroup = pl.site; if (b.sdRole === "fake") b.sdRole = "support"; }
 }
-// 防守方聽到消息：weak = 看到進攻方在某個點附近；strong = 看到兩個以上、或有人在那個點附近陣亡。
+// 防守方聽到消息：weak = 看到（或聽到腳步）一個進攻方在某個點附近；strong = 兩個以上、或有人在那個點附近陣亡。
 // 機動支援往呼叫最強的點去；strong 再從其他每個點抽一個人過去（那個點至少留一個守點，防佯攻）
 function sdDefCall(k, strong){
   const sd = G.sd, lvl = strong ? 2 : 1;
@@ -9461,9 +9461,18 @@ function sdUpdate(dt){
     sd.infoT = G.t + 0.25;
     const seen = {};
     for (const b of G.bots){
-      if (b.hp <= 0 || b.team === sd.atk || !(b.see > 0) || !b.tg || b.tg === SD_NOBODY) continue;
-      const k = sdNearSite(b.tg.x, b.tg.y, 10*PXM);
-      if (k) (seen[k] = seen[k] || new Set()).add(b.tg);
+      if (b.hp <= 0 || b.team === sd.atk) continue;
+      if (b.see > 0 && b.tg && b.tg !== SD_NOBODY){
+        const k = sdNearSite(b.tg.x, b.tg.y, 10*PXM);
+        if (k) (seen[k] = seen[k] || new Set()).add(b.tg);
+      }
+      // 聽腳步：15m 內在跑的進攻方（照這遊戲的核心，聽聲辨位），隔牆也聽得到；在包點外 14m 內集結的腳步就是消息。
+      // 只靠看到人才輪轉的話，進攻方在點外集合好一起進，兩個守點永遠是 2 打 4（模擬裡進攻方勝率 80～88%）
+      for (const a of G.bots){
+        if (a.hp <= 0 || a.team !== sd.atk || !(a.vel > TYPES[a.type].speed*ENEMY_SPEED_K*0.5) || Math.hypot(a.x - b.x, a.y - b.y) > 15*PXM) continue;
+        const k = sdNearSite(a.x, a.y, 14*PXM);
+        if (k) (seen[k] = seen[k] || new Set()).add(a);
+      }
     }
     for (const k in seen) sdDefCall(k, seen[k].size >= 2);
   }

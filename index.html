@@ -1374,13 +1374,118 @@ function inWallAt(x,y,h){
 // 子彈（與標記）用的牆判定：移動碰撞維持長方形（走位要穩定，AGENTS.md），但子彈照畫面上的真實形狀。
 // 量過：HIGH NOON 有 17.6% 被擋下的子彈是撞到「看不見的長方形」（圓柱、斷柱、八角柱、樹幹），
 // RIDGE TOWN 7.4%（岩石的長方形比畫面上的橢球大好幾公尺）；Leo 反映架在兩根柱子中間的縫子彈打不過去
+// 2026-09-26 起再加上「外殼」（SHELLS）：畫面上凸出碰撞範圍的實心構件（立面的線腳、窗台、門框、壁燈、落水管、
+// 門窗外框、貨櫃角柱、斜屋頂、懸崖岩面的起伏）只擋子彈，不進 WALLS，走路的碰撞不變。
+// 量過（tools/bullet_audit.py）：子彈穿過看得到的實體，RIDGE TOWN 15.9% → 0.6%（幾乎都是懸崖岩面），STONEGATE 4.9% → 0.2%（立面構件）。
+// 每顆子彈每一小步都要判定，所以牆與外殼都放進 32px（約 1m）的格子，只看子彈所在那一格（64px 時室內圖反而比逐面牆掃過去慢）
 function bulletInWall(x, y, h){
-  for (const w of WALLS)
+  const g = BGRID && BGRID.walls === WALLS && BGRID.n === WALLS.length && BGRID.shells === SHELLS ? BGRID : buildBulletGrid();
+  const i = Math.min(g.nx - 1, Math.max(0, Math.floor(x / BCELL))), j = Math.min(g.ny - 1, Math.max(0, Math.floor(y / BCELL)));
+  for (const w of g.cells[j*g.nx + i])
     if (x>w.x && x<w.x+w.w && y>w.y && y<w.y+w.h && h >= (w.base || 0) && h < (w.ht ? topAt(w,x,y) : WALL_H) && bulletShapeHit(w, x, y, h)) return true;
   return false;
 }
+const BCELL = 32;
+let BGRID = null, SHELLS = [];
+function buildBulletGrid(){
+  const nx = Math.max(1, Math.ceil(W / BCELL)), ny = Math.max(1, Math.ceil(H / BCELL));
+  const cells = Array.from({length:nx*ny}, () => []);
+  const cl = (v, n) => Math.min(n - 1, Math.max(0, Math.floor(v / BCELL)));
+  for (const w of [...WALLS, ...SHELLS])
+    for (let j = cl(w.y, ny); j <= cl(w.y + w.h, ny); j++)
+      for (let i = cl(w.x, nx); i <= cl(w.x + w.w, nx); i++) cells[j*nx + i].push(w);
+  return BGRID = {walls:WALLS, n:WALLS.length, shells:SHELLS, nx, ny, cells};
+}
+// 從畫出來的網格推外殼（建圖最後、合批之前）：只收形狀能精確描述的——軸對齊的方塊（含立面合批前的每個構件）、
+// 直立的圓柱、四坡屋頂；懸崖另外照 STYLES.cliff 的頂點推移重算。其他造型（球、錐、旋轉體、葉片）不收：
+// 用外框長方形代替的話會變成「被看不見的東西擋下」，比漏擋更糟。
+// 完全包在某面牆裡的構件（牆身本身、柱礎）不收，格子裡的清單才不會變長
+// rockNoise 在建圖的區塊裡，由呼叫端傳進來（懸崖的外殼要用）
+function buildBulletShells(rockNoise){
+  SHELLS = [];
+  const out = [], bb = new THREE.Box3(), m4 = new THREE.Matrix4(), v = new THREE.Vector3(), sc = new THREE.Vector3(), q = new THREE.Quaternion();
+  const inside = (r) => WALLS.some(w => !w.ramp && r.x >= w.x - 0.5 && r.y >= w.y - 0.5 && r.x + r.w <= w.x + w.w + 0.5 && r.y + r.h <= w.y + w.h + 0.5
+                                          && r.base >= (w.base || 0) - 0.01 && r.ht <= (w.ht || WALL_H) + 0.01);
+  const push = (r) => { if (r.ht > 0.06 && r.w > 0 && r.h > 0 && !inside(r)) out.push(r); };
+  const shape = (geo, mw, mat) => {
+    // 光柱（shaftMat）這類 shader 特效與半透明的東西不是實體
+    if (mat && (mat.colorWrite === false || mat.isShaderMaterial || (mat.transparent && mat.opacity < 0.5))) return;
+    if (!geo.boundingBox) geo.computeBoundingBox();
+    const t = geo.type;
+    if (t === "BoxGeometry"){
+      bb.copy(geo.boundingBox).applyMatrix4(mw);
+      mw.decompose(v, q, sc);
+      const g0 = geo.boundingBox, vol = (g0.max.x - g0.min.x)*(g0.max.y - g0.min.y)*(g0.max.z - g0.min.z)*Math.abs(sc.x*sc.y*sc.z);
+      const vb = (bb.max.x - bb.min.x)*(bb.max.y - bb.min.y)*(bb.max.z - bb.min.z);
+      if (vb > vol*1.02 + 1e-6) return;           // 斜放的方塊：外框比本體大，不收
+      push({x:bb.min.x/S, y:bb.min.z/S, w:(bb.max.x - bb.min.x)/S, h:(bb.max.z - bb.min.z)/S, base:Math.max(0, bb.min.y), ht:bb.max.y, shell:true});
+    } else if (t === "CylinderGeometry"){
+      const up = v.set(mw.elements[4], mw.elements[5], mw.elements[6]);
+      if (Math.abs(up.x) > 1e-3 || Math.abs(up.z) > 1e-3) return;   // 只收直立的
+      const r = Math.max(geo.parameters.radiusTop, geo.parameters.radiusBottom)*Math.hypot(mw.elements[0], mw.elements[1], mw.elements[2]);
+      // 面數少的（八角柱、方尖碑的四角錐台）用外接圓代替，面與面之間會多擋一塊（量過 HIGH NOON 的八角柱會擋出看不見的子彈）；
+      // 細桿（落水管是六角）差不到 1cm，照收
+      if (geo.parameters.radialSegments < 10 && r > 0.1) return;
+      bb.copy(geo.boundingBox).applyMatrix4(mw);
+      const cx = (bb.min.x + bb.max.x)/2/S, cz = (bb.min.z + bb.max.z)/2/S, rp = r/S;
+      push({x:cx - rp, y:cz - rp, w:rp*2, h:rp*2, base:Math.max(0, bb.min.y), ht:bb.max.y, cyl:[cx, cz, rp*rp], shell:true});
+    }
+  };
+  mapLayer.updateMatrixWorld(true);
+  mapLayer.traverse(o => {
+    if (!o.isMesh || o.isInstancedMesh || o.userData.noShell || Array.isArray(o.material)) return;
+    for (let p = o; p; p = p.parent) if (!p.visible) return;
+    if (o.userData.parts){
+      for (const it of o.userData.parts) shape(it.geometry, m4.multiplyMatrices(o.matrixWorld, it.matrix), o.material);
+      delete o.userData.parts;
+    } else if (o.userData.hipRoof){
+      const R = o.userData.hipRoof, c = v.setFromMatrixPosition(o.matrixWorld);
+      push({x:(c.x - R.Lx/2)/S, y:(c.z - R.Lz/2)/S, w:R.Lx/S, h:R.Lz/S, base:c.y, ht:c.y + R.rise, roof:[c.x/S, c.z/S, R.Lx/2/S, R.Lz/2/S, c.y, R.rise], shell:true});
+    } else shape(o.geometry, o.matrixWorld, o.material);
+  });
+  // 懸崖：頂點往外推最多 0.5m、頂面上下起伏 0.6m，外殼的範圍照最大值放寬，細節在 bulletShapeHit 算
+  for (const w of WALLS) if (w.style === "cliff"){
+    const e = 0.5/S;
+    out.push({x:w.x - e, y:w.y - e, w:w.w + e*2, h:w.h + e*2, base:0, ht:w.ht + 0.6, cliffOf:w, noise:rockNoise, shell:true});
+  }
+  SHELLS = out;
+}
+// 懸崖岩面（STYLES.cliff）在 (x, y, h) 這一點實不實：側面每個頂點往外推 k，頂面頂點上下推 0.6n。
+// 頂點間距約 1.6m、面是三角形，這裡在最近的四個頂點之間雙線性內插，和畫面差不到幾公分
+function cliffHit(w, rockNoise, x, y, h){
+  const gw = w.w*S, gd = w.h*S, wh = w.ht, ox = (w.x + w.w/2)*S, oz = (w.y + w.h/2)*S;
+  const sx = Math.max(2, Math.round(gw/1.6)), sy = Math.max(2, Math.round(wh/1.6)), sz = Math.max(2, Math.round(gd/1.6));
+  const lx = x*S - ox, lz = y*S - oz, ax = Math.abs(lx) - gw/2, az = Math.abs(lz) - gd/2;
+  const lerpK = (u, L, nu, fixed, alongX) => {
+    // u：沿著這一面的座標（-L/2～L/2），fixed：這一面的法向座標
+    const fu = Math.min(nu - 1e-6, Math.max(0, (u + L/2)/L*nu)), fh = Math.min(sy - 1e-6, Math.max(0, h/wh*sy));
+    const i = Math.floor(fu), j = Math.floor(fh), tu = fu - i, th = fh - j;
+    const k = (ii, jj) => {
+      const pu = -L/2 + L*ii/nu, py = wh*jj/sy;
+      const n = alongX ? rockNoise((pu + ox)*0.55, py*0.55, (fixed + oz)*0.55) : rockNoise((fixed + ox)*0.55, py*0.55, (pu + oz)*0.55);
+      return (0.5 + 0.5*n)*0.5*Math.min(1, py/1.2);
+    };
+    return (k(i, j)*(1 - tu) + k(i + 1, j)*tu)*(1 - th) + (k(i, j + 1)*(1 - tu) + k(i + 1, j + 1)*tu)*th;
+  };
+  if (ax > 0 && ax > lerpK(lz, gd, sz, Math.sign(lx)*gw/2, false)) return false;
+  if (az > 0 && az > lerpK(lx, gw, sx, Math.sign(lz)*gd/2, true)) return false;
+  if (h < wh) return true;
+  // 頂面：頂點的高度 wh + 0.6n（範圍外就用最近的邊）
+  const cx = Math.max(-gw/2, Math.min(gw/2, lx)), cz = Math.max(-gd/2, Math.min(gd/2, lz));
+  return h < wh + rockNoise((cx + ox)*0.55, wh*0.55, (cz + oz)*0.55)*0.6;
+}
 // 點已經在長方形裡：依造型再細判（尺寸照 STYLES 與 addTree 畫出來的模型）
 function bulletShapeHit(w, x, y, h){
+  if (w.shell){
+    if (w.cyl){ const ex = x - w.cyl[0], ey = y - w.cyl[1]; return ex*ex + ey*ey < w.cyl[2]; }
+    if (w.roof){
+      // 四坡屋頂：兩個長邊和兩端的斜面坡度一樣（平面上 45 度的斜脊），高度取到各邊距離的最小值
+      const [cx, cy, hx, hy, y0, rise] = w.roof, d = Math.min(hx, hy);
+      return h < y0 + rise*Math.min(hx - Math.abs(x - cx), hy - Math.abs(y - cy))/d;
+    }
+    if (w.cliffOf) return cliffHit(w.cliffOf, w.noise, x, y, h);
+    return true;
+  }
   const dx = (x - w.x - w.w/2)*S, dz = (y - w.y - w.h/2)*S, half = Math.min(w.w, w.h)*S/2, wh = w.ht || WALL_H;
   const d2 = dx*dx + dz*dz;
   // 樹幹：照 addTree 的畫法重算。以位置當種子決定頂端往哪歪（bx、bz），高度比例的平方決定歪多少；
@@ -3293,6 +3398,7 @@ function addTree(cx, cz){
   tg.computeVertexNormals();
   const trunk = new THREE.Mesh(tg, trunkMat);
   trunk.position.set(cx, 0, cz);
+  trunk.userData.noShell = true;                // 頂點歪過、外張過，子彈照 bulletShapeHit 的樹幹判定
   mapLayer.add(trunk);
 
   const top = new THREE.Vector3(cx + bx, TH, cz + bz);
@@ -3541,6 +3647,8 @@ function facadeBatch(g){
       for (const L of lists.values()){
         const m = new THREE.Mesh(mergeGeometries(L.items, true), L.mat);
         m.userData.noShadow = !L.cast;
+        // 子彈的外殼（buildBulletShells）要知道合批前每個構件的形狀與位置
+        m.userData.parts = L.items;
         // 貼在牆外的東西先畫，後面的牆面被擋住的像素就被深度測試直接略過，不必著色
         m.renderOrder = -1;
         g.add(m);
@@ -3620,7 +3728,7 @@ const STYLES = {
       pa.setXYZ(i, x + Math.sign(x)*k, y + (y > wh/2 - 0.01 ? n*0.6 : 0), z + Math.sign(z)*k);
     }
     geo.computeVertexNormals();
-    put(g, geo, stoneDarkMat, 0, wh/2, 0);
+    put(g, geo, stoneDarkMat, 0, wh/2, 0).userData.noShell = true;   // 子彈照 bulletShapeHit 的岩壁起伏
   },
   // 岩石：壓扁的二十面體加雜訊，塞進碰撞方塊裡；下緣埋進地面一點
   rock(g, gw, gd, wh, w){
@@ -3767,6 +3875,7 @@ const STYLES = {
         const ov = 0.2, rise = Math.min(4.2, short*(short <= 7 ? 0.42 : 0.3));
         const roof = new THREE.Mesh(roofGeo(gw + ov*2, gd + ov*2, rise), FM.slate);
         roof.position.y = roofY;
+        roof.userData.hipRoof = {Lx:gw + ov*2, Lz:gd + ov*2, rise};
         g.add(roof);
         // 煙囪穿出屋面
         const nc = 1 + Math.floor(long / 18);
@@ -4556,6 +4665,7 @@ addDoorFrames();
       o.castShadow = !o.userData.noShadow;
     });
   }
+  buildBulletShells(rockNoise);
   batchStatic(mapLayer);
 }
 

@@ -9130,7 +9130,7 @@ function sdAct(who, kind, dt){
 //   中點 mid：兩個包點之間 A* 路線的中點，防守方機動支援站這裡（到兩邊的路程差不多）
 function sdGeo(){
   if (!NAV || NAV.map !== activeMap) buildNav();
-  const m = activeMap, atkC = sdCentroid(m.spawnsAtk), keys = Object.keys(m.sites), geo = {entry:{}, stage:{}, mid:null};
+  const m = activeMap, atkC = sdCentroid(m.spawnsAtk), keys = Object.keys(m.sites), geo = {entry:{}, stage:{}, lane:{}, mid:null};
   for (const k of keys){
     const r = m.sites[k], cx = r.x + r.w/2, cy = r.y + r.h/2;
     const path = findPath(atkC.x, atkC.y, cx, cy) || [atkC, {x:cx, y:cy}];
@@ -9138,7 +9138,7 @@ function sdGeo(){
     if (i < 0) i = path.length - 1;
     let j = i, len = 0;
     while (j > 0 && len < 12*PXM){ len += Math.hypot(path[j].x - path[j - 1].x, path[j].y - path[j - 1].y); j--; }
-    geo.entry[k] = path[i]; geo.stage[k] = path[j];
+    geo.entry[k] = path[i]; geo.stage[k] = path[j]; geo.lane[k] = path.slice(0, i + 1).filter((q, n) => n % 4 === 0);
   }
   const c = k => ({x:m.sites[k].x + m.sites[k].w/2, y:m.sites[k].y + m.sites[k].h/2});
   const path = keys.length >= 2 ? findPath(c(keys[0]).x, c(keys[0]).y, c(keys[1]).x, c(keys[1]).y) : null;
@@ -9150,6 +9150,19 @@ function sdNearSite(x, y, pad){
   const S0 = activeMap.sites;
   for (const k in S0){ const r = S0[k]; if (x >= r.x - pad && x <= r.x + r.w + pad && y >= r.y - pad && y <= r.y + r.h + pad) return k; }
   return null;
+}
+// 集結的站位：集結點附近，但不要站在進攻路線上（路線上站著人，後面走過來的隊友會被堵在窄巷裡推不動）
+function sdStageSpot(g){
+  const geo = G.sd.geo, st = geo.stage[g], lane = geo.lane[g];
+  let best = null, bs = -1e9;
+  for (let n = 0; n < 8; n++){
+    const s = sdSpotNear(st.x, st.y, 30, 200);
+    let off = 150;
+    for (const q of lane) off = Math.min(off, Math.hypot(q.x - s.x, q.y - s.y));
+    const v = off - Math.hypot(s.x - st.x, s.y - st.y)*0.2;
+    if (v > bs){ bs = v; best = s; }
+  }
+  return best;
 }
 // 包點裡取幾個點，挑 score 最小的（離入口最近／最遠、離隊友最遠）
 function sdSpotBest(r, pad, score){
@@ -9197,7 +9210,7 @@ function sdPlanTick(){
     if (!g || pl.exec[g]) continue;
     const mem = G.bots.filter(b => b.hp > 0 && b.team === sd.atk && b.sdGroup === g);
     const st = geo.stage[g];
-    const ready = mem.every(b => Math.hypot(b.x - st.x, b.y - st.y) < 180 || b.see > 0);
+    const ready = mem.every(b => Math.hypot(b.x - st.x, b.y - st.y) < 230 || b.see > 0);
     let go;
     if (g === pl.fake) go = ready || el > 26;
     else if (pl.fake) go = (ready && (pl.execT[pl.fake] !== undefined && G.t - pl.execT[pl.fake] > 5 || !G.bots.some(b => b.hp > 0 && b.team === sd.atk && b.sdGroup === pl.fake))) || el > 40;
@@ -9297,13 +9310,13 @@ function sdObjective(b, los, dt){
   const atk = b.team === sd.atk;
   const defC = sdCentroid(m.spawnsDef), atkC = sdCentroid(m.spawnsAtk);
   const toward = (s, q) => Math.atan2(q.y - s.y, q.x - s.x);
-  let key, pick, face = null, urgent = false, hold = false;
+  let key, pick, face = null, urgent = false;
   if (atk){
     const g = b.sdGroup || pl.site, go = pl.exec[g], r = m.sites[g];
     if (sp.state === "carried" && sp.carrier === b){
       // 帶包者：集結時跟著大家；進點後讓先鋒先進 2.5 秒再去下包（佯攻的人撿到包也直接去主力的點下）
       if (g === pl.site && !go){
-        key = "stageC"; pick = () => sdSpotNear(geo.stage[g].x, geo.stage[g].y, 40, 160); face = s => toward(s, geo.entry[g]); hold = true;
+        key = "stageC"; pick = () => sdStageSpot(g); face = s => toward(s, geo.entry[g]);
       } else if (g === pl.site && G.t - pl.execT[g] < 2.5){
         return {still:true, face:toward(b, geo.entry[g])};
       } else {
@@ -9319,10 +9332,10 @@ function sdObjective(b, los, dt){
     } else if (sp.state === "dropped" && sd.fetcher === b) return {x:sp.x, y:sp.y, urgent:true};
     else if (sp.state === "planted"){
       // 下包後：找看得到 Spike 又有牆可躲的位置，架著拆包的人
-      key = "post"; pick = () => sdPostSpot(b); face = s => toward(s, sp); hold = true;
+      key = "post"; pick = () => sdPostSpot(b); face = s => toward(s, sp);
     } else if (!go){
       // 集結：在包點外的集結點附近散開等人到齊，看著入口
-      key = "stage" + g; pick = () => sdSpotNear(geo.stage[g].x, geo.stage[g].y, 20, 140); face = s => toward(s, geo.entry[g]); hold = true;
+      key = "stage" + g; pick = () => sdStageSpot(g); face = s => toward(s, geo.entry[g]);
     } else if (b.sdRole === "entry" || b.sdRole === "fake"){
       // 先鋒（與佯攻）：衝到包點深處（離入口最遠），先把點清掉
       key = "entry" + g; pick = () => sdSpotBest(r, 50, s => -Math.hypot(s.x - geo.entry[g].x, s.y - geo.entry[g].y));
@@ -9352,10 +9365,10 @@ function sdObjective(b, los, dt){
     } else if (b.sdSite){
       // 守點（與輪轉過來的人）：包點裡看得到入口的位置，兩個人分開站
       const k = b.sdSite;
-      key = "hold" + k; pick = () => sdHoldSpot(b, k); face = s => toward(s, geo.entry[k]); hold = true;
+      key = "hold" + k; pick = () => sdHoldSpot(b, k); face = s => toward(s, geo.entry[k]);
     } else {
       // 機動支援：站在兩個包點中間，看著進攻方出生區的方向
-      key = "mid"; pick = () => sdSpotNear(geo.mid.x, geo.mid.y, 0, 120); face = s => toward(s, atkC); hold = true;
+      key = "mid"; pick = () => sdSpotNear(geo.mid.x, geo.mid.y, 0, 120); face = s => toward(s, atkC);
     }
   }
   // 找不到路（點落在走不到的死角）、或往那裡走卡住超過 1.2 秒（窄巷裡被牆角或隊友擋住）就換一個點；最多每秒換一次。
@@ -9363,8 +9376,8 @@ function sdObjective(b, los, dt){
   if (b.sdKey === key && (b.pathFail || b.stuck > 1.2 || sdNoProgress(b, b.sdSpot.x, b.sdSpot.y)) && G.t >= (b.sdRepickT || 0)){ b.sdKey = null; b.sdRepickT = G.t + 1; }
   if (b.sdKey !== key){ b.sdKey = key; b.sdSpot = pick(); b.sdFace = face(b.sdSpot); b.sdProgD = undefined; }
   const s = b.sdSpot;
-  if (Math.hypot(s.x - b.x, s.y - b.y) < 14) return {still:true, face:b.sdFace, hold};
-  return {x:s.x, y:s.y, urgent, hold};
+  if (Math.hypot(s.x - b.x, s.y - b.y) < 14) return {still:true, face:b.sdFace};
+  return {x:s.x, y:s.y, urgent};
 }
 function sdPlant(who){
   const sd = G.sd, sp = sd.spike;
@@ -10539,9 +10552,9 @@ function update(dt){
 
       let tx, ty;
       if (los){ tx = tg.x; ty = tg.y; }
-      // 爆破的架點（obj.hold：守點、下包後守包、集結、機動支援）看不到人就回原位架著，不追過去：
-      // 追到最後看見的位置再掉頭走回架點，在 sd_sim 裡就是原地來回的「卡住」，也不是真人守點的打法
-      else if (b.chase && !(obj && (obj.urgent || obj.hold)) && Math.hypot(b.lastX-b.x, b.lastY-b.y) > 40){ tx = b.lastX; ty = b.lastY; }
+      // 爆破：有戰術目標（守點、集結、進點、守包、回防）的電腦看不到人就照目標走，不追到最後看見的位置。
+      // 追過去再掉頭走回戰術點，在 sd_sim 裡就是原地來回的「卡住」；剛失去視線時的架槍（botTactics）照舊
+      else if (b.chase && !obj && Math.hypot(b.lastX-b.x, b.lastY-b.y) > 40){ tx = b.lastX; ty = b.lastY; }
       else if (obj){ b.chase = false; tx = obj.still ? b.x : obj.x; ty = obj.still ? b.y : obj.y; }
       else {
         // 走到最後看見玩家的位置就放棄追蹤，直到重新看見為止。

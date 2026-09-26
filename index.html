@@ -9416,8 +9416,9 @@ function renderBuy(){
         html += "<h4>護甲</h4>";
         for (const [k, a] of Object.entries(VAL_ARMOR)){
           const own = p.armorKind === k && p.armor >= a.cap - 0.01;
+          const sellable = own && p.bought && canRefund(p.bought.armor) && p.bought.armor.kind === k;
           html += '<button type="button" class="buyItem' + (own ? " own" : "") + (!free && G.credits < a.cost ? " poor" : "") +
-            '" data-armor="' + k + '">' + a.name + '<span class="c">' + a.cost + '</span><span class="s">' + a.cap +
+            '" data-armor="' + k + '">' + a.name + '<span class="c">' + (sellable ? "賣回 +" + a.cost : a.cost) + '</span><span class="s">' + a.cap +
             " · 吸收 " + Math.round(a.abs*100) + "%" + (a.pool ? " · 回復池 " + a.pool : "") + "</span></button>";
         }
         continue;
@@ -9426,8 +9427,9 @@ function renderBuy(){
       for (const [id, d] of Object.entries(VAL_GUNS)){
         if (d.cat !== cat) continue;
         const key = "v_" + id, own = p.slots.primary === key || p.slots.secondary === key, b0 = d.dmg[0];
+        const sellable = own && p.bought && canRefund(p.bought[d.cat === "sidearm" ? "secondary" : "primary"]) && p.bought[d.cat === "sidearm" ? "secondary" : "primary"].key === key;
         html += '<button type="button" class="buyItem' + (own ? " own" : "") + (!free && G.credits < d.cost ? " poor" : "") +
-          '" data-gun="' + key + '">' + d.name + '<span class="c">' + (d.cost || "免費") + '</span><span class="s">頭 ' + b0[1] +
+          '" data-gun="' + key + '">' + d.name + '<span class="c">' + (sellable ? "賣回 +" + d.cost : d.cost || "免費") + '</span><span class="s">頭 ' + b0[1] +
           " · 身 " + b0[2] + " · 腿 " + b0[3] + (d.pellets ? " ×" + d.pellets : "") + " · " + d.rate + "/s · " + d.mag + " 發</span></button>";
       }
     }
@@ -9435,6 +9437,17 @@ function renderBuy(){
   }
   buyGrid.innerHTML = html;
 }
+// 右鍵：賣回這回合買的（左鍵再點一次已擁有的也會賣回）
+buyGrid.addEventListener("contextmenu", ev => {
+  ev.preventDefault(); ev.stopPropagation();
+  const b = ev.target.closest(".buyItem"), p = G && G.player;
+  if (!b || !G || !G.val || !p.bought) return;
+  if (b.dataset.gun){
+    const slot = GUNS[b.dataset.gun].val.cat === "sidearm" ? "secondary" : "primary", rec = p.bought[slot];
+    if (canRefund(rec) && rec.key === b.dataset.gun) valSellGun(slot);
+  } else if (canRefund(p.bought.armor) && p.bought.armor.kind === b.dataset.armor) valSellArmor();
+  renderBuy();
+});
 buyGrid.addEventListener("click", ev => {
   ev.stopPropagation();
   const b = ev.target.closest(".buyItem");
@@ -9442,29 +9455,67 @@ buyGrid.addEventListener("click", ev => {
   if (b.dataset.gun) valBuyGun(b.dataset.gun); else valBuyArmor(b.dataset.armor);
   renderBuy();
 });
-// 買槍：手槍放副武器欄、其他放主武器欄；已經有同一把就只是拿出來
+// 買賣：Valorant 的購買階段可以買了又賣、換來換去——這一回合買的東西在購買階段內賣回全額退款
+// （Valorant wiki：Credits，patch 紀錄「賣掉隊友幫你買的槍要正確退款」）。原本只能買不能賣（Leo 回報）。
+// p.bought 記每一欄這回合買了什麼、花多少、買之前拿的是什麼；賣回就還原成買之前的樣子。
+// 換買別把：同一欄這回合買的先退款再扣新的；上一回合留下來的槍直接換掉（Valorant 會丟在地上給隊友撿，丟槍系統還沒做）
+function buyRoundId(){ return G.sd ? G.sd.round : -1; }
+function canRefund(rec){ return !!(rec && G.sd && G.sd.phase === "buy" && rec.round === buyRoundId()); }
 function valBuyGun(key){
   const p = G.player, d = GUNS[key].val, slot = d.cat === "sidearm" ? "secondary" : "primary";
-  if (p.slots[slot] !== key){
-    if (!G.practice && !G.dm){
-      if (G.credits < d.cost){ sfx("square", 140, 0.12, 0.04, 90); return; }
-      G.credits -= d.cost;
-    }
-    p.slots[slot] = key;
-    p.mags[key] = GUNS[key].mag; p.reserve[key] = d.res;
+  const free = G.practice || G.dm;
+  p.bought = p.bought || {};
+  const rec = p.bought[slot];
+  if (p.slots[slot] === key){
+    // 已經是這一把：這回合買的就賣回，否則只是拿出來
+    if (!free && canRefund(rec) && rec.key === key){ valSellGun(slot); return; }
+    swapGun(key);
+    return;
   }
+  if (!free){
+    const refund = canRefund(rec) ? rec.cost : 0;
+    if (G.credits + refund < d.cost){ sfx("square", 140, 0.12, 0.04, 90); return; }
+    G.credits = Math.min(9000, G.credits + refund) - d.cost;
+    p.bought[slot] = {key, cost:d.cost, round:buyRoundId(), prevKey:refund ? rec.prevKey : p.slots[slot]};
+  }
+  p.slots[slot] = key;
+  p.mags[key] = GUNS[key].mag; p.reserve[key] = d.res;
   swapGun(key);
   sfx("sine", 700, 0.08, 0.04, 900);
 }
+function valSellGun(slot){
+  const p = G.player, rec = p.bought[slot];
+  G.credits = Math.min(9000, G.credits + rec.cost);
+  p.slots[slot] = rec.prevKey || null;
+  p.bought[slot] = null;
+  swapGun(p.slots[slot] || p.slots.secondary || p.slots.primary || "v_knife");
+  sfx("sine", 520, 0.08, 0.04, 360);
+}
 function valBuyArmor(k){
   const p = G.player, a = VAL_ARMOR[k];
-  if (p.armorKind === k && p.armor >= a.cap - 0.01) return;
-  if (!G.practice && !G.dm){
-    if (G.credits < a.cost){ sfx("square", 140, 0.12, 0.04, 90); return; }
-    G.credits -= a.cost;
+  const free = G.practice || G.dm;
+  p.bought = p.bought || {};
+  const rec = p.bought.armor;
+  if (p.armorKind === k && p.armor >= a.cap - 0.01){
+    if (!free && canRefund(rec) && rec.kind === k) valSellArmor();
+    return;
+  }
+  if (!free){
+    const refund = canRefund(rec) ? rec.cost : 0;
+    if (G.credits + refund < a.cost){ sfx("square", 140, 0.12, 0.04, 90); return; }
+    G.credits = Math.min(9000, G.credits + refund) - a.cost;
+    p.bought.armor = {kind:k, cost:a.cost, round:buyRoundId(),
+      prev:refund ? rec.prev : {armorKind:p.armorKind, armor:p.armor, armorAbs:p.armorAbs, regenPool:p.regenPool}};
   }
   p.armorKind = k; p.armor = a.cap; p.armorAbs = a.abs; p.regenPool = a.pool || 0;
   sfx("triangle", 880, 0.1, 0.04, 1100);
+}
+function valSellArmor(){
+  const p = G.player, rec = p.bought.armor;
+  G.credits = Math.min(9000, G.credits + rec.cost);
+  Object.assign(p, rec.prev);
+  p.bought.armor = null;
+  sfx("sine", 520, 0.08, 0.04, 360);
 }
 // tg：打誰。死鬥與生存只有玩家；爆破模式可能是另一隊的電腦（sdTarget）
 function botShoot(b, tg){
@@ -12501,13 +12552,17 @@ function loop(now){
     }
     // 暫停畫面開著（按 Esc 解除滑鼠鎖定）就整個停住：敵人、子彈、時間、動畫都不走，
     // 畫面照畫，停在按下暫停的那一格
+    const hT0 = performance.now();
+    let hT1 = hT0, hT2 = hT0;
     if (overPause.hidden){
       update(dt);
+      hT1 = performance.now();
       sync(dt);
       updateViewModel(dt);
       updateDust(dt, G.player.x*S, G.player.y*S);
       updateShells(dt);
       updateDrops(dt);
+      hT2 = performance.now();
     }
     compMat.uniforms.uTime.value   = G.t;
     compMat.uniforms.uDamage.value = G.vignette*0.5;
@@ -12524,11 +12579,33 @@ function loop(now){
     const dynShadow = !!activeMap.outdoor && (G.bots.length > 0 || G.corpses.length > 0);
     if (dynShadow || shadowWasDyn) renderer.shadowMap.needsUpdate = true;
     shadowWasDyn = dynShadow;
+    const hT3 = performance.now();
     renderPosted();
+    const hT4 = performance.now();
     drawUI();
+    hitchCheck(now, hT0, hT1, hT2, hT3, hT4, performance.now());
   }
   requestAnimationFrame(loop);
 }
+// 卡頓紀錄器：兩幀間隔超過 50ms 就記下這一幀各段花的時間與當下狀態，存在本機，DevTools 打 echoHitchLog() 印出來。
+// Leo 回報死鬥走路時偶爾卡一下，但自動測試（走路、開槍、擊殺、重生）重現不出來：
+// 各段加起來很小、間隔卻很大 = 卡在遊戲程式之外（瀏覽器、GPU、其他軟體、記憶體回收）；某一段很大 = 就是那一段
+let hitchPrev = 0, hitchSaveT = 0;
+const hitchLog = [];
+function hitchCheck(now, t0, t1, t2, t3, t4, t5){
+  const gap = hitchPrev ? now - hitchPrev : 0;
+  hitchPrev = now;
+  const work = t5 - t0;
+  if (gap < 50 && work < 35) return;
+  const r = (x) => Math.round(x*10)/10;
+  hitchLog.push({at:new Date().toLocaleTimeString(), gap:r(gap), work:r(work), update:r(t1 - t0), sync:r(t2 - t1), render:r(t4 - t3), ui:r(t5 - t4),
+    map:activeMap.name, rules:RULES, mode:G.mode, dm:!!G.dm, bots:G.bots.length, bullets:G.bullets.length, pickups:G.pickups.length,
+    corpses:G.corpses.length, gun:G.player.gun, fps:G.fps, heap:performance.memory ? Math.round(performance.memory.usedJSHeapSize/1048576) : null});
+  if (hitchLog.length > 200) hitchLog.shift();
+  if (now - hitchSaveT > 2000){ hitchSaveT = now; try { localStorage.setItem("echoHitchLog", JSON.stringify(hitchLog)); } catch(e){} }
+}
+// 優先讀記憶體裡的（存本機有 2 秒節流，最後一筆可能還沒存）；重新整理之後才讀本機存的
+window.echoHitchLog = () => { try { const L = hitchLog.length ? hitchLog : JSON.parse(localStorage.getItem("echoHitchLog") || "[]"); console.table(L); return JSON.stringify(L); } catch(e){} };
 
 // 預熱著色器。Three.js 是在材質第一次被畫到時才編譯程式，
 // 那會停頓數十毫秒——而且發生在遊戲中途（第一次打到牆、第一個腳印、第一顆彈殼），

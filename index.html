@@ -9276,31 +9276,16 @@ function sdPostSpot(b){
   }
   return best || sdSpotNear(sp.x, sp.y, 100, 260);
 }
-// 走向戰術點每 2.5 秒檢查一次：沒有靠近 1m（被隊友或牆角頂住、在窄門口互卡）就回傳 true，讓呼叫的地方換一個點。
-// 交火、追人、躲掩體時不算（那時本來就不是在走向戰術點）
+// 走向戰術點每 2.5 秒檢查一次：想走（油門 vK > 0.5）卻移動不到 1m（被隊友或牆角頂住、在窄門口互卡）就回傳 true，
+// 讓呼叫的地方換一個點。看的是自己實際走了多遠，不是離目標的直線距離：繞過整棟樓時直線距離本來就不會變短，
+// 用直線距離判斷的話帶包者會一直換下包點、原地掉頭。交火、躲掩體、站定時不算
 function sdNoProgress(b, x, y){
-  if (b.see > 0 || b.chase || b.cov){ b.sdProgD = undefined; return false; }
-  if (G.t < (b.sdProgT || 0)) return false;
-  const d = Math.hypot(x - b.x, y - b.y), prev = b.sdProgD;
-  b.sdProgD = d; b.sdProgT = G.t + 2.5;
-  return prev !== undefined && d > 14 && d > prev - PXM;
-}
-// 守點的站位：包點裡看得到入口（架著進攻方進來的那條路）、旁邊有掩體、和同一點的隊友分開。
-// 原本是包點裡隨機一點，常站在空地正中間，進攻方一進點就被多打一
-function sdHoldSpot(b, k){
-  const r = activeMap.sites[k], e = G.sd.geo.entry[k];
-  const mates = G.bots.filter(o => o !== b && o.hp > 0 && o.team === b.team && o.sdKey === "hold" + k && o.sdSpot);
-  let best = null, bs = -1e9;
-  for (let n = 0; n < 12; n++){
-    const s = sdSpotIn(r, 40);
-    let cov = 0;
-    for (let i = 0; i < 8; i++) if (navBlocked(s.x + Math.cos(i*Math.PI/4)*60, s.y + Math.sin(i*Math.PI/4)*60)) cov++;
-    let spread = 400;
-    for (const o of mates) spread = Math.min(spread, Math.hypot(o.sdSpot.x - s.x, o.sdSpot.y - s.y));
-    const v = cov*40 + spread + (hasLOS(s.x, s.y, e.x, e.y, 1.6, 1.6) ? 200 : 0);
-    if (v > bs){ bs = v; best = s; }
-  }
-  return best;
+  if (b.see > 0 || b.cov || Math.hypot(x - b.x, y - b.y) < 14 || !(b.vK > 0.5)){ b.sdProgT = undefined; return false; }
+  if (b.sdProgT === undefined){ b.sdProgT = G.t + 2.5; b.sdProgX = b.x; b.sdProgY = b.y; return false; }
+  if (G.t < b.sdProgT) return false;
+  const moved = Math.hypot(b.x - b.sdProgX, b.y - b.sdProgY);
+  b.sdProgT = G.t + 2.5; b.sdProgX = b.x; b.sdProgY = b.y;
+  return moved < PXM;
 }
 // 電腦的爆破目標。回傳 null 表示照一般 AI（交戰中）；{x, y, urgent} 是要去的點；{still, face} 是站著（守點、下包拆包中）。
 // 看到敵人時不下包也不拆包（先打）；真人會賭，但電腦先求能打完一場
@@ -9374,7 +9359,7 @@ function sdObjective(b, los, dt){
   // 找不到路（點落在走不到的死角）、或往那裡走卡住超過 1.2 秒（窄巷裡被牆角或隊友擋住）就換一個點；最多每秒換一次。
   // 戰術點是隨機抽的，換一個通常就繞得開；不換的話會一直頂著同一個牆角走（sd_sim 的「卡住」）
   if (b.sdKey === key && (b.pathFail || b.stuck > 1.2 || sdNoProgress(b, b.sdSpot.x, b.sdSpot.y)) && G.t >= (b.sdRepickT || 0)){ b.sdKey = null; b.sdRepickT = G.t + 1; }
-  if (b.sdKey !== key){ b.sdKey = key; b.sdSpot = pick(); b.sdFace = face(b.sdSpot); b.sdProgD = undefined; }
+  if (b.sdKey !== key){ b.sdKey = key; b.sdSpot = pick(); b.sdFace = face(b.sdSpot); b.sdProgT = undefined; }
   const s = b.sdSpot;
   if (Math.hypot(s.x - b.x, s.y - b.y) < 14) return {still:true, face:b.sdFace};
   return {x:s.x, y:s.y, urgent};

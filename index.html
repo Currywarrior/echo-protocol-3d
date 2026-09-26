@@ -9268,13 +9268,13 @@ function sdObjective(b, los, dt){
   const atk = b.team === sd.atk;
   const defC = sdCentroid(m.spawnsDef), atkC = sdCentroid(m.spawnsAtk);
   const toward = (s, q) => Math.atan2(q.y - s.y, q.x - s.x);
-  let key, pick, face = null, urgent = false;
+  let key, pick, face = null, urgent = false, hold = false;
   if (atk){
     const g = b.sdGroup || pl.site, go = pl.exec[g], r = m.sites[g];
     if (sp.state === "carried" && sp.carrier === b){
       // 帶包者：集結時跟著大家；進點後讓先鋒先進 2.5 秒再去下包（佯攻的人撿到包也直接去主力的點下）
       if (g === pl.site && !go){
-        key = "stageC"; pick = () => sdSpotNear(geo.stage[g].x, geo.stage[g].y, 40, 160); face = s => toward(s, geo.entry[g]);
+        key = "stageC"; pick = () => sdSpotNear(geo.stage[g].x, geo.stage[g].y, 40, 160); face = s => toward(s, geo.entry[g]); hold = true;
       } else if (g === pl.site && G.t - pl.execT[g] < 2.5){
         return {still:true, face:toward(b, geo.entry[g])};
       } else {
@@ -9289,10 +9289,10 @@ function sdObjective(b, los, dt){
     } else if (sp.state === "dropped" && sd.fetcher === b) return {x:sp.x, y:sp.y, urgent:true};
     else if (sp.state === "planted"){
       // 下包後：找看得到 Spike 又有牆可躲的位置，架著拆包的人
-      key = "post"; pick = () => sdPostSpot(b); face = s => toward(s, sp);
+      key = "post"; pick = () => sdPostSpot(b); face = s => toward(s, sp); hold = true;
     } else if (!go){
       // 集結：在包點外的集結點附近散開等人到齊，看著入口
-      key = "stage" + g; pick = () => sdSpotNear(geo.stage[g].x, geo.stage[g].y, 20, 140); face = s => toward(s, geo.entry[g]);
+      key = "stage" + g; pick = () => sdSpotNear(geo.stage[g].x, geo.stage[g].y, 20, 140); face = s => toward(s, geo.entry[g]); hold = true;
     } else if (b.sdRole === "entry" || b.sdRole === "fake"){
       // 先鋒（與佯攻）：衝到包點深處（離入口最遠），先把點清掉
       key = "entry" + g; pick = () => sdSpotBest(r, 50, s => -Math.hypot(s.x - geo.entry[g].x, s.y - geo.entry[g].y));
@@ -9324,10 +9324,10 @@ function sdObjective(b, los, dt){
       const k = b.sdSite, r = m.sites[k], mates = G.bots.filter(o => o !== b && o.hp > 0 && o.team === b.team && o.sdKey === "hold" + k && o.sdSpot);
       key = "hold" + k;
       pick = () => sdSpotBest(r, 40, s => -Math.min(400, ...mates.map(o => Math.hypot(o.sdSpot.x - s.x, o.sdSpot.y - s.y))));
-      face = s => toward(s, geo.entry[k]);
+      face = s => toward(s, geo.entry[k]); hold = true;
     } else {
       // 機動支援：站在兩個包點中間，看著進攻方出生區的方向
-      key = "mid"; pick = () => sdSpotNear(geo.mid.x, geo.mid.y, 0, 120); face = s => toward(s, atkC);
+      key = "mid"; pick = () => sdSpotNear(geo.mid.x, geo.mid.y, 0, 120); face = s => toward(s, atkC); hold = true;
     }
   }
   // 找不到路（點落在走不到的死角）、或往那裡走卡住超過 1.2 秒（窄巷裡被牆角或隊友擋住）就換一個點；最多每秒換一次。
@@ -9335,8 +9335,8 @@ function sdObjective(b, los, dt){
   if (b.sdKey === key && (b.pathFail || b.stuck > 1.2) && G.t >= (b.sdRepickT || 0)){ b.sdKey = null; b.sdRepickT = G.t + 1; }
   if (b.sdKey !== key){ b.sdKey = key; b.sdSpot = pick(); b.sdFace = face(b.sdSpot); }
   const s = b.sdSpot;
-  if (Math.hypot(s.x - b.x, s.y - b.y) < 14) return {still:true, face:b.sdFace};
-  return {x:s.x, y:s.y, urgent};
+  if (Math.hypot(s.x - b.x, s.y - b.y) < 14) return {still:true, face:b.sdFace, hold};
+  return {x:s.x, y:s.y, urgent, hold};
 }
 function sdPlant(who){
   const sd = G.sd, sp = sd.spike;
@@ -10502,7 +10502,9 @@ function update(dt){
 
       let tx, ty;
       if (los){ tx = tg.x; ty = tg.y; }
-      else if (b.chase && !(obj && obj.urgent) && Math.hypot(b.lastX-b.x, b.lastY-b.y) > 40){ tx = b.lastX; ty = b.lastY; }
+      // 爆破的架點（obj.hold：守點、下包後守包、集結、機動支援）看不到人就回原位架著，不追過去：
+      // 追到最後看見的位置再掉頭走回架點，在 sd_sim 裡就是原地來回的「卡住」，也不是真人守點的打法
+      else if (b.chase && !(obj && (obj.urgent || obj.hold)) && Math.hypot(b.lastX-b.x, b.lastY-b.y) > 40){ tx = b.lastX; ty = b.lastY; }
       else if (obj){ b.chase = false; tx = obj.still ? b.x : obj.x; ty = obj.still ? b.y : obj.y; }
       else {
         // 走到最後看見玩家的位置就放棄追蹤，直到重新看見為止。

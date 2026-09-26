@@ -53,6 +53,7 @@ ROUND_JS = r"""
       if (b.hp <= 0) continue;
       const s = st.get(b);
       s.vk += b.vK || 0; s.n++;
+      if (frame % 15 === 0){ (s.h = s.h || []).push([Math.round(b.x), Math.round(b.y), Math.round(b._gx), Math.round(b._gy), b._tac, b._ch ? 'c' : '', b.see > 0 ? 'L' : '']); if (s.h.length > 8) s.h.shift(); }
       if (frame % 6 === 0){
         const dx = b.x - s.sx, dy = b.y - s.sy, d = Math.hypot(dx, dy);
         if (d > 1){
@@ -67,7 +68,7 @@ ROUND_JS = r"""
           stuck++;
           if (stuckAt.length < 12) stuckAt.push({t:+t.toFixed(1), team:b.team === sd.atk ? 'A' : 'D', type:b.type, x:Math.round(b.x), y:Math.round(b.y),
             key:b.sdKey, spot:b.sdSpot && [Math.round(b.sdSpot.x), Math.round(b.sdSpot.y)], see:b.see > 0, chase:!!b.chase,
-            last:[Math.round(b.lastX), Math.round(b.lastY)], pathFail:!!b.pathFail, stuckT:+(b.stuck || 0).toFixed(1), cov:!!b.cov});
+            last:[Math.round(b.lastX), Math.round(b.lastY)], pathFail:!!b.pathFail, stuckT:+(b.stuck || 0).toFixed(1), cov:!!b.cov, hist:(s.h || []).map(q => q.join(' ')).join(' | ')});
         }
         s.wx = b.x; s.wy = b.y; s.vk = 0; s.n = 0;
       }
@@ -105,7 +106,16 @@ def main():
         fd, src = tempfile.mkstemp(suffix=".html")
         os.write(fd, html)
         os.close(fd)
-    d, _ = make_copy(src=src)
+    d, path = make_copy(src=src)
+    if a.trace:
+        # 追蹤用：記下每隻電腦這一幀要走去的點（navStep 之前的目標與之後的路徑點）與戰術狀態，只改測試副本
+        with open(path, encoding="utf-8") as f:
+            html = f.read()
+        hook = "[tx, ty] = navStep(b, tx, ty, dt);"
+        assert html.count(hook) == 1
+        html = html.replace(hook, "b._gx = tx; b._gy = ty; b._tac = tac ? (tac.still ? 'S' : tac.retreat ? 'R' : 'T') : (obj ? (obj.still ? 'os' : obj.urgent ? 'ou' : 'o') : '-'); b._ch = !!b.chase; " + hook, 1)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(html)
     srv, url = serve(d)
     rows = []
     with sync_playwright() as pw:

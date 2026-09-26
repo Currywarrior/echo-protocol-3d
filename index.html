@@ -9223,11 +9223,11 @@ function sdDefCall(k, strong){
     here[0].sdRole = "rotate"; here[0].sdSite = k;
   }
 }
-// 下包後的回防：每個人分到 Spike 周圍 16～22m 一個不同方向的接近點（兩兩至少差 50°，A* 自然會走不同的路），
-// 到齊（或剩 20 秒、或進攻方死光）才一起收進去——一個一個從同一條路進去只會被守包的人一個一個點掉
+// 下包後的回防：每個人分到 Spike 周圍 12～17m 一個不同方向的接近點（兩兩至少差 50°，A* 自然會走不同的路），
+// 到齊（或剩 28 秒、或進攻方死光）才一起收進去——一個一個從同一條路進去只會被守包的人一個一個點掉
 function sdAssignRetake(){
   const sd = G.sd, sp = sd.spike, cands = [], used = [];
-  for (let i = 0; i < 16; i++) for (const r of [16, 22]){
+  for (let i = 0; i < 16; i++) for (const r of [12, 17]){
     const a = i*Math.PI/8, x = sp.x + Math.cos(a)*r*PXM, y = sp.y + Math.sin(a)*r*PXM;
     if (x > 0 && y > 0 && x < W && y < H && !navBlocked(x, y)) cands.push({x, y, a});
   }
@@ -9330,8 +9330,9 @@ function sdObjective(b, los, dt){
       key = "mid"; pick = () => sdSpotNear(geo.mid.x, geo.mid.y, 0, 120); face = s => toward(s, atkC);
     }
   }
-  // 找不到路（點落在走不到的死角）就換一個點；最多每秒換一次
-  if (b.sdKey === key && b.pathFail && G.t >= (b.sdRepickT || 0)){ b.sdKey = null; b.sdRepickT = G.t + 1; }
+  // 找不到路（點落在走不到的死角）、或往那裡走卡住超過 1.2 秒（窄巷裡被牆角或隊友擋住）就換一個點；最多每秒換一次。
+  // 戰術點是隨機抽的，換一個通常就繞得開；不換的話會一直頂著同一個牆角走（sd_sim 的「卡住」）
+  if (b.sdKey === key && (b.pathFail || b.stuck > 1.2) && G.t >= (b.sdRepickT || 0)){ b.sdKey = null; b.sdRepickT = G.t + 1; }
   if (b.sdKey !== key){ b.sdKey = key; b.sdSpot = pick(); b.sdFace = face(b.sdSpot); }
   const s = b.sdSpot;
   if (Math.hypot(s.x - b.x, s.y - b.y) < 14) return {still:true, face:b.sdFace};
@@ -9483,11 +9484,12 @@ function sdUpdate(dt){
     let best = null, bd = 1e9;
     for (const b of G.bots) if (b.hp > 0 && b.team !== sd.atk){ const d = Math.hypot(sp.x - b.x, sp.y - b.y); if (d < bd){ bd = d; best = b; } }
     sd.defuser = best;
-    // 分路回防什麼時候一起收進去：每個人都到了自己的接近點（或已經在交火）、剩 20 秒、或進攻方死光（自調）
+    // 分路回防什麼時候一起收進去：每個人都到了自己的接近點（或已經在交火）、剩 28 秒、或進攻方死光（自調）。
+    // 28 秒 = 拆包 7 秒 + 走 12～17m 約 3 秒 + 清點的交火；原本等到 20 秒，模擬裡常常拆到一半就引爆
     const rt = sd.retake;
     if (rt && !rt.go){
       const ready = G.bots.every(b => b.hp <= 0 || b.team === sd.atk || !b.sdApp || b.see > 0 || Math.hypot(b.sdApp.x - b.x, b.sdApp.y - b.y) < 80);
-      if (ready || sd.timer < 20 || sdAliveN(sd.atk) === 0) rt.go = true;
+      if (ready || sd.timer < 28 || sdAliveN(sd.atk) === 0) rt.go = true;
     }
   }
   // 全滅：沒下包時任一方全滅就結束；下包後只有防守方全滅才結束（進攻方全滅還是要拆掉才算贏）

@@ -159,6 +159,8 @@ python tools/regress.py --only dm,maps --shots shots/tmp   # 只跑部分項目�
 - 連不到 cdnjs 的環境（雲端容器）：`--three 路徑` 把 CDN 網址接到本機的 three.min.js r147
   （`npm pack three@0.147.0` 解出 `package/build/three.min.js`）。遊戲本身仍然只從 cdnjs 載入，這只是測試用
 - 新增測試項目就加在 `regress.py` 的 `TESTS`；新地圖只要加進主選單就會自動被 maps 項目涵蓋
+- `tools/perf.py`：STONEGATE 死鬥 1080p 每幀耗時（total 含等 GPU、cpu 只算送出指令）與 draw call、三角形，
+  `--rev <commit>` 量舊版做對照、`--gpu` 用本機顯卡。SwiftShader 的 total 只能看相對變化，實機要 Leo 用 `--gpu` 量
 
 手感、聲音、平衡一律要 Leo 自己測。不要宣稱驗證過沒驗證過的東西。
 

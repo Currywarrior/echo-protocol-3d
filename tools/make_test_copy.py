@@ -29,6 +29,11 @@ ANCHOR = "applyAtmo();\nlayout();\nG = newGame();"
 HOOK = r"""
 // ── 測試副本專用（tools/make_test_copy.py 產生，不要提交）──
 SET.autoFs = 0;
+// 絕對不能真的鎖滑鼠：Chrome 在 Windows 的指標鎖定是系統層的 ClipCursor，無頭瀏覽器也會把 Leo 真實的游標
+// 關在一塊範圍裡（2026-09-26 發生過兩次，都是驗收測試造成的）。startGame() 會請求鎖定，這裡改成什麼都不做；
+// 測試一律用 __dbg.setLocked(true) 告訴遊戲「已鎖定」。全螢幕也一樣不准真的進
+HTMLElement.prototype.requestPointerLock = function(){ return Promise.resolve(); };
+Element.prototype.requestFullscreen = function(){ return Promise.resolve(); };
 window.__dbg = {
   getG: () => G, keys, update: (dt) => update(dt),
   step: (n, dt) => { for (let i = 0; i < n; i++){ update(dt); sync(dt); updateViewModel(dt); wheelTap.clear(); } },

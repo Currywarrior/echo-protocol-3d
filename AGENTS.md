@@ -122,6 +122,12 @@ r150+ 棄用 UMD、r160 移除。而發布平台的 CSP 只放行 cdnjs 與 jsde
 
 ## 驗證方法（很重要）
 
+> **測試絕對不能真的鎖住滑鼠或進全螢幕。** Chrome 在 Windows 上的指標鎖定是系統層的 `ClipCursor`，
+> 就算是無頭瀏覽器，也會把 Leo 真實的游標關在一塊範圍裡（2026-09-26 驗收測試造成過兩次）。
+> 一律用 `tools/make_test_copy.py` 產生的副本（已把 `requestPointerLock`、`requestFullscreen` 換成空函式），
+> 用 `__dbg.setLocked(true)` 告訴遊戲已鎖定；不要在測試裡用滑鼠點畫面去取得鎖定。
+
+
 Playwright MCP 開的是背景分頁，會被降頻到約 1fps，推不動遊戲迴圈。
 **改用 Python 版 playwright 自己開 headless Chrome**（`channel="chrome"`，參數
 `--use-angle=d3d11 --enable-gpu --ignore-gpu-blocklist`）：只有單一分頁、不降頻，遊戲迴圈真的會跑，

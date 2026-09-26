@@ -9076,12 +9076,8 @@ function sdBeginRound(){
   if (sd.atk === 0) atkers.push(p);
   const carrier = atkers[Math.floor(Math.random()*atkers.length)];
   sd.spike = {state:"carried", carrier, x:carrier.x, y:carrier.y, site:null};
-  // 進攻方這一回合打哪個點；防守方電腦平均分到每個點
-  const keys = Object.keys(m.sites);
-  sd.target = keys[Math.floor(Math.random()*keys.length)];
-  sd.plantSpot = sdSpotIn(m.sites[sd.target], 70);
-  const defs = G.bots.filter(b => b.team !== sd.atk).sort(() => Math.random() - 0.5), off = Math.floor(Math.random()*keys.length);
-  defs.forEach((b, i) => { b.sdSite = keys[(i + off) % keys.length]; });
+  // 進攻方的戰術與分工、防守方的站位（sdPlanRound）
+  sdPlanRound();
   const side = sd.atk === 0 ? "進攻" : "防守";
   banner("ROUND " + sd.round + " · " + side + (ot ? " · 延長賽" : ""),
     carrier === p ? "你攜帶 SPIKE" : "");
@@ -9121,50 +9117,222 @@ function sdAct(who, kind, dt){
   else if (kind === "defuse" && sd.act.t >= SD.defuse) sdDefused();
   return true;
 }
+// ── 爆破的戰術（2026-09-26）──
+// 原本進攻方全員直線衝同一個點、防守方平均分到每個點就不動。改成：進攻方每回合選一種打法並分工，
+// 防守方依包點站位、聽到消息就輪轉，下包後雙方都照「守包／分路回防」的站法。移動一律還是 update 裡的
+// A* 尋路（navStep）與掩體／架槍（botTactics），這裡只決定要去哪、要不要站著，不另寫移動。
+// 地圖的戰術幾何只讀爆破欄位（sites、spawnsAtk），不看地圖名稱（AGENTS.md）：
+//   入口 entry：進攻方出生區走 A* 到包點中心，路線第一個進到包點的點
+//   集結點 stage：從入口沿同一條路線往回 12m（自調）——在包點外集合，人到齊再一起進
+//   中點 mid：兩個包點之間 A* 路線的中點，防守方機動支援站這裡（到兩邊的路程差不多）
+function sdGeo(){
+  if (!NAV || NAV.map !== activeMap) buildNav();
+  const m = activeMap, atkC = sdCentroid(m.spawnsAtk), keys = Object.keys(m.sites), geo = {entry:{}, stage:{}, mid:null};
+  for (const k of keys){
+    const r = m.sites[k], cx = r.x + r.w/2, cy = r.y + r.h/2;
+    const path = findPath(atkC.x, atkC.y, cx, cy) || [atkC, {x:cx, y:cy}];
+    let i = path.findIndex(q => q.x >= r.x && q.x <= r.x + r.w && q.y >= r.y && q.y <= r.y + r.h);
+    if (i < 0) i = path.length - 1;
+    let j = i, len = 0;
+    while (j > 0 && len < 12*PXM){ len += Math.hypot(path[j].x - path[j - 1].x, path[j].y - path[j - 1].y); j--; }
+    geo.entry[k] = path[i]; geo.stage[k] = path[j];
+  }
+  const c = k => ({x:m.sites[k].x + m.sites[k].w/2, y:m.sites[k].y + m.sites[k].h/2});
+  const path = keys.length >= 2 ? findPath(c(keys[0]).x, c(keys[0]).y, c(keys[1]).x, c(keys[1]).y) : null;
+  geo.mid = path && path.length ? path[path.length >> 1] : geo.entry[keys[0]];
+  return geo;
+}
+// 點在哪個包點附近（包點範圍往外 pad）：防守方判斷「進攻方打哪裡」用
+function sdNearSite(x, y, pad){
+  const S0 = activeMap.sites;
+  for (const k in S0){ const r = S0[k]; if (x >= r.x - pad && x <= r.x + r.w + pad && y >= r.y - pad && y <= r.y + r.h + pad) return k; }
+  return null;
+}
+// 包點裡取幾個點，挑 score 最小的（離入口最近／最遠、離隊友最遠）
+function sdSpotBest(r, pad, score){
+  let best = null, bs = 1e9;
+  for (let k = 0; k < 6; k++){ const s = sdSpotIn(r, pad), v = score(s); if (v < bs){ bs = v; best = s; } }
+  return best;
+}
+// 回合開始的分工（購買階段就排好，購買階段本來就站著，算 A* 的停頓不會被看到）。
+// 進攻方三種打法：集中打 A、集中打 B（focus）、分兩路佯攻（split：兩個人先去另一個點製造聲勢，主力等佯攻接觸後再打真正的點）。
+// 依經濟選：一半以上的人沒有長槍（手槍局、eco）時多半集中，人少槍差還分兵只會被各個擊破；其他時候三種約各三分之一（自調）。
+// 角色：帶包者（carrier）、先鋒（entry：先進包點清點，選 keepDist 最小的，也就是貼臉打法的）、後排補位（support：進入口附近架槍、補槍）、
+// 佯攻（fake）。防守方：每個包點 2 個守點（anchor），其餘是機動支援（rotate）站在兩點中間，聽到消息先過去
+function sdPlanRound(){
+  const sd = G.sd, m = activeMap, keys = Object.keys(m.sites);
+  if (!sd.geo) sd.geo = sdGeo();
+  const atk = G.bots.filter(b => b.team === sd.atk), carrier = sd.spike.carrier;
+  const poor = atk.filter(b => VAL_GUNS[b.gun].cat === "sidearm").length*2 >= atk.length;
+  const split = keys.length >= 2 && atk.length >= 3 && Math.random() < (poor ? 0.15 : 0.34);
+  const site = keys[Math.floor(Math.random()*keys.length)], others = keys.filter(k => k !== site);
+  const fake = split ? others[Math.floor(Math.random()*others.length)] : null;
+  sd.plan = {kind:split ? "split" : "focus", site, fake, exec:{}, execT:{}};
+  sd.target = site; sd.plantSpot = sdSpotIn(m.sites[site], 70);
+  sd.calls = {}; sd.retake = null; sd.infoT = 0;
+  // 帶包者以外的人，貼臉打法的排前面（當先鋒）；佯攻從最後面挑，保留先鋒給主力
+  const rest = atk.filter(b => b !== carrier).sort((p, q) => TYPES[p.type].keepDist - TYPES[q.type].keepDist || Math.random() - 0.5);
+  const fakes = split ? rest.splice(rest.length - 2, 2) : [];
+  const nEntry = rest.length > 2 ? 2 : 1;
+  for (const b of atk){ b.sdKey = null; b.sdGroup = site; }
+  if (carrier !== G.player) carrier.sdRole = "carrier";
+  rest.forEach((b, i) => { b.sdRole = i < nEntry ? "entry" : "support"; });
+  for (const b of fakes){ b.sdRole = "fake"; b.sdGroup = fake; }
+  const defs = G.bots.filter(b => b.team !== sd.atk).sort(() => Math.random() - 0.5), off = Math.floor(Math.random()*keys.length);
+  defs.forEach((b, i) => {
+    b.sdKey = null;
+    if (i < keys.length*2){ b.sdRole = "anchor"; b.sdSite = keys[(i + off) % keys.length]; }
+    else { b.sdRole = "rotate"; b.sdSite = null; }
+  });
+}
+// 進攻方每一群什麼時候「進」：集結點人到齊（或已經接敵）就進；佯攻先進，主力等佯攻接觸 5 秒後再進（把防守方輪轉騙過去）。
+// 時間保底：開局 30 秒（佯攻 26 秒、分兩路的主力 40 秒）、或剩 45 秒時不管人齊不齊都進，否則會拖到時間到都沒下包（自調）
+function sdPlanTick(){
+  const sd = G.sd, pl = sd.plan, geo = sd.geo, el = SD.roundTime - sd.timer;
+  if (!pl || sd.phase !== "live") return;
+  for (const g of [pl.fake, pl.site]){
+    if (!g || pl.exec[g]) continue;
+    const mem = G.bots.filter(b => b.hp > 0 && b.team === sd.atk && b.sdGroup === g);
+    const st = geo.stage[g];
+    const ready = mem.every(b => Math.hypot(b.x - st.x, b.y - st.y) < 180 || b.see > 0);
+    let go;
+    if (g === pl.fake) go = ready || el > 26;
+    else if (pl.fake) go = (ready && (pl.execT[pl.fake] !== undefined && G.t - pl.execT[pl.fake] > 5 || !G.bots.some(b => b.hp > 0 && b.team === sd.atk && b.sdGroup === pl.fake))) || el > 40;
+    else go = ready || el > 30;
+    if (go || sd.timer < 45 || mem.some(b => b.see > 0 && b.see < 0.1 && Math.hypot(b.x - st.x, b.y - st.y) < 300)){ pl.exec[g] = true; pl.execT[g] = G.t; }
+  }
+  // 佯攻打了一陣子（主力進點 6 秒後）就轉去主力那邊補位
+  if (pl.fake && pl.exec[pl.site] && G.t - pl.execT[pl.site] > 6)
+    for (const b of G.bots) if (b.team === sd.atk && b.sdGroup === pl.fake){ b.sdGroup = pl.site; if (b.sdRole === "fake") b.sdRole = "support"; }
+}
+// 防守方聽到消息：weak = 看到進攻方在某個點附近；strong = 看到兩個以上、或有人在那個點附近陣亡。
+// 機動支援往呼叫最強的點去；strong 再從其他每個點抽一個人過去（那個點至少留一個守點，防佯攻）
+function sdDefCall(k, strong){
+  const sd = G.sd, lvl = strong ? 2 : 1;
+  if (sd.phase !== "live" || !k || (sd.calls[k] || 0) >= lvl) return;
+  sd.calls[k] = lvl;
+  const defs = G.bots.filter(b => b.hp > 0 && b.team !== sd.atk);
+  for (const b of defs) if (b.sdRole === "rotate" && (!b.sdSite || (sd.calls[b.sdSite] || 0) < lvl)) b.sdSite = k;
+  if (!strong) return;
+  const r = activeMap.sites[k], cx = r.x + r.w/2, cy = r.y + r.h/2;
+  for (const o of Object.keys(activeMap.sites)){
+    if (o === k) continue;
+    const here = defs.filter(b => b.sdRole === "anchor" && b.sdSite === o);
+    if (here.length < 2) continue;
+    here.sort((p, q) => Math.hypot(p.x - cx, p.y - cy) - Math.hypot(q.x - cx, q.y - cy));
+    here[0].sdRole = "rotate"; here[0].sdSite = k;
+  }
+}
+// 下包後的回防：每個人分到 Spike 周圍 16～22m 一個不同方向的接近點（兩兩至少差 50°，A* 自然會走不同的路），
+// 到齊（或剩 20 秒、或進攻方死光）才一起收進去——一個一個從同一條路進去只會被守包的人一個一個點掉
+function sdAssignRetake(){
+  const sd = G.sd, sp = sd.spike, cands = [], used = [];
+  for (let i = 0; i < 16; i++) for (const r of [16, 22]){
+    const a = i*Math.PI/8, x = sp.x + Math.cos(a)*r*PXM, y = sp.y + Math.sin(a)*r*PXM;
+    if (x > 0 && y > 0 && x < W && y < H && !navBlocked(x, y)) cands.push({x, y, a});
+  }
+  const defs = G.bots.filter(b => b.hp > 0 && b.team !== sd.atk).sort((p, q) => Math.hypot(p.x - sp.x, p.y - sp.y) - Math.hypot(q.x - sp.x, q.y - sp.y));
+  for (const b of defs){
+    let best = null, bs = 1e9;
+    for (const c of cands){
+      let v = Math.hypot(c.x - b.x, c.y - b.y);
+      for (const a of used) if (angDiff(a, c.a) < 0.87) v += 1500;
+      if (v < bs){ bs = v; best = c; }
+    }
+    b.sdApp = best; b.sdKey = null;
+    if (best) used.push(best.a);
+  }
+  sd.retake = {go:false};
+}
+// 下包後進攻方的站位：Spike 8～20m 內、看得到 Spike（架拆包的人）、旁邊有牆（周圍 2m 八個方向被擋的越多越好）、和隊友分開
+function sdPostSpot(b){
+  const sp = G.sd.spike, mates = G.bots.filter(o => o !== b && o.hp > 0 && o.team === b.team && o.sdKey === "post" && o.sdSpot);
+  let best = null, bs = -1e9;
+  for (let k = 0; k < 16; k++){
+    const a = Math.random()*Math.PI*2, r = (8 + Math.random()*12)*PXM, x = sp.x + Math.cos(a)*r, y = sp.y + Math.sin(a)*r;
+    if (x <= 0 || y <= 0 || x >= W || y >= H || navBlocked(x, y) || !hasLOS(x, y, sp.x, sp.y, 1.6, 1.0)) continue;
+    let cov = 0;
+    for (let i = 0; i < 8; i++) if (navBlocked(x + Math.cos(i*Math.PI/4)*60, y + Math.sin(i*Math.PI/4)*60)) cov++;
+    let spread = 400;
+    for (const o of mates) spread = Math.min(spread, Math.hypot(o.sdSpot.x - x, o.sdSpot.y - y));
+    const v = cov*40 + spread - Math.hypot(x - b.x, y - b.y)*0.3;
+    if (v > bs){ bs = v; best = {x, y}; }
+  }
+  return best || sdSpotNear(sp.x, sp.y, 100, 260);
+}
 // 電腦的爆破目標。回傳 null 表示照一般 AI（交戰中）；{x, y, urgent} 是要去的點；{still, face} 是站著（守點、下包拆包中）。
-// 看到敵人時不下包也不拆包（先打）；真人會賭，但電腦先求能打完一場（戰術 AI 下一輪再加強）
+// 看到敵人時不下包也不拆包（先打）；真人會賭，但電腦先求能打完一場
 function sdObjective(b, los, dt){
-  const sd = G.sd, sp = sd.spike, m = activeMap;
+  const sd = G.sd, sp = sd.spike, m = activeMap, pl = sd.plan, geo = sd.geo;
   if (sd.phase === "end") return {still:true, face:b.angle};
   const atk = b.team === sd.atk;
   const defC = sdCentroid(m.spawnsDef), atkC = sdCentroid(m.spawnsAtk);
-  let key, pick, face, urgent = false;
+  const toward = (s, q) => Math.atan2(q.y - s.y, q.x - s.x);
+  let key, pick, face = null, urgent = false;
   if (atk){
+    const g = b.sdGroup || pl.site, go = pl.exec[g], r = m.sites[g];
     if (sp.state === "carried" && sp.carrier === b){
-      const s = sd.plantSpot;
-      if (Math.hypot(s.x - b.x, s.y - b.y) < 16 && sdSiteAt(b.x, b.y)){
-        if (los) return null;
-        sdAct(b, "plant", dt);
-        return {still:true, face:b.angle, urgent:true};
+      // 帶包者：集結時跟著大家；進點後讓先鋒先進 2.5 秒再去下包（佯攻的人撿到包也直接去主力的點下）
+      if (g === pl.site && !go){
+        key = "stageC"; pick = () => sdSpotNear(geo.stage[g].x, geo.stage[g].y, 40, 160); face = s => toward(s, geo.entry[g]);
+      } else if (g === pl.site && G.t - pl.execT[g] < 2.5){
+        return {still:true, face:toward(b, geo.entry[g])};
+      } else {
+        const s = sd.plantSpot;
+        if (Math.hypot(s.x - b.x, s.y - b.y) < 16 && sdSiteAt(b.x, b.y)){
+          if (los) return null;
+          sdAct(b, "plant", dt);
+          return {still:true, face:b.angle, urgent:true};
+        }
+        return {x:s.x, y:s.y, urgent:true};
       }
-      return {x:s.x, y:s.y, urgent:true};
-    }
-    if (sp.state === "dropped" && sd.fetcher === b) return {x:sp.x, y:sp.y, urgent:true};
-    if (sp.state === "planted"){
-      // 下包後散在 Spike 附近 3～8m，看著防守方回防的方向
-      key = "post"; pick = () => sdSpotNear(sp.x, sp.y, 100, 260); face = Math.atan2(defC.y - sp.y, defC.x - sp.x);
+    } else if (sp.state === "dropped" && sd.fetcher === b) return {x:sp.x, y:sp.y, urgent:true};
+    else if (sp.state === "planted"){
+      // 下包後：找看得到 Spike 又有牆可躲的位置，架著拆包的人
+      key = "post"; pick = () => sdPostSpot(b); face = s => toward(s, sp);
+    } else if (!go){
+      // 集結：在包點外的集結點附近散開等人到齊，看著入口
+      key = "stage" + g; pick = () => sdSpotNear(geo.stage[g].x, geo.stage[g].y, 20, 140); face = s => toward(s, geo.entry[g]);
+    } else if (b.sdRole === "entry" || b.sdRole === "fake"){
+      // 先鋒（與佯攻）：衝到包點深處（離入口最遠），先把點清掉
+      key = "entry" + g; pick = () => sdSpotBest(r, 50, s => -Math.hypot(s.x - geo.entry[g].x, s.y - geo.entry[g].y));
+      face = s => toward(s, defC);
     } else {
-      key = "site" + sd.target; pick = () => sdSpotIn(m.sites[sd.target], 50);
-      const c = m.sites[sd.target]; face = Math.atan2(defC.y - (c.y + c.h/2), defC.x - (c.x + c.w/2));
+      // 後排補位：進到入口附近，架著防守方過來的方向，補先鋒的槍、掩護下包
+      key = "sup" + g; pick = () => sdSpotBest(r, 50, s => Math.hypot(s.x - geo.entry[g].x, s.y - geo.entry[g].y));
+      face = s => toward(s, defC);
     }
   } else {
     if (sp.state === "planted"){
-      if (sd.defuser === b){
+      if (!sd.retake) sdAssignRetake();
+      if (!sd.retake.go && b.sdApp){
+        // 分路回防：先到自己的接近點（各自不同方向），看著 Spike 等大家到齊
+        key = "app"; pick = () => b.sdApp; face = s => toward(s, sp); urgent = true;
+      } else if (sd.defuser === b){
         if (Math.hypot(sp.x - b.x, sp.y - b.y) < SD.defuseReach*0.7){
           if (los) return null;
           sdAct(b, "defuse", dt);
           return {still:true, face:b.angle, urgent:true};
         }
         return {x:sp.x, y:sp.y, urgent:true};
+      } else {
+        // 其他人：收進 Spike 附近掩護拆包的人
+        key = "retake"; pick = () => sdSpotNear(sp.x, sp.y, 60, 200); face = s => toward(s, sp); urgent = true;
       }
-      // 其他人回防：到 Spike 附近掩護拆包的人
-      key = "retake"; pick = () => sdSpotNear(sp.x, sp.y, 60, 200); face = Math.atan2(sp.y - b.y, sp.x - b.x); urgent = true;
+    } else if (b.sdSite){
+      // 守點（與輪轉過來的人）：包點裡看得到入口的位置，兩個人分開站
+      const k = b.sdSite, r = m.sites[k], mates = G.bots.filter(o => o !== b && o.hp > 0 && o.team === b.team && o.sdKey === "hold" + k && o.sdSpot);
+      key = "hold" + k;
+      pick = () => sdSpotBest(r, 40, s => -Math.min(400, ...mates.map(o => Math.hypot(o.sdSpot.x - s.x, o.sdSpot.y - s.y))));
+      face = s => toward(s, geo.entry[k]);
     } else {
-      const r = m.sites[b.sdSite];
-      key = "hold" + b.sdSite; pick = () => sdSpotIn(r, 40); face = Math.atan2(atkC.y - (r.y + r.h/2), atkC.x - (r.x + r.w/2));
+      // 機動支援：站在兩個包點中間，看著進攻方出生區的方向
+      key = "mid"; pick = () => sdSpotNear(geo.mid.x, geo.mid.y, 0, 120); face = s => toward(s, atkC);
     }
   }
-  if (b.sdKey !== key){ b.sdKey = key; b.sdSpot = pick(); b.sdFace = face; }
+  // 找不到路（點落在走不到的死角）就換一個點；最多每秒換一次
+  if (b.sdKey === key && b.pathFail && G.t >= (b.sdRepickT || 0)){ b.sdKey = null; b.sdRepickT = G.t + 1; }
+  if (b.sdKey !== key){ b.sdKey = key; b.sdSpot = pick(); b.sdFace = face(b.sdSpot); }
   const s = b.sdSpot;
   if (Math.hypot(s.x - b.x, s.y - b.y) < 14) return {still:true, face:b.sdFace};
   return {x:s.x, y:s.y, urgent};
@@ -9174,6 +9342,7 @@ function sdPlant(who){
   sp.state = "planted"; sp.carrier = null; sp.x = who.x; sp.y = who.y; sp.site = sdSiteAt(who.x, who.y);
   sd.phase = "planted"; sd.timer = SD.fuse; sd.planted = true; sd.act = null; sd.defuseSave = 0; sd.beepT = 0;
   banner("SPIKE 已安裝", (sp.site || "") + " 點 · " + SD.fuse + " 秒後引爆");
+  sdAssignRetake();
   sfxAt(sp.x, sp.y, "triangle", 520, 0.3, 0.5, 880);
 }
 function sdDefused(){
@@ -9203,6 +9372,8 @@ function sdOnBotDeath(b){
   const sd = G.sd;
   b.prof.alive = false;
   sdDrop(b);
+  // 在包點附近陣亡：防守方的人倒了是強烈的消息（進攻方在打這裡），進攻方的人倒了也透露了位置
+  sdDefCall(sdNearSite(b.x, b.y, 10*PXM), b.team !== sd.atk);
   if (sd.act && sd.act.who === b) sd.act = null;
   sdKillReward(b.lastHitBy, b.team);
 }
@@ -9210,6 +9381,7 @@ function sdPlayerDown(){
   const sd = G.sd, p = G.player;
   p.out = true; p.hp = 0;
   sdDrop(p);
+  sdDefCall(sdNearSite(p.x, p.y, 10*PXM), sd.atk !== 0);
   if (sd.act && sd.act.who === p) sd.act = null;
   sdKillReward(p.lastHitBy, 0);
   G.killStreak = 0; G.adsOn = false;
@@ -9282,6 +9454,18 @@ function sdUpdate(dt){
     else if (sd.phase === "planted" && sd.atk !== 0 && Math.hypot(sp.x - p.x, sp.y - p.y) < SD.defuseReach) sdAct(p, "defuse", dt);
   }
   if (sp.state === "carried"){ sp.x = sp.carrier.x; sp.y = sp.carrier.y; }
+  // 電腦的戰術：進攻方各群什麼時候進點；防守方每 0.25 秒回報看到的進攻方在哪個點附近
+  sdPlanTick();
+  if (sd.phase === "live" && G.t >= sd.infoT){
+    sd.infoT = G.t + 0.25;
+    const seen = {};
+    for (const b of G.bots){
+      if (b.hp <= 0 || b.team === sd.atk || !(b.see > 0) || !b.tg || b.tg === SD_NOBODY) continue;
+      const k = sdNearSite(b.tg.x, b.tg.y, 10*PXM);
+      if (k) (seen[k] = seen[k] || new Set()).add(b.tg);
+    }
+    for (const k in seen) sdDefCall(k, seen[k].size >= 2);
+  }
   else if (sp.state === "dropped" && sd.phase !== "end"){
     // 掉在地上：最近的進攻方電腦去撿；任何進攻方走過去就自動撿起來
     let fetch = null, fd = 1e9, pick = null;

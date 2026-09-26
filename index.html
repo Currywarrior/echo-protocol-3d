@@ -9507,10 +9507,11 @@ function sdUpdate(dt){
         const k = sdNearSite(b.tg.x, b.tg.y, 10*PXM);
         if (k) (seen[k] = seen[k] || new Set()).add(b.tg);
       }
-      // 聽腳步：15m 內在跑的進攻方（照這遊戲的核心，聽聲辨位），隔牆也聽得到；在包點外 14m 內集結的腳步就是消息。
+      // 聽腳步：22m 內在跑的進攻方（照這遊戲的核心，聽聲辨位），隔牆也聽得到；在包點外 14m 內集結的腳步就是消息。
+      // 22m 是讓守點聽得到包點外 12m 的集結點（自調；15m 時守點常常聽不到，模擬裡進攻方勝率在 62～92% 之間跳）。
       // 只靠看到人才輪轉的話，進攻方在點外集合好一起進，兩個守點永遠是 2 打 4（模擬裡進攻方勝率 80～88%）
       for (const a of G.bots){
-        if (a.hp <= 0 || a.team !== sd.atk || !(a.vel > TYPES[a.type].speed*ENEMY_SPEED_K*0.5) || Math.hypot(a.x - b.x, a.y - b.y) > 15*PXM) continue;
+        if (a.hp <= 0 || a.team !== sd.atk || !(a.vel > TYPES[a.type].speed*ENEMY_SPEED_K*0.5) || Math.hypot(a.x - b.x, a.y - b.y) > 22*PXM) continue;
         const k = sdNearSite(a.x, a.y, 14*PXM);
         if (k) (seen[k] = seen[k] || new Set()).add(a);
       }

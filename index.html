@@ -9272,6 +9272,23 @@ function sdNoProgress(b, x, y){
   b.sdProgD = d; b.sdProgT = G.t + 2.5;
   return prev !== undefined && d > 14 && d > prev - PXM;
 }
+// 守點的站位：包點裡看得到入口（架著進攻方進來的那條路）、旁邊有掩體、和同一點的隊友分開。
+// 原本是包點裡隨機一點，常站在空地正中間，進攻方一進點就被多打一
+function sdHoldSpot(b, k){
+  const r = activeMap.sites[k], e = G.sd.geo.entry[k];
+  const mates = G.bots.filter(o => o !== b && o.hp > 0 && o.team === b.team && o.sdKey === "hold" + k && o.sdSpot);
+  let best = null, bs = -1e9;
+  for (let n = 0; n < 12; n++){
+    const s = sdSpotIn(r, 40);
+    let cov = 0;
+    for (let i = 0; i < 8; i++) if (navBlocked(s.x + Math.cos(i*Math.PI/4)*60, s.y + Math.sin(i*Math.PI/4)*60)) cov++;
+    let spread = 400;
+    for (const o of mates) spread = Math.min(spread, Math.hypot(o.sdSpot.x - s.x, o.sdSpot.y - s.y));
+    const v = cov*40 + spread + (hasLOS(s.x, s.y, e.x, e.y, 1.6, 1.6) ? 200 : 0);
+    if (v > bs){ bs = v; best = s; }
+  }
+  return best;
+}
 // 電腦的爆破目標。回傳 null 表示照一般 AI（交戰中）；{x, y, urgent} 是要去的點；{still, face} 是站著（守點、下包拆包中）。
 // 看到敵人時不下包也不拆包（先打）；真人會賭，但電腦先求能打完一場
 function sdObjective(b, los, dt){
@@ -9334,10 +9351,8 @@ function sdObjective(b, los, dt){
       }
     } else if (b.sdSite){
       // 守點（與輪轉過來的人）：包點裡看得到入口的位置，兩個人分開站
-      const k = b.sdSite, r = m.sites[k], mates = G.bots.filter(o => o !== b && o.hp > 0 && o.team === b.team && o.sdKey === "hold" + k && o.sdSpot);
-      key = "hold" + k;
-      pick = () => sdSpotBest(r, 40, s => -Math.min(400, ...mates.map(o => Math.hypot(o.sdSpot.x - s.x, o.sdSpot.y - s.y))));
-      face = s => toward(s, geo.entry[k]); hold = true;
+      const k = b.sdSite;
+      key = "hold" + k; pick = () => sdHoldSpot(b, k); face = s => toward(s, geo.entry[k]); hold = true;
     } else {
       // 機動支援：站在兩個包點中間，看著進攻方出生區的方向
       key = "mid"; pick = () => sdSpotNear(geo.mid.x, geo.mid.y, 0, 120); face = s => toward(s, atkC); hold = true;

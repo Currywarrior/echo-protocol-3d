@@ -10563,6 +10563,9 @@ function update(dt){
           if (goal){ b.keepGoalX = goal.x; b.keepGoalY = goal.y; b.keepGoalPX = tg.x; b.keepGoalPY = tg.y; b.keepGoal = true; }
         }
       }
+      // 爆破：沒視線時放掉交火留下的環繞點。它只在看得到人時（keepBand）才會清掉，看不到之後會一直留著，
+      // 電腦就回頭走向舊的環繞點；sd_sim 裡帶包者因此站在 A 的門口 10 秒以上，把要進點的隊友堵死
+      if (obj && !los) b.keepGoal = false;
       if (b.keepGoal){ tx = b.keepGoalX; ty = b.keepGoalY; b.keepEscapeUsed = true; }
       [tx, ty] = navStep(b, tx, ty, dt);
       let ax = tx-b.x, ay = ty-b.y;

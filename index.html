@@ -898,7 +898,7 @@ const MAPS = {
       ashlar:true, bags:0x979A94, stone:0x98A0A2, stoneDark:0x788084,
       topGrime:false,
       // 立面（STYLES.building）：一樓石砌、二樓以上灰泥，窗框、百葉、門、石板瓦都用冷色或中性色（暖色只屬於敵人）
-      weather:1, plaster:[0x9FA5A6, 0x949CA2, 0xA7A59E], frame:0x3A4248, shutter:0x56646E, door:0x34424A, slate:0x5A6268,
+      weather:1, plaster:[0x9FA5A6, 0x949CA2, 0xA7A59E], frame:0x384248, shutter:0x56646E, slate:0x5A6268,
       walk:0xA4A8A4,
       // 貨箱的木頭乘上偏冷的灰：原本的黃褐木色在斜陽下飽和成橘色，和敵人撞色；風吹日曬的舊木本來就是灰的
       crateTint:0x98A4AC,
@@ -2476,6 +2476,33 @@ function paveSurf(){ return PAVE_SURF || (PAVE_SURF = buildAshlarSurface({rows:6
 let WALK_SURF = null;
 function walkSurf(){ return WALK_SURF || (WALK_SURF = buildAshlarSurface({rows:8, minW:0.115, spanW:0.02, mortar:5, seed:9127})); }
 
+// 風化用的雜訊貼圖（addGrime）：256x256 可無縫重複，16x16 格的平滑值雜訊加一層 32 格的細節。
+// R、G 用不同種子，一次取樣就有兩組互不相關的雜訊
+let WEATHER_TEX = null;
+function weatherNoise(){
+  if (WEATHER_TEX) return WEATHER_TEX;
+  const N = 256, c = mkCanvas(N), x = c.getContext("2d"), img = x.createImageData(N, N);
+  let seed = 424242;
+  const R = () => (seed = (seed*1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+  const grid = n => Array.from({length:n*n}, R);
+  const sample = (g, n, u, v) => {
+    const fx = u*n, fy = v*n, i = Math.floor(fx), j = Math.floor(fy);
+    let tx = fx - i, ty = fy - j; tx = tx*tx*(3 - 2*tx); ty = ty*ty*(3 - 2*ty);
+    const at = (a, b) => g[((b % n + n) % n)*n + ((a % n + n) % n)];
+    return (at(i, j)*(1-tx) + at(i+1, j)*tx)*(1-ty) + (at(i, j+1)*(1-tx) + at(i+1, j+1)*tx)*ty;
+  };
+  const r1 = grid(16), r2 = grid(32), g1 = grid(16), g2 = grid(32);
+  for (let y=0;y<N;y++) for (let xx=0;xx<N;xx++){
+    const u = xx/N, v = y/N, k = (y*N + xx)*4;
+    img.data[k]   = 255*(0.65*sample(r1, 16, u, v) + 0.35*sample(r2, 32, u, v));
+    img.data[k+1] = 255*(0.75*sample(g1, 16, u, v) + 0.25*sample(g2, 32, u, v));
+    img.data[k+2] = 0; img.data[k+3] = 255;
+  }
+  x.putImageData(img, 0, 0);
+  WEATHER_TEX = new THREE.CanvasTexture(c);
+  WEATHER_TEX.wrapS = WEATHER_TEX.wrapT = THREE.RepeatWrapping;
+  return WEATHER_TEX;
+}
 // 灰泥（STONEGATE 樓房二樓以上的外牆）：輸出灰階，顏色交給材質。
 // 整面純色的牆在日光下像塑膠，真的灰泥有三個尺度的變化：大片的深淺斑（批次與風化）、
 // 抹刀留下的短筆觸、細顆粒；再加幾道髮絲裂縫和幾塊剝落露出底下石塊的破口。
@@ -2744,35 +2771,6 @@ const floorMat = new THREE.MeshStandardMaterial({
   color:0x9C86FF, roughness:1.0, metalness:0.30,
 });
 floorMat.normalScale.set(0.85,0.85);
-// 地面的世界座標風化（和牆的 addGrime 同一套雜訊）：大片深淺、零星的髒污斑。
-// 地板與鋪面的貼圖每 2～4m 重複，空曠的包點上一眼就看得出格子；強度由地圖的 theme.weather 決定，
-// 共用一個 uniform，換圖時在 buildMapGeometry 設定
-const GROUND_WEATHER = {value:0};
-function addGroundWeather(m){
-  m.onBeforeCompile = (sh) => {
-    sh.uniforms.uGW = GROUND_WEATHER;
-    sh.vertexShader = sh.vertexShader
-      .replace("#include <common>", "#include <common>\nvarying vec2 vGWP;")
-      .replace("#include <project_vertex>", "#include <project_vertex>\nvGWP = (modelMatrix * vec4(transformed, 1.0)).xz;");
-    sh.fragmentShader = sh.fragmentShader
-      .replace("#include <common>", `#include <common>
-        varying vec2 vGWP;
-        uniform float uGW;
-        float gHash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-        float gNoise(vec2 p){
-          vec2 i = floor(p), f = fract(p); f = f*f*(3.0 - 2.0*f);
-          return mix(mix(gHash(i), gHash(i + vec2(1,0)), f.x), mix(gHash(i + vec2(0,1)), gHash(i + vec2(1,1)), f.x), f.y);
-        }`)
-      .replace("#include <map_fragment>", `#include <map_fragment>
-        if (uGW > 0.0){
-          float fm = gNoise(vGWP * 0.18) * 0.55 + gNoise(vGWP * 0.9 + 3.0) * 0.45;
-          float dirt = smoothstep(0.58, 0.9, gNoise(vGWP * 0.07 + 11.0)) * (0.6 + 0.4 * gNoise(vGWP * 2.3));
-          diffuseColor.rgb *= mix(1.0, (0.86 + 0.24 * fm) * (1.0 - 0.22 * dirt), uGW);
-        }`);
-  };
-  return m;
-}
-addGroundWeather(floorMat);
 // 原本的地板貼圖留著：地板材質跨地圖共用，換到石板鋪面的地圖後，換回來時要還原
 const FLOOR_ORIG = {normal:floorMat.normalMap, rough:floorMat.roughnessMap, metal:floorMat.metalness};
 let floorPave = null;
@@ -2881,10 +2879,7 @@ const doorPaintMat = (() => {
 // ── 接觸陰影 ──
 // 沒有即時陰影可用（太貴），所以把牆腳的暗角預先畫成一張遮罩，
 // 用一層半透明黑鋪在地板上。少了這個，牆會像是浮在地面上
-// 場景裡少數要吃環境貼圖的材質（窗玻璃）：每次建圖重新登記，applyAtmo 算好環境貼圖後掛上去
-let ENV_SCENE_MATS = [];
 function buildMapGeometry(){
-  ENV_SCENE_MATS = [];
   while (mapLayer.children.length){
     mapLayer.remove(mapLayer.children[mapLayer.children.length-1]);
   }
@@ -2919,11 +2914,19 @@ function buildMapGeometry(){
   }
   x.restore();
 
-  // 風化主題的地面髒污：畫在同一張疊層上（它本來就是整張圖一張、只會壓暗），不多一個 draw call。
-  // 零星的深色污斑、樓腳一圈雨水濺起的深色帶（比接觸陰影寬、淡）
+  // 風化主題的地面髒污：畫在同一張疊層上（它本來就是整張圖一張、只會壓暗），不多一個 draw call，
+  // 也不必在每個像素算雜訊（第一版寫在地面的 shader 裡，量出來整片地面的著色成本太高）。
+  // 大片的深淺（每片 3～8m，打散地磚貼圖每 2～4m 重複一次的格子感）、零星的深色污斑、
+  // 樓腳一圈雨水濺起的深色帶（比接觸陰影寬、淡）
   if (theme.weather){
     let sd = 5150;
     const R = () => (sd = (sd*1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+    for (let i=0;i<Math.round(W*H/9000*theme.weather);i++){
+      const px = R()*PX, py = R()*PY, rad = (100 + R()*170)*k, a = 0.06 + R()*0.08;
+      const gr = x.createRadialGradient(px, py, 0, px, py, rad);
+      gr.addColorStop(0, `rgba(0,0,0,${a})`); gr.addColorStop(1, "rgba(0,0,0,0)");
+      x.fillStyle = gr; x.fillRect(px - rad, py - rad, rad*2, rad*2);
+    }
     for (let i=0;i<Math.round(W*H/2500);i++){
       const px = R()*PX, py = R()*PY, rad = (20 + R()*90)*k, a = 0.05 + R()*0.1;
       const gr = x.createRadialGradient(px, py, 0, px, py, rad);
@@ -3000,37 +3003,36 @@ const wallMap = texFrom(WALL_COL), wallNormal = texFrom(WALL_NRM);
 // 髒污線的高度隨水平位置起伏，才不會是一條尺畫的水平線
 // weather（0～1）：世界座標的風化。貼圖每 2.4m 重複一次，整棟 90m 長的樓看得出一格格同樣的花樣；
 // 用世界位置的低頻雜訊壓一層大片深淺，再加幾道由上往下的雨水垂痕（沿牆方向高頻、垂直方向低頻的雜訊），
-// 重複感就被打散了。強度用 uniform 而不是寫死在字串裡：程式快取是用 onBeforeCompile 的原始碼當鍵，
-// 字串不同但函式原始碼相同的話會拿到別人的著色器
+// 重複感就被打散了。雜訊從一張預先算好的小貼圖（WEATHER_NOISE）取，兩次取樣：
+// 第一版在 shader 裡用 sin 雜湊現算三組雜訊，量出來是 STONEGATE 每幀最貴的一項。
+// 只有 weather > 0 的材質才編進這段；程式快取用 customProgramCacheKey 區分
+// （預設是拿 onBeforeCompile 的原始碼當鍵，同一個函式產生不同著色器會拿錯）
 function addGrime(m, weather){
+  const topGrime = activeMap.theme.topGrime !== false, w = weather || 0;
   m.onBeforeCompile = (sh) => {
-    sh.uniforms.uWeather = {value:weather || 0};
+    if (w > 0){ sh.uniforms.uWeather = {value:w}; sh.uniforms.uWNoise = {value:weatherNoise()}; }
     sh.vertexShader = sh.vertexShader
       .replace("#include <common>", "#include <common>\nvarying vec3 vGrimeP;")
       .replace("#include <project_vertex>", "#include <project_vertex>\nvGrimeP = (modelMatrix * vec4(transformed, 1.0)).xyz;");
     sh.fragmentShader = sh.fragmentShader
       .replace("#include <common>", `#include <common>
         varying vec3 vGrimeP;
-        uniform float uWeather;
-        float wHash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-        float wNoise(vec2 p){
-          vec2 i = floor(p), f = fract(p); f = f*f*(3.0 - 2.0*f);
-          return mix(mix(wHash(i), wHash(i + vec2(1,0)), f.x), mix(wHash(i + vec2(0,1)), wHash(i + vec2(1,1)), f.x), f.y);
-        }`)
+        ${w > 0 ? "uniform float uWeather; uniform sampler2D uWNoise;" : ""}`)
       .replace("#include <map_fragment>", `#include <map_fragment>
         float gw = vGrimeP.x * 1.7 + vGrimeP.z * 1.3;
         float gh = 0.55 + 0.22 * sin(gw) * sin(gw * 0.37 + 1.3) + 0.08 * sin(gw * 4.1);
         diffuseColor.rgb *= mix(0.42, 1.0, smoothstep(0.0, gh, vGrimeP.y));
-        if (uWeather > 0.0){
-          // 沿牆方向的座標：東西向的牆 x 在變、南北向的牆 z 在變，相加兩種牆都有變化
-          float wu = vGrimeP.x + vGrimeP.z;
-          float macro = wNoise(vec2(wu, vGrimeP.y) * 0.3) * 0.6 + wNoise(vec2(wu, vGrimeP.y) * 1.3 + 17.0) * 0.4;
-          float streak = smoothstep(0.6, 0.95, wNoise(vec2(wu * 2.4, vGrimeP.y * 0.16 + 5.0)));
-          diffuseColor.rgb *= mix(1.0, (0.86 + 0.24 * macro) * (1.0 - 0.2 * streak), uWeather);
-        }
+        ${w > 0 ? `
+        // 沿牆方向的座標：東西向的牆 x 在變、南北向的牆 z 在變，相加兩種牆都有變化。
+        // R：大片深淺（約 3m 一團）；G：雨水垂痕（橫向約 0.4m、縱向約 6m）
+        float wu = vGrimeP.x + vGrimeP.z;
+        float macro = texture2D(uWNoise, vec2(wu, vGrimeP.y) * 0.019).r;
+        float streak = smoothstep(0.6, 0.95, texture2D(uWNoise, vec2(wu * 0.15, vGrimeP.y * 0.01 + 0.3)).g);
+        diffuseColor.rgb *= mix(1.0, (0.86 + 0.24 * macro) * (1.0 - 0.2 * streak), uWeather);` : ""}
         // 牆頂靠近天花板也積一點灰。主題可以用 topGrime:false 關掉：高樓的 3.2m 以上會整片變暗
-        ${activeMap.theme.topGrime === false ? "" : `diffuseColor.rgb *= mix(1.0, 0.7, smoothstep(${(WALL_H-0.7).toFixed(2)}, ${WALL_H.toFixed(2)}, vGrimeP.y));`}`);
+        ${topGrime ? `diffuseColor.rgb *= mix(1.0, 0.7, smoothstep(${(WALL_H-0.7).toFixed(2)}, ${WALL_H.toFixed(2)}, vGrimeP.y));` : ""}`);
   };
+  m.customProgramCacheKey = () => "grime" + (w > 0 ? "w" : "") + (topGrime ? "t" : "");
   return m;
 }
 const wallMats = WALL_VARIANTS.map(v => {
@@ -3050,7 +3052,7 @@ const edgeMat = new THREE.LineBasicMaterial({color:0xE0703A, transparent:true, o
 const trimMat = addGrime(new THREE.MeshStandardMaterial({
   map: texFrom(WALL_COL, 3, 1),
   color:0xA994E8, roughness:0.55, metalness:0.55,
-}), theme.weather);
+}));
 // 嵌板與橫樑的 UV 已按實際尺寸縮放，貼圖不必再重複，比例才會和牆面一致
 const panelMat = new THREE.MeshStandardMaterial({
   map:       texFrom(WALL_COL),
@@ -3073,7 +3075,6 @@ const spillMat = new THREE.MeshBasicMaterial({
   trimMat.color.setHex(theme.trim);
   // 會風化的石材主題：線腳是石頭不是金屬，金屬度拿掉（沒有環境貼圖時金屬面只會變暗變髒）
   if (theme.weather){ trimMat.metalness = 0.02; trimMat.roughness = 0.85; }
-  GROUND_WEATHER.value = theme.weather || 0;
   panelMat.color.setHex(theme.panel);
   terrainMat.color.setHex(theme.terrain);
   stripMat.color.setHex(theme.strip);
@@ -3101,16 +3102,17 @@ const spillMat = new THREE.MeshBasicMaterial({
   let pavingMat = null, lineMat = null;
   if ((activeMap.terrain || []).some(t => t.kind === "paving")){
     const ps = paveSurf();
-    pavingMat = addGroundWeather(new THREE.MeshStandardMaterial({
+    pavingMat = new THREE.MeshStandardMaterial({
       map:texFrom(ps.color), normalMap:texFrom(ps.normal), roughnessMap:texFrom(ps.rough),
       color:theme.paving ?? 0xB09474, roughness:1,
-    }));
+    });
   }
   for (const t of (activeMap.terrain || [])){
     if (t.kind === "paving"){
       // 貼齊地面、只高出 1.2cm；UV 依實際尺寸縮放，一張貼圖約 2m，石板比地面的小一半
       const geo = rescaleBoxUV(new THREE.BoxGeometry(t.w*S, 0.024, t.h*S), t.w*S, 0.024, t.h*S, 0.5);
       const slab = new THREE.Mesh(geo, pavingMat);
+      slab.renderOrder = -1;          // 比地面先畫（同人行道）
       slab.position.set((t.x+t.w/2)*S, 0.0, (t.y+t.h/2)*S);
       mapLayer.add(slab);
       continue;
@@ -3167,8 +3169,8 @@ const spillMat = new THREE.MeshBasicMaterial({
   // 純外觀，沒有碰撞（1.5cm 腳底感覺不到）
   if (theme.walk){
     const ws = walkSurf();
-    const walkMat = addGroundWeather(new THREE.MeshStandardMaterial({
-      map:texFrom(ws.color), normalMap:texFrom(ws.normal), roughnessMap:texFrom(ws.rough), color:theme.walk, roughness:1}));
+    const walkMat = new THREE.MeshStandardMaterial({
+      map:texFrom(ws.color), normalMap:texFrom(ws.normal), roughnessMap:texFrom(ws.rough), color:theme.walk, roughness:1});
     const inB = (px, py) => WALLS.some(o => o.style === "building" && px > o.x && px < o.x + o.w && py > o.y && py < o.y + o.h);
     const WD = 50;
     for (const b of WALLS){
@@ -3183,6 +3185,8 @@ const spillMat = new THREE.MeshBasicMaterial({
         const geo = new THREE.BoxGeometry(gw, 0.03, gd), P = geo.attributes.position, U = geo.attributes.uv;
         for (let i=0;i<P.count;i++) U.setXY(i, (P.getX(i) + cx)*0.5, (P.getZ(i) + cz)*0.5);
         const m = new THREE.Mesh(geo, walkMat);
+        // 比地面先畫：底下那一大片地面的像素被深度測試擋掉，不必著色兩次
+        m.renderOrder = -1;
         m.position.set(cx, 0, cz);
         mapLayer.add(m);
       }
@@ -3446,14 +3450,20 @@ function rockNoise(x, y, z){
 // 一棟樓有上百個窗框、窗台、門板，一個一個 new 網格的話，建圖時光是物件就上萬個。
 // 這裡只記「哪個幾何、哪個矩陣」，同一種材質、落在同一塊 16m 區域（和 batchStatic 同尺度，保留視錐裁切）的先合成一個網格。
 // 未貼圖的小構件共用單位方塊，用縮放決定尺寸；要貼圖的（線腳、煙囪）另外依尺寸縮放 UV
-const UNIT_BOX = new THREE.BoxGeometry(1, 1, 1), UNIT_CYL = new THREE.CylinderGeometry(1, 1, 1, 10);
+// 貼牆的構件：少掉貼著牆的那一面（-z，看不到），玻璃只要一片朝外的平面，落水管六面、不封頂。
+// 窗框、窗台、玻璃這些小東西不投太陽陰影（userData.noShadow）：它們的影子不到幾公分，
+// 卻讓陰影那一趟的三角形多一倍（量過：整張圖從 22 萬變 47 萬）
+const UNIT_BOX = (() => { const g = new THREE.BoxGeometry(1, 1, 1); g.setIndex(Array.from(g.index.array).slice(0, 30)); return g; })();
+const UNIT_QUAD = new THREE.PlaneGeometry(1, 1), UNIT_CYL = new THREE.CylinderGeometry(1, 1, 1, 6, 1, true);
+const PLANTER_LEAF_GEO = new THREE.IcosahedronGeometry(1, 1);
 function facadeBatch(g){
   const lists = new Map(), m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), UP = new THREE.Vector3(0, 1, 0);
   const v = new THREE.Vector3(), sc = new THREE.Vector3();
-  const add = (mat, geo) => {
-    const key = mat.uuid + "|" + Math.floor((g.position.x + m4.elements[12])/16) + "," + Math.floor((g.position.z + m4.elements[14])/16);
+  // 小構件（窗框、玻璃、百葉）用 32m 一塊：數量多、每塊很便宜，draw call 比視錐裁切省下的多
+  const add = (mat, geo, cast, cell = 16) => {
+    const key = mat.uuid + (cast ? "|c|" : "|n|") + cell + "|" + Math.floor((g.position.x + m4.elements[12])/cell) + "," + Math.floor((g.position.z + m4.elements[14])/cell);
     let L = lists.get(key);
-    if (!L) lists.set(key, L = {mat, items:[]});
+    if (!L) lists.set(key, L = {mat, cast, items:[]});
     L.items.push({geometry:geo, matrix:m4.clone()});
   };
   return {
@@ -3466,19 +3476,30 @@ function facadeBatch(g){
     // 貼在面上的方塊：sx 沿牆、sy 高、sz 垂直牆面
     box(mat, f, u, y, out, sx, sy, sz){
       m4.compose(v.set(f.lx(u, out), y, f.lz(u, out)), q.setFromAxisAngle(UP, f.rot), sc.set(sx, sy, sz));
-      add(mat, UNIT_BOX);
+      // 小構件都不投影。試過讓石材窗台、窗楣投影：陰影那一趟要畫整張圖所有的窗，多 4 萬多個三角形
+      add(mat, UNIT_BOX, false, 32);
+    },
+    quad(mat, f, u, y, out, sx, sy){
+      m4.compose(v.set(f.lx(u, out), y, f.lz(u, out)), q.setFromAxisAngle(UP, f.rot), sc.set(sx, sy, 1));
+      add(mat, UNIT_QUAD, false, 32);
     },
     cyl(mat, f, u, y, out, r, h){
       m4.compose(v.set(f.lx(u, out), y, f.lz(u, out)), q.identity(), sc.set(r, h, r));
-      add(mat, UNIT_CYL);
+      add(mat, UNIT_CYL, false, 32);
     },
     // 軸對齊、貼圖依尺寸縮放的方塊（樓本地座標）
     tbox(mat, x, y, z, sx, sy, sz){
       m4.makeTranslation(x, y, z);
-      add(mat, rescaleBoxUV(new THREE.BoxGeometry(sx, sy, sz), sx, sy, sz, 0.42));
+      add(mat, rescaleBoxUV(new THREE.BoxGeometry(sx, sy, sz), sx, sy, sz, 0.42), true);
     },
     flush(){
-      for (const L of lists.values()) g.add(new THREE.Mesh(mergeGeometries(L.items, true), L.mat));
+      for (const L of lists.values()){
+        const m = new THREE.Mesh(mergeGeometries(L.items, true), L.mat);
+        m.userData.noShadow = !L.cast;
+        // 貼在牆外的東西先畫，後面的牆面被擋住的像素就被深度測試直接略過，不必著色
+        m.renderOrder = -1;
+        g.add(m);
+      }
       lists.clear();
     },
   };
@@ -3511,22 +3532,23 @@ let FACADE = null;
 function facadeMats(){
   if (FACADE) return FACADE;
   const ps = plasterSurf(), ss = slateSurf(), ls = louvreSurf();
-  const pm = texFrom(ps.color), pn = texFrom(ps.normal), pr = texFrom(ps.rough);
+  const pm = texFrom(ps.color), pn = texFrom(ps.normal);
   const std = o => new THREE.MeshStandardMaterial(o);
+  // 門、招牌、落水管和窗框共用一個材質（顏色本來就只差一點點）：每多一種材質，每塊區域就多一個 draw call
+  const frame = std({color:theme.frame ?? 0x384248, roughness:0.6, metalness:0.1});
   FACADE = {
-    plaster:(theme.plaster || theme.walls).map(c => addGrime(std({map:pm, normalMap:pn, roughnessMap:pr, color:c, roughness:1}), theme.weather)),
+    // 灰泥不加粗糙度貼圖：整面都很粗，差異看不出來，省一次取樣
+    plaster:(theme.plaster || theme.walls).map(c => addGrime(std({map:pm, normalMap:pn, color:c, roughness:0.95}), theme.weather)),
     rustic:addGrime(std({map:wallMap, normalMap:wallNormal, color:theme.stone ?? theme.trim, roughness:0.9}), theme.weather),
-    frame:std({color:theme.frame ?? 0x3A4248, roughness:0.55, metalness:0.1}),
-    // 玻璃吃環境貼圖（applyAtmo 設定）：反射天空才像玻璃，否則只是一塊深色的板子
-    glass:std({color:0x222A32, roughness:0.14, metalness:0.6, envMapIntensity:0.4}),
+    frame, door:frame, sign:frame, pipe:frame,
+    // 玻璃：深色、低粗糙度，靠太陽的高光讀出是玻璃。試過吃環境貼圖反射天空，
+    // 量出來每幀多約一成（預濾波環境貼圖的取樣很貴），而且亮天空讓窗戶像刷了淺藍漆
+    glass:std({color:0x1E262E, roughness:0.22, metalness:0.3}),
     shutter:std({map:texFrom(ls.color), normalMap:texFrom(ls.normal), color:theme.shutter ?? 0x56646E, roughness:0.7}),
-    door:std({color:theme.door ?? 0x34424A, roughness:0.65}),
-    sign:std({color:0x2C3236, roughness:0.6}),
     unit:std({color:0x9AA0A4, roughness:0.5, metalness:0.4}),
     slate:std({map:texFrom(ss.color), normalMap:texFrom(ss.normal), color:theme.slate ?? 0x5A6268, roughness:0.82}),
     lamp:lampGlowMat,
   };
-  ENV_SCENE_MATS.push(FACADE.glass);
   return FACADE;
 }
 // 街道物件用的材質：沿用立面材質，再加油桶（冷色系的藍灰、深灰）與舊木頭（灰色）
@@ -3620,16 +3642,33 @@ const STYLES = {
     const plaster = !!theme.plaster;
     const bodyMat = plaster ? facadeMats().plaster[Math.floor(R()*facadeMats().plaster.length)] : wallMats[Math.floor(R()*wallMats.length)];
     const FM = facadeMats();
-    put(g, rescaleBoxUV(new THREE.BoxGeometry(gw, wh, gd), gw, wh, gd, 0.42), bodyMat, 0, wh/2, 0);
     const floors = Math.max(1, Math.round(wh / 3)), fh = wh / floors;
+    // 有石砌一樓的樓，灰泥樓身從一樓頂才開始：兩層疊在一起的話，一樓整圈牆面每個像素都要著色兩次
+    const b0 = plaster ? fh - 0.05 : 0;
+    put(g, rescaleBoxUV(new THREE.BoxGeometry(gw, wh - b0, gd), gw, wh - b0, gd, 0.42), bodyMat, 0, b0 + (wh - b0)/2, 0);
     // 一樓勒腳：石砌外皮凸出 2cm，到一樓線腳為止
-    if (plaster) put(g, rescaleBoxUV(new THREE.BoxGeometry(gw + 0.04, fh - 0.05, gd + 0.04), gw, fh, gd, 0.42), FM.rustic, 0, (fh - 0.05)/2, 0);
+    // （四片 0.3m 厚的外皮，理由和下面的 ring 一樣：整塊的話頂面會在樓裡面被多畫一次）
+    if (plaster) for (const s of [-1, 1]){
+      fb.tbox(FM.rustic, 0, (fh - 0.05)/2, s*(gd/2 + 0.02 - 0.15), gw + 0.04, fh - 0.05, 0.3);
+      fb.tbox(FM.rustic, s*(gw/2 + 0.02 - 0.15), (fh - 0.05)/2, 0, 0.3, fh - 0.05, gd - 0.26);
+    }
+    // 繞樓一圈的橫帶（線腳、簷口、踢腳石）：四條只比牆厚一點的長條，不是一整塊和樓一樣大的方塊。
+    // 整塊的話，藏在樓裡面的上下兩面也會被著色（畫的順序在牆前面時深度測試擋不掉），
+    // 量過是 STONEGATE 最貴的一項：整片樓的內部都被多畫一次
+    const ring = (y, h, out) => {
+      const t = out + 0.1;
+      for (const s of [-1, 1]){
+        fb.tbox(trimMat, 0, y, s*(gd/2 + out - t/2), gw + out*2, h, t);
+        fb.tbox(trimMat, s*(gw/2 + out - t/2), y, 0, t, h, gd - 0.2);
+      }
+    };
     // 牆腳的踢腳石：比勒腳再凸出一點點，接地那條線才有厚度
-    fb.tbox(trimMat, 0, 0.14, 0, gw + 0.1, 0.28, gd + 0.1);
-    for (let k=1;k<floors;k++) fb.tbox(trimMat, 0, k*fh, 0, gw + 0.12, 0.2, gd + 0.12);
-    // 簷口：三層由內往外挑出，最上層頂面比屋頂高 2cm（低頭看不會和屋頂面重合而閃）
-    fb.tbox(trimMat, 0, wh - 0.34, 0, gw + 0.12, 0.12, gd + 0.12);
-    fb.tbox(trimMat, 0, wh - 0.19, 0, gw + 0.26, 0.18, gd + 0.26);
+    ring(0.14, 0.28, 0.05);
+    for (let k=1;k<floors;k++) ring(k*fh, 0.2, 0.06);
+    // 簷口：三層由內往外挑出，最上層頂面比屋頂高 2cm（低頭看不會和屋頂面重合而閃）；
+    // 最上層要整塊蓋住，從高處看下來屋頂邊緣才是實的
+    ring(wh - 0.34, 0.12, 0.06);
+    ring(wh - 0.19, 0.18, 0.13);
     fb.tbox(trimMat, 0, wh - 0.03, 0, gw + 0.4, 0.1, gd + 0.4);
 
     // 這一點外面是不是空地：地圖外、或被別棟樓蓋住的面不放門窗
@@ -3644,6 +3683,8 @@ const STYLES = {
     const faces = [[0, 1, gw, gd, 0], [0, -1, gw, gd, Math.PI], [1, 0, gd, gw, Math.PI/2], [-1, 0, gd, gw, -Math.PI/2]];
     for (const [fx, fz, len, dep, rot] of faces){
       const f = fb.face(fx, fz, dep, rot);
+      // 一樓的石砌外皮凸出 2cm：一樓的門窗從外皮表面算起，否則玻璃剛好和外皮同一個平面而閃爍
+      const f0 = plaster ? fb.face(fx, fz, dep + 0.04, rot) : f;
       const n = Math.max(1, Math.floor(len / 3.0)), bay = len / n;
       // 門：長邊那一面的中間一格，另外每五格一扇
       const mainFace = gw >= gd ? fz === 1 : fx === 1;
@@ -3654,9 +3695,9 @@ const STYLES = {
         // 一樓
         const kind = (mainFace && i === Math.floor(n/2)) || (i % 5 === 2 && R() < 0.8) ? "door"
                    : R() < 0.35 ? "shop" : R() < 0.75 ? "win" : "blank";
-        if (kind === "door") addDoor(f, u, fh, R);
-        else if (kind === "shop") addShop(f, u, fh);
-        else if (kind === "win") addWindow(f, u, fh*0.42, Math.min(1.3, fh*0.45), 0.95, false, keystone, R);
+        if (kind === "door") addDoor(f0, u, fh, R);
+        else if (kind === "shop") addShop(f0, u, fh);
+        else if (kind === "win") addWindow(f0, u, fh*0.42, Math.min(1.3, fh*0.45), 0.95, false, keystone, R);
         // 二樓以上
         for (let k=1;k<floors;k++){
           const wh2 = Math.min(1.6, fh*0.55);
@@ -3666,8 +3707,8 @@ const STYLES = {
       // 落水管：這一面的右端，從簷口下到地面，離牆 8cm
       const pu = len/2 - 0.25;
       if (open(f.lx(pu, 0.6), f.lz(pu, 0.6))){
-        fb.cyl(steelDarkMat, f, pu, (wh - 0.3)/2, 0.08, 0.05, wh - 0.3);
-        for (let y=1.2; y<wh - 0.5; y+=2.4) fb.box(steelDarkMat, f, pu, y, 0.04, 0.14, 0.04, 0.08);
+        fb.cyl(FM.pipe, f, pu, (wh - 0.3)/2, 0.08, 0.05, wh - 0.3);
+        for (let y=1.2; y<wh - 0.5; y+=2.4) fb.box(FM.pipe, f, pu, y, 0.04, 0.14, 0.04, 0.08);
       }
     }
 
@@ -3723,15 +3764,14 @@ const STYLES = {
     }
     fb.flush();
 
-    // 窗：玻璃、四邊外框、十字窗櫺、窗台、窗楣（可加拱心石），可選百葉（15% 關著）
+    // 窗：玻璃、外框、中間一根窗櫺、窗台、窗楣（可加拱心石），可選百葉（15% 關著）
     function addWindow(f, u, yc, hh, ww, withShutters, key, R){
-      fb.box(FM.glass, f, u, yc, 0.01, ww, hh, 0.02);
+      fb.quad(FM.glass, f, u, yc, 0.01, ww, hh);
+      // 下框被窗台蓋住，不畫
       fb.box(FM.frame, f, u - ww/2 - 0.04, yc, 0.03, 0.08, hh + 0.16, 0.06);
       fb.box(FM.frame, f, u + ww/2 + 0.04, yc, 0.03, 0.08, hh + 0.16, 0.06);
       fb.box(FM.frame, f, u, yc + hh/2 + 0.04, 0.03, ww, 0.08, 0.06);
-      fb.box(FM.frame, f, u, yc - hh/2 - 0.04, 0.03, ww, 0.08, 0.06);
       fb.box(FM.frame, f, u, yc, 0.025, 0.045, hh, 0.035);
-      fb.box(FM.frame, f, u, yc + hh*0.2, 0.025, ww, 0.045, 0.035);
       fb.box(trimMat, f, u, yc - hh/2 - 0.12, 0.08, ww + 0.34, 0.07, 0.16);
       fb.box(trimMat, f, u, yc + hh/2 + 0.17, 0.035, ww + 0.36, 0.16, 0.07);
       if (key) fb.box(trimMat, f, u, yc + hh/2 + 0.19, 0.06, 0.16, 0.22, 0.1);
@@ -3745,22 +3785,22 @@ const STYLES = {
       const dw = 1.15, dh = Math.min(2.25, fh - 0.55);
       fb.box(FM.door, f, u, dh/2, 0.02, dw, dh, 0.04);
       for (const y of [dh*0.3, dh*0.72]) fb.box(FM.door, f, u, y, 0.045, dw - 0.3, dh*0.32, 0.02);
-      fb.box(FM.glass, f, u, dh + 0.2, 0.01, dw, 0.3, 0.02);
+      fb.quad(FM.glass, f, u, dh + 0.2, 0.01, dw, 0.3);
       fb.box(FM.frame, f, u, dh + 0.03, 0.03, dw, 0.06, 0.06);
       for (const s of [-1, 1]) fb.box(trimMat, f, u + s*(dw/2 + 0.1), (dh + 0.4)/2, 0.06, 0.2, dh + 0.4, 0.12);
       fb.box(trimMat, f, u, dh + 0.48, 0.08, dw + 0.6, 0.18, 0.16);
       fb.box(trimMat, f, u, 0.06, 0.14, dw + 0.5, 0.12, 0.28);
       if (R() < 0.6){
         const lu = u + (dw/2 + 0.45);
-        fb.box(steelDarkMat, f, lu, dh + 0.1, 0.1, 0.04, 0.04, 0.2);
+        fb.box(FM.pipe, f, lu, dh + 0.1, 0.1, 0.04, 0.04, 0.2);
         fb.box(FM.lamp, f, lu, dh - 0.05, 0.18, 0.14, 0.24, 0.14);
-        fb.box(steelDarkMat, f, lu, dh + 0.1, 0.18, 0.18, 0.04, 0.18);
+        fb.box(FM.pipe, f, lu, dh + 0.1, 0.18, 0.18, 0.04, 0.18);
       }
     }
     // 店面：大片櫥窗、窗框、石框與上方的招牌板
     function addShop(f, u, fh){
       const sw = 1.9, sh = Math.min(2.1, fh - 0.75), y0 = 0.4;
-      fb.box(FM.glass, f, u, y0 + sh/2, 0.01, sw, sh, 0.02);
+      fb.quad(FM.glass, f, u, y0 + sh/2, 0.01, sw, sh);
       for (const s of [-1, 1]) fb.box(FM.frame, f, u + s*(sw/2 + 0.04), y0 + sh/2, 0.03, 0.08, sh + 0.08, 0.06);
       fb.box(FM.frame, f, u, y0 + sh + 0.04, 0.03, sw + 0.16, 0.08, 0.06);
       fb.box(FM.frame, f, u, y0 + sh*0.78, 0.025, sw, 0.05, 0.035);
@@ -3769,6 +3809,7 @@ const STYLES = {
     }
   },
   // ── 街道物件（STONEGATE）：碰撞就是長方形本身，外觀填滿碰撞範圍，看到多大就擋多大 ──
+  // （灌木用細分一次的二十面體：樹冠那種細分兩次的一顆 320 個三角形，花槽裡的矮叢看不出差別）
   // 石花槽：石框加一叢矮灌木（灌木高出碰撞一點，枝葉不擋子彈是合理的）
   planter(g, gw, gd, wh){
     put(g, rescaleBoxUV(new THREE.BoxGeometry(gw, wh - 0.06, gd), gw, wh, gd, 0.42), facadeProps().rustic, 0, (wh - 0.06)/2, 0);
@@ -3777,7 +3818,7 @@ const STYLES = {
     const n = Math.max(2, Math.round(Math.max(gw, gd) / 0.45)), along = gw >= gd, L = Math.max(gw, gd), D = Math.min(gw, gd);
     for (let i=0;i<n;i++){
       const u = -L/2 + L*(i + 0.5)/n, r = D*0.42 + (i % 2)*0.06;
-      const m = put(g, LEAF_GEOS[i % 3], leafCoreMat, along ? u : 0, wh + r*0.55, along ? 0 : u);
+      const m = put(g, PLANTER_LEAF_GEO, leafCoreMat, along ? u : 0, wh + r*0.55, along ? 0 : u);
       m.scale.set(r*1.1, r*0.9, r*1.1);
     }
   },
@@ -4466,7 +4507,8 @@ addDoorFrames();
   if (activeMap.outdoor){
     mapLayer.traverse(o => {
       if (!o.isMesh || o.material.transparent || o.material.isMeshBasicMaterial || o.material.isShaderMaterial) return;
-      o.castShadow = o.receiveShadow = true;
+      o.receiveShadow = true;
+      o.castShadow = !o.userData.noShadow;
     });
   }
   batchStatic(mapLayer);
@@ -4543,7 +4585,9 @@ function batchStatic(root){
   root.traverse(o => {
     if (o.isInstancedMesh || !o.visible || !o.geometry || Array.isArray(o.material)) return;
     if (o.isMesh && !o.material.transparent && !o.material.isShaderMaterial && o.geometry.attributes.position){
-      const k = keyOf(o); (meshes.get(k) || meshes.set(k, []).get(k)).push(o);
+      // 投影與不投影的分開合併，否則一合併就整塊都進陰影代理網格（立面的小構件刻意不投影）
+      // renderOrder 也分開（地面疊層、牆面構件刻意先畫）
+      const k = keyOf(o) + (o.castShadow ? "|c" : "") + "|r" + o.renderOrder; (meshes.get(k) || meshes.set(k, []).get(k)).push(o);
     } else if (o.isLineSegments){
       const k = keyOf(o); (lines.get(k) || lines.set(k, []).get(k)).push(o);
     }
@@ -4553,6 +4597,7 @@ function batchStatic(root){
     if (list.length < 2) continue;
     const m = new THREE.Mesh(mergeGeometries(list), list[0].material);
     m.castShadow = list.some(o => o.castShadow); m.receiveShadow = list.some(o => o.receiveShadow);
+    m.renderOrder = list[0].renderOrder;
     merged.push([m, list]);
   }
   for (const list of lines.values()){
@@ -4715,7 +4760,6 @@ function applyAtmo(){
   ENV_TEX = (out && ATMO.env) ? buildEnv(ATMO) : null;
   setAcoustics(out);
   for (const m of VM_MATS){ m.envMap = ENV_TEX; m.needsUpdate = true; }
-  for (const m of ENV_SCENE_MATS){ m.envMap = ENV_TEX; m.needsUpdate = true; }
   // 槍模有自己的場景與燈光。室內維持原本偏紫的環境光；露天改用這張圖的天光與太陽色，
   // 手上的槍才會跟周圍的世界在同一種光線下
   if (out){
@@ -4827,8 +4871,9 @@ function sectionGeo(prof, N){
 }
 // 圓角方塊：把細分方塊的頂點夾進內縮的核心，再往外推一個圓角半徑。
 // 裝備、口袋、槍件都是方的，但真實物件沒有銳利到會反光成一條線的直角
-function roundBox(w, h, d, r){
-  const g = new THREE.BoxGeometry(w, h, d, 4, 4, 4);
+// seg：每邊細分幾段。小零件用 2 段就夠圓（三角形只要四分之一）
+function roundBox(w, h, d, r, seg = 4){
+  const g = new THREE.BoxGeometry(w, h, d, seg, seg, seg);
   const p = g.attributes.position, nr = g.attributes.normal, uv = g.attributes.uv;
   const v = new THREE.Vector3(), c = new THREE.Vector3(), n = new THREE.Vector3();
   const hi = new THREE.Vector3(w/2-r, h/2-r, d/2-r), lo = hi.clone().negate();
@@ -5058,12 +5103,12 @@ function soldierGeo(){
     groin: roundBox(0.180, 0.160, 0.030, 0.012),
     // 細節（都在原本的外形之內，不改比例與判定）：彈匣頂端露出彈匣袋、上衣領口、手套袖口、
     // 上臂口袋、左腰的收納袋、頭盔下巴帶、鞋頭補強與鞋帶
-    mag: roundBox(0.052, 0.040, 0.026, 0.006),
+    mag: roundBox(0.052, 0.040, 0.026, 0.006, 2),
     collar: sectionGeo([[0.0,0.066,0.064,0.072],[0.055,0.060,0.056,0.066]], 16),
-    armPocket: roundBox(0.022, 0.085, 0.080, 0.008),
-    chinStrap: roundBox(0.008, 0.095, 0.012, 0.003),
-    toeCap: roundBox(0.094, 0.050, 0.070, 0.018),
-    laces: roundBox(0.030, 0.012, 0.100, 0.004),
+    armPocket: roundBox(0.022, 0.085, 0.080, 0.008, 2),
+    chinStrap: roundBox(0.008, 0.095, 0.012, 0.003, 2),
+    toeCap: roundBox(0.094, 0.050, 0.070, 0.018, 2),
+    laces: roundBox(0.030, 0.012, 0.100, 0.004, 2),
     shadow: new THREE.CircleGeometry(0.42, 22),
     flash: new THREE.PlaneGeometry(0.26, 0.26),
   });

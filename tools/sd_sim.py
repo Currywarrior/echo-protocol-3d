@@ -43,7 +43,7 @@ ROUND_JS = r"""
   const roles = G.bots.filter(b => b.team === sd.atk).map(b => b.sdRole || '-');
   const st = new Map();
   for (const b of G.bots) st.set(b, {sx:b.x, sy:b.y, prev:null, prevT:-9, wx:b.x, wy:b.y, vk:0, n:0});
-  let rev = 0, stuck = 0, frame = 0, plantedAt = null;
+  let rev = 0, stuck = 0, stuckAt = [], frame = 0, plantedAt = null;
   const r0 = sd.round;
   while (sd.phase !== 'end' && sd.round === r0 && frame < 60*200){
     __dbg.step(1, DT); frame++;
@@ -63,14 +63,19 @@ ROUND_JS = r"""
         s.sx = b.x; s.sy = b.y;
       }
       if (frame % 120 === 0){
-        if (s.n && Math.hypot(b.x - s.wx, b.y - s.wy) < 0.8/0.03 && s.vk/s.n > 0.5) stuck++;
+        if (s.n && Math.hypot(b.x - s.wx, b.y - s.wy) < 0.8/0.03 && s.vk/s.n > 0.5){
+          stuck++;
+          if (stuckAt.length < 12) stuckAt.push({t:+t.toFixed(1), team:b.team === sd.atk ? 'A' : 'D', type:b.type, x:Math.round(b.x), y:Math.round(b.y),
+            key:b.sdKey, spot:b.sdSpot && [Math.round(b.sdSpot.x), Math.round(b.sdSpot.y)], see:b.see > 0, chase:!!b.chase,
+            last:[Math.round(b.lastX), Math.round(b.lastY)], pathFail:!!b.pathFail, stuckT:+(b.stuck || 0).toFixed(1), cov:!!b.cov});
+        }
         s.wx = b.x; s.wy = b.y; s.vk = 0; s.n = 0;
       }
     }
   }
   const h = sd.history[sd.history.length - 1];
   const out = {round:r0, atk:sd.atk, plan, roles, planted:sd.planted, plantedAt, plantSite:sd.spike.site || null,
-    win:h ? (h.win === h.atk ? 'ATK' : 'DEF') : '?', reason:h ? h.reason : '?', secs:+(frame*DT).toFixed(1), rev, stuck,
+    win:h ? (h.win === h.atk ? 'ATK' : 'DEF') : '?', reason:h ? h.reason : '?', secs:+(frame*DT).toFixed(1), rev, stuck, stuckAt,
     alive:[sdN(sd.atk), sdN(1 - sd.atk)]};
   function sdN(team){ return G.bots.filter(b => b.team === team && b.hp > 0).length; }
   // 下一回合（跳過結束展示）
@@ -87,6 +92,7 @@ def main():
     ap.add_argument("--seed", type=int, default=20260926)
     ap.add_argument("--map", default="stonegate")
     ap.add_argument("--json", help="結果另存 JSON")
+    ap.add_argument("--trace", action="store_true", help="印出每次卡住的位置與當時的目標")
     ap.add_argument("--gpu", action="store_true")
     ap.add_argument("--headed", action="store_true")
     ap.add_argument("--executable")
@@ -122,6 +128,9 @@ def main():
             print(f"  R{r['round']:>2} atk={r['atk']} {r['plan']['kind']:>6}→{r['plan']['site']}  roles={','.join(r['roles'])}  "
                   f"planted={'Y@' + str(r['plantSite']) + ' ' + str(round(r['plantedAt'] or 0)) + 's' if r['planted'] else 'N':<10} "
                   f"{r['win']}({r['reason']}) {r['secs']}s  alive={r['alive']}  rev={r['rev']} stuck={r['stuck']}", flush=True)
+            if a.trace:
+                for e in r.get("stuckAt", []):
+                    print("      stuck " + json.dumps(e, ensure_ascii=False), flush=True)
         if run.errors:
             print("pageerror: " + "; ".join(run.errors[:5]))
         browser.close()

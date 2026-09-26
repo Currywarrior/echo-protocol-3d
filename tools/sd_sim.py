@@ -111,7 +111,7 @@ def main():
         if three:
             page.route(THREE_URL, lambda r: r.fulfill(path=three, content_type="application/javascript"))
             page.route("https://fonts.googleapis.com/**", lambda r: r.fulfill(body="", content_type="text/css"))
-        page.goto(url)
+        page.goto(url, timeout=300000)
         page.wait_for_function("() => window.__dbg && __dbg.getG()", timeout=120000)
         run.start("valorant", "defuse", a.map)
         while len(rows) < a.rounds:

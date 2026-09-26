@@ -11,6 +11,9 @@
   apex-guns   APEX 訓練場：三把槍開火
   dm          VALORANT 死鬥：開局 5 隻、擊殺後 1.5 秒補回、玩家倒地 1.5 秒後重生
   range-test  VALORANT 訓練場的射擊測驗：能開始、30 隻打完後結束
+  defuse      VALORANT 爆破：5 對 5 開局、購買階段屏障擋得住（結束後放行）、全滅計分與發錢、下包、引爆、
+              打滿 12 回合換邊（錢回 800、武器清空）、拆包（拆到一半的存檔點）、13 勝結束、12:12 延長賽要領先 2 回合
+  defuse-match（不在預設清單，要用 --only 指定）VALORANT 爆破：電腦 4 對 5 自己打完一整場，印出每回合結果
 另外 --shots DIR 會在每張地圖與 --shot-map 的幾個位置拍截圖。
 
 選項：
@@ -30,7 +33,8 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from make_test_copy import make_copy, serve  # noqa: E402
 
-TESTS = ["maps", "val-guns", "apex-guns", "dm", "range-test"]
+TESTS = ["maps", "val-guns", "apex-guns", "dm", "range-test", "defuse"]
+EXTRA_TESTS = ["defuse-match"]      # 很慢（整場約幾十萬步），要用 --only 指定
 DT = 1 / 60
 THREE_URL = "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.147.0/three.min.js"
 # --shot-map 多拍的位置（像素座標；angle 0 朝 +x（東）、-π/2 朝北）。新地圖要多拍就在這裡加
@@ -177,6 +181,145 @@ def t_range_test(run, a):
               f"{r.get('kills')} 殺 / 漏 {r.get('missed')}")
 
 
+# ── 爆破 ──
+# 共用的 JS：跳過購買階段、讓某一隊全滅、推進到下一回合
+SD_JS = """
+window.__sd = {
+  G: () => __dbg.getG(), sd: () => __dbg.getG().sd,
+  skipBuy(){ const sd = this.sd(); if (sd.phase === 'buy'){ sd.timer = 0.001; __dbg.step(2, 1/60); } },
+  wipe(team){ const G = this.G(); for (const b of G.bots) if (b.team === team) b.hp = 0; if (team === 0) G.player.hp = 0; __dbg.step(3, 1/60); },
+  nextRound(){ const sd = this.sd(); if (sd.phase === 'end'){ sd.timer = 0.001; __dbg.step(2, 1/60); } },
+  calm(){ for (const b of this.G().bots) b.cool = 1e9; },           // 電腦不開槍（只測規則）
+  // 包點裡一個走得到的點
+  siteSpot(key){ const r = __dbg.activeMap().sites[key];
+    for (let j = 0.5; j < 1; j += 0.05) for (let i = 0; i < 12; i++){
+      const x = r.x + r.w*(0.5 + (i%2 ? 1 : -1)*(i/24)*j), y = r.y + r.h*j;
+      if (!__dbg.navBlocked(x, y) && __dbg.sdSiteAt(x, y)) return {x, y}; }
+    return {x:r.x + r.w/2, y:r.y + r.h/2}; },
+  hold(code, sec){ __dbg.keys.add(code); __dbg.step(Math.round(sec*60), 1/60); __dbg.keys.delete(code); },
+};
+"""
+
+
+def t_defuse(run, a):
+    run.start("valorant", "defuse", a.dm_map)
+    run.js(SD_JS)
+    r = run.js("""() => { const G = __sd.G(), sd = G.sd;
+        return {ok:!!sd, phase:sd && sd.phase, t0:G.bots.filter(b => b.team === 0).length,
+                t1:G.bots.filter(b => b.team === 1).length, atk:sd.atk, credits:G.credits, timer:sd.timer, map:__dbg.activeMap().name}; }""")
+    run.check("defuse 開局 5 對 5", r["ok"] and r["phase"] == "buy" and r["t0"] == 4 and r["t1"] == 5 and r["credits"] == 800
+              and abs(r["timer"] - 45) < 0.1, f"{r['map']} · 隊友 {r['t0']}+玩家、敵人 {r['t1']} · {r['phase']} {r['timer']:.1f} 秒 · ¤{r['credits']}")
+    # 屏障：往自己那一側的每道屏障走 1.5 秒，購買階段過不去；回合開始後同一道屏障走得過去
+    walk = """(after) => { const G = __sd.G(), p = G.player, sd = G.sd, m = __dbg.activeMap();
+        const side = sd.atk === 0 ? 'atk' : 'def', sp = side === 'atk' ? m.spawnsAtk : m.spawnsDef;
+        const c = sp.reduce((q, s) => ({x:q.x + s.x/sp.length, y:q.y + s.y/sp.length}), {x:0, y:0});
+        const out = [];
+        for (const w of m.barriers.filter(w => w.team === side)){
+          const bx = w.x + w.w/2, by = w.y + w.h/2, nx = w.w < w.h;
+          const dir = nx ? Math.sign(bx - c.x) : Math.sign(by - c.y);
+          p.x = nx ? bx - dir*45 : bx; p.y = nx ? by : by - dir*45; p.vx = p.vy = 0;
+          __dbg.setYaw(__dbg.yawOf(nx ? (dir > 0 ? 0 : Math.PI) : (dir > 0 ? Math.PI/2 : -Math.PI/2))); __dbg.setPitch(0);
+          __sd.hold('KeyW', 1.5);
+          const crossed = nx ? (dir > 0 ? p.x > w.x + w.w : p.x < w.x) : (dir > 0 ? p.y > w.y + w.h : p.y < w.y);
+          out.push({crossed, x:Math.round(p.x), y:Math.round(p.y)});
+        }
+        return {out, phase:sd.phase}; }"""
+    r = run.js(walk)
+    run.check("defuse 購買階段屏障擋住", r["phase"] == "buy" and r["out"] and not any(o["crossed"] for o in r["out"]),
+              f"{len(r['out'])} 道 · " + ", ".join(f"({o['x']},{o['y']})" for o in r["out"]))
+    run.js("() => __sd.skipBuy()")
+    r = run.js(walk)
+    run.check("defuse 回合開始後屏障放行", r["phase"] == "live" and all(o["crossed"] for o in r["out"]),
+              ", ".join(str(o["crossed"]) for o in r["out"]))
+    # 全滅計分：敵隊全滅 → 1:0，勝方 +3000，敗方 +1900
+    r = run.js("""() => { const G = __sd.G(), sd = G.sd, c0 = G.credits, q = sd.roster.find(q => q.team === 1), e0 = q.credits;
+        __sd.wipe(1);
+        return {phase:sd.phase, score:sd.score.slice(), dc:G.credits - c0, de:q.credits - e0, why:sd.last && sd.last.reason}; }""")
+    run.check("defuse 全滅計分與發錢", r["phase"] == "end" and r["score"] == [1, 0] and r["dc"] == 3000 and r["de"] == 1900,
+              f"{r['score']} · {r['why']} · 我方 +{r['dc']}、敵方 +{r['de']}")
+    r = run.js("""() => { const sd = __sd.sd(); __dbg.step(Math.round((__dbg.SD.endTime + 0.2)*60), 1/60);
+        return {round:sd.round, phase:sd.phase, timer:sd.timer, n:__sd.G().bots.length}; }""")
+    run.check("defuse 下一回合", r["round"] == 2 and r["phase"] == "buy" and abs(r["timer"] - 30) < 0.5 and r["n"] == 9,
+              f"第 {r['round']} 回合 · {r['phase']} {r['timer']:.1f} 秒 · {r['n']} 隻")
+    # 下包：玩家拿包、到包點按住互動 4 秒；3.9 秒時還沒下好，放開就從頭算
+    r = run.js("""() => { const G = __sd.G(), sd = G.sd, p = G.player; __sd.skipBuy(); __sd.calm(); p.iframe = 1e9;
+        sd.spike = {state:'carried', carrier:p, x:p.x, y:p.y};
+        const key = Object.keys(__dbg.activeMap().sites)[0], s = __sd.siteSpot(key);
+        p.x = s.x; p.y = s.y; p.vx = p.vy = 0; __dbg.step(2, 1/60);
+        __sd.hold('KeyE', 2.0); const partial = sd.spike.state; __dbg.step(2, 1/60); const reset = sd.act === null;
+        __sd.hold('KeyE', 3.9); const early = sd.spike.state;
+        __sd.hold('KeyE', 0.2);
+        return {partial, reset, early, state:sd.spike.state, phase:sd.phase, timer:sd.timer, site:sd.spike.site, key}; }""")
+    run.check("defuse 下包 4 秒", r["partial"] == "carried" and r["reset"] and r["early"] == "carried" and r["state"] == "planted"
+              and r["phase"] == "planted" and abs(r["timer"] - 45) < 0.5 and r["site"] == r["key"],
+              f"{r['state']} @ {r['site']} · 倒數 {r['timer']:.1f}")
+    # 引爆：45 秒到 → 進攻方勝，進攻方額外 +300
+    r = run.js("""() => { const G = __sd.G(), sd = G.sd, c0 = G.credits;
+        sd.timer = 0.01; __dbg.step(2, 1/60);
+        return {phase:sd.phase, score:sd.score.slice(), why:sd.last && sd.last.reason, dc:G.credits - c0}; }""")
+    run.check("defuse 引爆", r["phase"] == "end" and r["score"] == [2, 0] and r["why"] == "detonate" and r["dc"] == 3300,
+              f"{r['score']} · {r['why']} · +{r['dc']}")
+    # 換邊：第 12 回合打完 → 第 13 回合攻守互換、錢回 800、武器清空
+    r = run.js("""() => { const G = __sd.G(), sd = G.sd, p = G.player; __sd.nextRound(); __dbg.valBuyGun('v_vandal');
+        const atk0 = sd.atk, gun = p.slots.primary; sd.round = 12; sd.score = [7, 4]; __sd.skipBuy(); __sd.wipe(1); __sd.nextRound();
+        return {round:sd.round, atk0, atk:sd.atk, credits:G.credits, bots:sd.roster.map(q => q.credits), gun, prim:p.slots.primary, phase:sd.phase,
+                timer:sd.timer, score:sd.score.slice()}; }""")
+    run.check("defuse 12 回合後換邊", r["round"] == 13 and r["atk"] != r["atk0"] and r["credits"] == 800 and all(c <= 800 for c in r["bots"])
+              and r["gun"] == "v_vandal" and r["prim"] is None and abs(r["timer"] - 45) < 0.5,
+              f"第 {r['round']} 回合 · 進攻方 {r['atk0']}→{r['atk']} · ¤{r['credits']} · 主武器 {r['gun']}→{r['prim']} · {r['score']}")
+    # 拆包：玩家是防守方；敵方下包後按住 4 秒放開，存到一半；再按 3.6 秒拆完
+    r = run.js("""() => { const G = __sd.G(), sd = G.sd, p = G.player; __sd.skipBuy(); __sd.calm(); p.iframe = 1e9;
+        const key = Object.keys(__dbg.activeMap().sites)[0], s = __sd.siteSpot(key);
+        const e = G.bots.find(b => b.team === sd.atk); e.x = s.x; e.y = s.y; __dbg.sdPlant(e);
+        const planted = sd.spike.state; p.x = s.x + 20; p.y = s.y; p.vx = p.vy = 0;
+        __sd.hold('KeyE', 4.0); __dbg.step(2, 1/60);
+        const save = sd.defuseSave, mid = sd.spike.state, act = sd.act;
+        __sd.hold('KeyE', 3.4); const early = sd.spike.state;
+        __sd.hold('KeyE', 0.3);
+        return {planted, save, mid, act:!!act, early, state:sd.spike.state, phase:sd.phase, why:sd.last && sd.last.reason, score:sd.score.slice()}; }""")
+    run.check("defuse 拆包 7 秒（一半存檔）", r["planted"] == "planted" and r["save"] == 3.5 and r["mid"] == "planted" and not r["act"]
+              and r["early"] == "planted" and r["state"] == "defused" and r["why"] == "defuse" and r["score"] == [9, 4],
+              f"存檔 {r['save']} · {r['state']} · {r['score']}")
+    # 13 勝結束
+    r = run.js("""() => { const G = __sd.G(), sd = G.sd; __sd.nextRound(); sd.score = [12, 9]; __sd.skipBuy(); __sd.wipe(1); __sd.nextRound();
+        return {over:sd.over, winner:sd.winner, mode:G.mode, score:sd.score.slice()}; }""")
+    run.check("defuse 13 勝結束", r["over"] and r["winner"] == 0 and r["mode"] == "dead" and r["score"] == [13, 9], f"{r['score']} · {r['mode']}")
+    # 延長賽：12:12 之後每回合換邊、每人 5000，13:12 不結束、14:12 才結束
+    run.start("valorant", "defuse", a.dm_map)
+    run.js(SD_JS)
+    r = run.js("""() => { const G = __sd.G(), sd = G.sd, res = [];
+        sd.round = 24; sd.score = [12, 11]; __sd.skipBuy(); __sd.wipe(0); const a24 = sd.atk; __sd.nextRound();
+        res.push({round:sd.round, atk:sd.atk, c:G.credits, cb:sd.roster.map(q => q.credits), over:sd.over, score:sd.score.slice()});
+        __sd.skipBuy(); __sd.wipe(1); __sd.nextRound();
+        res.push({round:sd.round, atk:sd.atk, c:G.credits, over:sd.over, score:sd.score.slice()});
+        __sd.skipBuy(); __sd.wipe(1); __sd.nextRound();
+        res.push({over:sd.over, winner:sd.winner, score:sd.score.slice()});
+        return {a24, res}; }""")
+    o = r["res"]
+    run.check("defuse 延長賽", o[0]["round"] == 25 and o[0]["atk"] != r["a24"] and o[0]["c"] == 5000 and all(c <= 5000 for c in o[0]["cb"])
+              and not o[0]["over"] and o[1]["round"] == 26 and o[1]["atk"] != o[0]["atk"] and not o[1]["over"] and o[1]["score"] == [13, 12]
+              and o[2]["over"] and o[2]["winner"] == 0 and o[2]["score"] == [14, 12],
+              f"12:12 → 第 25 回合 ¤{o[0]['c']} · {o[1]['score']} 未結束 · {o[2]['score']} 結束")
+
+
+def t_defuse_match(run, a):
+    """電腦自己打完一整場：玩家每回合開場就退場（4 對 5），固定步長 1/30 秒"""
+    run.start("valorant", "defuse", a.dm_map)
+    run.js(SD_JS)
+    r = run.js("""() => { const G = __sd.G(), sd = G.sd, log = [];
+        let steps = 0, lastRound = 0;
+        while (!sd.over && steps < 2e6){
+          if (sd.round !== lastRound && sd.phase === 'buy'){ lastRound = sd.round; G.player.out = true; G.player.hp = 0; if (sd.spike.carrier === G.player){ const b = G.bots.find(b => b.team === sd.atk); if (b) sd.spike.carrier = b; } }
+          const before = sd.history.length;
+          __dbg.step(1, 1/30); steps++;
+          if (sd.history.length !== before){ const h = sd.history[sd.history.length - 1]; log.push(h.round + ':' + (h.win === h.atk ? 'ATK' : 'DEF') + '(' + h.reason + ')'); }
+        }
+        return {over:sd.over, score:sd.score.slice(), winner:sd.winner, rounds:sd.history.length, steps, log, t:G.t}; }""")
+    print("  " + " ".join(r["log"]), flush=True)
+    run.check("defuse-match 打完一整場", r["over"] and max(r["score"]) >= 13,
+              f"比分 {r['score'][0]}:{r['score'][1]} · {r['rounds']} 回合 · 遊戲時間 {r['t']/60:.1f} 分")
+
+
 def shots(run, a):
     os.makedirs(a.shots, exist_ok=True)
     # 截圖時藏起暫停畫面：邏輯上仍是暫停（rAF 迴圈不推進），畫面照畫
@@ -231,9 +374,9 @@ def main():
         print("需要 playwright：pip install playwright（沒有瀏覽器再跑 python -m playwright install chromium）")
         return 2
     only = [t for t in a.only.split(",") if t]
-    bad = [t for t in only if t not in TESTS]
+    bad = [t for t in only if t not in TESTS + EXTRA_TESTS]
     if bad:
-        print("不認得的項目：" + ", ".join(bad) + "（可選：" + ", ".join(TESTS) + "）")
+        print("不認得的項目：" + ", ".join(bad) + "（可選：" + ", ".join(TESTS + EXTRA_TESTS) + "）")
         return 2
     d, _ = make_copy()
     srv, url = serve(d)
@@ -249,7 +392,8 @@ def main():
             page.route("https://fonts.googleapis.com/**", lambda r: r.fulfill(body="", content_type="text/css"))
         page.goto(url)
         page.wait_for_function("() => window.__dbg && __dbg.getG()", timeout=120000)
-        fns = {"maps": t_maps, "val-guns": t_val_guns, "apex-guns": t_apex_guns, "dm": t_dm, "range-test": t_range_test}
+        fns = {"maps": t_maps, "val-guns": t_val_guns, "apex-guns": t_apex_guns, "dm": t_dm, "range-test": t_range_test,
+               "defuse": t_defuse, "defuse-match": t_defuse_match}
         for t in only:
             print(f"[{t}]", flush=True)
             try:

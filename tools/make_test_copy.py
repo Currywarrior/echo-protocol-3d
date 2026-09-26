@@ -40,6 +40,7 @@ window.__dbg = {
   GUNS, VAL_GUNS, RANGE, DM, RULES: () => RULES, gun: () => gun(),
   swapGun, startReload, valBuyGun, beginRangeTest, inputDown, held,
   mapSelect, modeSelect, navBlocked, hasLOS, spotFree,
+  SD, sdPlant, sdSiteAt, sdAliveN, sdMapFor,
 };
 """
 

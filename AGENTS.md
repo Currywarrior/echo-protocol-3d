@@ -38,6 +38,13 @@
   給 VALORANT 的「爆破」模式用（`SD`、`sdStart` 起的區段；5 對 5、回合、Spike、經濟照官方）。爆破只讀這些欄位，
   選的地圖沒有就用第一張有的（`sdMapFor`）。電腦的交戰對象是 `sdTarget`（視線內最近的另一隊），目標是 `sdObjective`。樓用 `block()` 產生：ht 7.2～9.6m 的實心樓加一塊不畫的內芯（`core:true`），
   因為不帶高度的 2D 視線判定（出生點安全、聲音悶住、聲納）只看沒有 ht 的牆
+- STONEGATE 的外觀（2026-09-25）：`STYLES.building` 產生立面（一樓石砌、二樓以上灰泥、窗框百葉、門、簷口、落水管，
+  高過攀爬上限的樓才加石板瓦屋頂或屋頂雜物），小構件先用 `facadeBatch` 依材質＋16m 區域合批再交給 `batchStatic`。
+  主題欄位 `weather`（世界座標風化，`addGrime` / `addGroundWeather`）、`plaster`、`walk`（人行道）、`crateTint`。
+  街道物件（`planter` / `cabinet` / `barrels` / `bench`）碰撞一律是長方形，外觀填滿碰撞範圍
+- VALORANT 的聲音（2026-09-25）：槍聲每把一組參數 `GUN_SFX`（`g` 是量過的整體音量，讓 RMS 和舊版一樣），
+  露天圖加最近幾面牆的回聲（`echoTaps`）、`setAcoustics` 依室內外換殘響；腳步與彈著音依 `surfaceAt` 的地面材質。
+  APEX 模式的聲音沒有改
 - 牆可以懸空（`base`），`house()` 用它產生走得進去的房子（門窗洞、窗台窗楣、樓板、室內樓梯、屋頂）；
   敵人用格子 A* 尋路（`buildNav` / `navStep`），沒看到玩家時會往玩家附近搜索
 - Valorant 死鬥的敵人戰術在 `index.html` 的「VAL_AI 開始／結束」區段（`botTactics`）：開槍前急停（有加減速 `b.vK`，
@@ -152,6 +159,8 @@ python tools/regress.py --only dm,maps --shots shots/tmp   # 只跑部分項目�
 - 連不到 cdnjs 的環境（雲端容器）：`--three 路徑` 把 CDN 網址接到本機的 three.min.js r147
   （`npm pack three@0.147.0` 解出 `package/build/three.min.js`）。遊戲本身仍然只從 cdnjs 載入，這只是測試用
 - 新增測試項目就加在 `regress.py` 的 `TESTS`；新地圖只要加進主選單就會自動被 maps 項目涵蓋
+- `tools/perf.py`：STONEGATE 死鬥 1080p 每幀耗時（total 含等 GPU、cpu 只算送出指令）與 draw call、三角形，
+  `--rev <commit>` 量舊版做對照、`--gpu` 用本機顯卡。SwiftShader 的 total 只能看相對變化，實機要 Leo 用 `--gpu` 量
 
 手感、聲音、平衡一律要 Leo 自己測。不要宣稱驗證過沒驗證過的東西。
 

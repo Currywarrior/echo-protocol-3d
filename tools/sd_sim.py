@@ -129,7 +129,7 @@ def main():
     n = len(rows)
     kinds = {}
     for r in rows:
-        k = r["plan"]["kind"] if r["plan"]["kind"] != "legacy" else "legacy→" + str(r["plan"]["site"])
+        k = r["plan"]["kind"] + "→" + str(r["plan"]["site"])
         kinds[k] = kinds.get(k, 0) + 1
     planted = sum(r["planted"] for r in rows)
     atk = sum(r["win"] == "ATK" for r in rows)

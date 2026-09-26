@@ -9483,6 +9483,12 @@ function sdUpdate(dt){
     let best = null, bd = 1e9;
     for (const b of G.bots) if (b.hp > 0 && b.team !== sd.atk){ const d = Math.hypot(sp.x - b.x, sp.y - b.y); if (d < bd){ bd = d; best = b; } }
     sd.defuser = best;
+    // 分路回防什麼時候一起收進去：每個人都到了自己的接近點（或已經在交火）、剩 20 秒、或進攻方死光（自調）
+    const rt = sd.retake;
+    if (rt && !rt.go){
+      const ready = G.bots.every(b => b.hp <= 0 || b.team === sd.atk || !b.sdApp || b.see > 0 || Math.hypot(b.sdApp.x - b.x, b.sdApp.y - b.y) < 80);
+      if (ready || sd.timer < 20 || sdAliveN(sd.atk) === 0) rt.go = true;
+    }
   }
   // 全滅：沒下包時任一方全滅就結束；下包後只有防守方全滅才結束（進攻方全滅還是要拆掉才算贏）
   if (sd.phase === "live" || sd.phase === "planted"){

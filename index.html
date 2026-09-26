@@ -1348,6 +1348,49 @@ function inWallAt(x,y,h){
     if (x>w.x && x<w.x+w.w && y>w.y && y<w.y+w.h && h >= (w.base || 0) && h < (w.ht ? topAt(w,x,y) : WALL_H)) return true;
   return false;
 }
+// 子彈（與標記）用的牆判定：移動碰撞維持長方形（走位要穩定，AGENTS.md），但子彈照畫面上的真實形狀。
+// 量過：HIGH NOON 有 17.6% 被擋下的子彈是撞到「看不見的長方形」（圓柱、斷柱、八角柱、樹幹），
+// RIDGE TOWN 7.4%（岩石的長方形比畫面上的橢球大好幾公尺）；Leo 反映架在兩根柱子中間的縫子彈打不過去
+function bulletInWall(x, y, h){
+  for (const w of WALLS)
+    if (x>w.x && x<w.x+w.w && y>w.y && y<w.y+w.h && h >= (w.base || 0) && h < (w.ht ? topAt(w,x,y) : WALL_H) && bulletShapeHit(w, x, y, h)) return true;
+  return false;
+}
+// 點已經在長方形裡：依造型再細判（尺寸照 STYLES 與 addTree 畫出來的模型）
+function bulletShapeHit(w, x, y, h){
+  const dx = (x - w.x - w.w/2)*S, dz = (y - w.y - w.h/2)*S, half = Math.min(w.w, w.h)*S/2, wh = w.ht || WALL_H;
+  const d2 = dx*dx + dz*dz;
+  // 樹幹：照 addTree 的畫法重算。以位置當種子決定頂端往哪歪（bx、bz），高度比例的平方決定歪多少；
+  // 半徑 20→11cm，底部 50cm 內外張；3m 以上是葉片，子彈穿過。只以方塊中心畫圓的話，歪掉的樹幹完全對不上
+  if (w.tree){
+    if (h > 3.0) return false;
+    if (!w._lean){
+      let a = Math.floor((w.x + w.w/2)*S*97 + (w.y + w.h/2)*S*131);
+      const R = () => (a = (a*1103515245+12345) & 0x7fffffff) / 0x7fffffff;
+      w._lean = [(R()-0.5)*0.5, (R()-0.5)*0.5];
+    }
+    const t = h/3.0, ox = dx - w._lean[0]*t*t, oz = dz - w._lean[1]*t*t;
+    const r = (0.2 - 0.09*t) * (h < 0.5 ? 1 + (0.5 - h)*0.9 : 1) + 0.02;
+    return ox*ox + oz*oz < r*r;
+  }
+  switch (w.style){
+    case "column": return h < 0.44 || h > wh - 0.16 || d2 < (half*0.95)**2;          // 柱礎、柱頭是方的，柱身是圓的
+    case "ruin":   return h < 0.28 || d2 < (half*0.95)**2;
+    case "octa": {                                                                    // 正八邊形，平面朝四個軸，邊心距 0.97 × 半寬
+      if (h < 0.34 || h > wh - 0.28) return true;
+      const a = half*0.97, ax = Math.abs(dx), az = Math.abs(dz);
+      return ax <= a && az <= a && ax + az <= a*Math.SQRT2;
+    }
+    case "rock": {                                                                    // 旋轉過的橢球（STYLES.rock），頂點起伏 0.82～1.0，取 0.85（量過：0.9 時凹處仍多擋）
+      const th = (w.x*0.13 + w.y*0.07) % Math.PI, c = Math.cos(th), s = Math.sin(th);
+      const lx = dx*c - dz*s, lz = dx*s + dz*c;
+      const ex = w.w*S/2*0.85, ez = w.h*S/2*0.85, ey = wh*0.62*0.85, hy = h - wh*0.4;
+      return (lx/ex)**2 + (lz/ez)**2 + (hy/ey)**2 < 1;
+    }
+    case "lamp": return d2 < 0.1*0.1;                                                 // 只有一根細桿
+    default: return true;
+  }
+}
 // 可站立地形（有 ht 的矮牆、箱子、斜坡）在 (x,y) 的頂面高度。
 // 點在範圍外就取範圍內最近的點，也就是圓形判定碰到的那個邊緣。
 // 斜坡沿 ramp 指的方向從 0 線性升到 ht。
@@ -8374,7 +8417,7 @@ function placePing(){
   for (let i=0;i<Math.round(80/S/6);i++){
     x += dx*6; y += dy*6; h += dz*6;
     if (h <= 0.02){ h = 0; break; }
-    if (inWallAt(x, y, h)) break;
+    if (bulletInWall(x, y, h)) break;
   }
   G.pingMark = {x, y, h, t:8};
   sfx("sine", 1320, 0.08, 0.04, 1760); sfx("sine", 1760, 0.12, 0.03, 1760);
@@ -9050,7 +9093,7 @@ function update(dt){
         sfxNoiseAt(bl.x,bl.y,0.04,0.055,3200);
         dead = true; break;
       }
-      if (inWallAt(bl.x,bl.y,bl.h)){
+      if (bulletInWall(bl.x,bl.y,bl.h)){
         if (bl.val) valImpact(bl); else spawnSpark(bl.x,bl.y,0x9B6BE8,4);
         addDecal(bl.x, bl.y, bl.h);
         sfxNoiseAt(bl.x,bl.y,0.05,0.16,1600);

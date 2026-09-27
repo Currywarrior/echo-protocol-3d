@@ -5737,7 +5737,9 @@ function drawTracers2D(w, h){
   if (!tracers2d.length) return;
   const m = vm.models[vm.currentKey];
   if (!m) return;
-  _tp.set(0, 0.012, m.userData.muzzleZ).applyMatrix4(m.matrixWorld).project(vmCamera);
+  // 手臂動畫的槍口會跟著動畫動，直接取火光的世界位置
+  if (m.userData.muzzleObj) m.userData.muzzleObj.getWorldPosition(_tp).project(vmCamera);
+  else _tp.set(0, 0.012, m.userData.muzzleZ).applyMatrix4(m.matrixWorld).project(vmCamera);
   const mx = (_tp.x*0.5 + 0.5)*w, my = (-_tp.y*0.5 + 0.5)*h;
   uctx.save();
   uctx.lineCap = "round";
@@ -6370,29 +6372,57 @@ if (window.ECHO_SKINS && THREE.GLTFLoader) for (const key in window.ECHO_SKINS){
   const s = window.ECHO_SKINS[key];
   const bin = Uint8Array.from(atob(s.glb), c => c.charCodeAt(0)).buffer;
   new THREE.GLTFLoader().parse(bin, "", gltf => {
-    SKIN_MODELS[key] = {scene: gltf.scene, fit: s.fit};
+    SKIN_MODELS[key] = {scene: gltf.scene, fit: s.fit, clips: gltf.animations};
     if (vm.currentKey !== key) delete vm.models[key];
   }, e => console.warn("skin", key, e));
 }
 // 把外部模型轉成槍模座標：槍口朝 -z、上 +y，縮放到 fit.len 長，槍口在 fit.front、瞄具頂端在 fit.top
 function skinMesh(key){
   const {scene, fit} = SKIN_MODELS[key];
-  const root = scene.clone(true), holder = new THREE.Group();
+  const root = skinMats(scene.clone(true)), holder = new THREE.Group();
   root.rotation.y = {"+x": Math.PI/2, "-x": -Math.PI/2, "+z": Math.PI, "-z": 0}[fit.muzzle];
-  root.traverse(o => {
-    if (!o.isMesh) return;
-    const map = o.material.map;
-    // 這個遊戲的貼圖都當線性色處理（renderer 沒開 sRGB 輸出），外部貼圖照同樣規則，顏色才不會變暗
-    if (map) map.encoding = THREE.LinearEncoding;
-    // 生成的模型常沒有法線，平面著色才不會把稜角抹圓
-    o.material = vmStd({map, roughness:0.55, metalness:0.25, flatShading: !o.geometry.attributes.normal});
-  });
   holder.add(root);
   const box = new THREE.Box3().setFromObject(holder);
   const k = fit.len / (box.max.z - box.min.z);
   root.scale.setScalar(k);
   box.setFromObject(holder);
   root.position.set(-(box.min.x + box.max.x)/2, fit.top - box.max.y, fit.front - box.min.z);
+  return holder;
+}
+function skinMats(root, keep){
+  root.traverse(o => {
+    if (!o.isMesh) return;
+    const map = o.material.map;
+    // 這個遊戲的貼圖都當線性色處理（renderer 沒開 sRGB 輸出），外部貼圖照同樣規則，顏色才不會變暗
+    if (map) map.encoding = THREE.LinearEncoding;
+    // keep：保留原本的材質（手臂的皮膚、布料有自己的法線與粗糙度），只登記環境貼圖
+    if (keep){ o.material.envMapIntensity = 0.35; VM_MATS.push(o.material); return; }
+    // 生成的模型常沒有法線，平面著色才不會把稜角抹圓
+    o.material = vmStd({map, roughness:0.55, metalness:0.25, flatShading: !o.geometry.attributes.normal});
+  });
+  return root;
+}
+// 外部手臂動畫（fit.rig）：帶骨架與動畫的第一人稱手臂，把造型槍掛在它的槍骨頭上，動畫怎麼動槍、槍就跟著動。
+// 整組手臂反過來擺，讓 rig.eye（手臂檔裡眼睛的位置）落在槍模座標的原點，也就是 vmCamera 的位置。
+// 蒙皮網格不能 clone（骨架會斷），所以直接用解析出來的那一份（每把槍只建一次）
+function skinRig(kind){
+  const R = SKIN_MODELS[kind].fit.rig, arms = SKIN_MODELS[R.arms], rig = skinMats(arms.scene, true);
+  const eye = new THREE.PerspectiveCamera();
+  eye.position.fromArray(R.eye); eye.lookAt(new THREE.Vector3().fromArray(R.look)); eye.updateMatrix();
+  const holder = new THREE.Group();
+  holder.matrixAutoUpdate = false; holder.matrix.copy(eye.matrix).invert();
+  rig.traverse(o => {
+    if (!o.isMesh) return;
+    o.frustumCulled = false;                   // 蒙皮網格的包圍盒是綁定姿勢的，動起來會被誤裁掉
+    if (R.hide && (R.hide.includes(o.name) || R.hide.includes(o.material.name))) o.visible = false;   // 手臂檔自帶的槍零件（我們掛自己的槍）
+  });
+  const vh = skinMats(SKIN_MODELS[kind].scene.clone(true));
+  vh.position.fromArray(R.attach.p); vh.rotation.fromArray(R.attach.r); vh.scale.setScalar(R.attach.k);
+  rig.getObjectByName(R.bone).add(vh);
+  holder.add(rig);
+  const mixer = new THREE.AnimationMixer(rig), actions = {};
+  for (const c of arms.clips) actions[c.name] = mixer.clipAction(c);
+  holder.userData.rig = {R, mixer, actions, vh, kick: 0, shotT: -9};
   return holder;
 }
 function buildGun(kind){
@@ -6436,7 +6466,13 @@ function buildGun(kind){
   const charge = new THREE.Group();  g.add(charge);
   const panel = makeAmmoPanel();
 
-  if (SKIN_MODELS[kind]){
+  const rigFit = SKIN_MODELS[kind] && SKIN_MODELS[kind].fit.rig;
+  const useRig = rigFit && SKIN_MODELS[rigFit.arms];
+  let rigHolder = null;
+  if (useRig){
+    g.add(rigHolder = skinRig(kind));
+    vm.muzzleZ = SKIN_MODELS[kind].fit.front;
+  } else if (SKIN_MODELS[kind]){
     // 外部造型是一整塊，彈匣與拉柄群組留空（換彈只剩整把槍的動作）
     g.add(skinMesh(kind));
     vm.muzzleZ = SKIN_MODELS[kind].fit.front;
@@ -6866,9 +6902,16 @@ function buildGun(kind){
   flash.visible = kind !== "knife";
   g.add(flash);
 
-  addVmHands(g, kind, charge);
+  let rig = null;
+  if (useRig){
+    // 手臂動畫自己有手；火光掛到造型槍的槍口（原始座標、槍口朝 +z），跟著動畫走。
+    // 火光原本是配 VM_SCALE 縮過的槍模做的，這裡換算回同樣的大小
+    rig = rigHolder.userData.rig;
+    rig.vh.add(flash);
+    flash.position.fromArray(rigFit.muzzle); flash.rotation.y = Math.PI; flash.scale.setScalar(VM_SCALE / rigFit.attach.k);
+  } else addVmHands(g, kind, charge);
   g.userData = {heats, cells, flash, core, petal, wave, mag, charge, panel,
-                muzzleZ: vm.muzzleZ};
+                muzzleZ: vm.muzzleZ, rig, muzzleObj: rig ? flash : null};
   return g;
 }
 
@@ -7094,6 +7137,41 @@ function inspectPose(t, out){
   out.rz += pulse(t, 0.06, 0.94, 0.85)*0.55;
 }
 
+// 手臂動畫的每一幀：直接指定動畫時間（換槍 > 換彈 > 檢視 > 開槍 > 待機），跟遊戲計時同步，暫停與換彈速度都對得上。
+// 腰射只加一點滑鼠延遲與走路擺動（動畫本身就有持槍姿勢）；開鏡時量出動畫裡槍的實際位置，
+// 算出整組要怎麼移才能讓瞄具（rig.sight，槍的原始座標）落在眼前 rig.ads、槍管朝正前方，再依開鏡進度過渡
+const _rm1 = new THREE.Matrix4(), _rm2 = new THREE.Matrix4(), _rm3 = new THREE.Matrix4(), _rv = new THREE.Vector3(),
+      _rq = new THREE.Quaternion(), _rs = new THREE.Vector3(), _rY = new THREE.Vector3(0,1,0);
+function rigViewModel(rig, p, g, bobX, bobY, steady){
+  const R = rig.R, A = rig.actions, dur = n => A[n].getClip().duration, clip = R.clips;
+  if (p.reloading > 0 && !rig.reloading) rig.empty = p.mags[g.key] === 0;
+  rig.reloading = p.reloading > 0;
+  if (vm.kick > rig.kick + 0.3) rig.shotT = G.t;
+  rig.kick = vm.kick;
+  let name = clip.idle, t = G.t % dur(clip.idle);
+  if (vm.swap > 0){ name = clip.draw; t = (1 - vm.swap)*dur(name); }
+  else if (p.reloading > 0){ name = rig.empty ? clip.reloadEmpty : clip.reload; t = (1 - p.reloading/g.reload)*dur(name); }
+  else if (vm.inspect > 0){ name = clip.inspect; t = (1 - vm.inspect)*dur(name); }
+  else if (G.t - rig.shotT < dur(clip.shoot)){ name = clip.shoot; t = G.t - rig.shotT; }
+  for (const k in A){ const a = A[k]; a.enabled = k === name; a.time = k === name ? t : 0; a.play(); }
+  rig.mixer.update(0);
+
+  vmRoot.scale.setScalar(1);
+  vmRoot.position.set(vm.swayX*0.012*steady + bobX*0.4, vm.swayY*0.010*steady + bobY*0.4, 0);
+  vmRoot.rotation.set(-vm.swayY*0.05, vm.swayX*0.07, vm.swayX*0.03);
+  const e = ease(G.adsT);
+  if (e <= 0) return;
+  vmRoot.updateMatrixWorld(true);
+  const Gm = _rm1.copy(vmRoot.matrixWorld).invert().multiply(rig.vh.matrixWorld);     // 槍在 vmRoot 裡的姿勢
+  Gm.decompose(_rv, _rq, _rs);
+  const Dm = _rm2.compose(_rv.fromArray(R.ads), _rq.setFromAxisAngle(_rY, Math.PI), _rs)
+                 .multiply(_rm3.makeTranslation(-R.sight[0], -R.sight[1], -R.sight[2]));
+  Dm.multiply(Gm.invert());                                                            // 開鏡時 vmRoot 該有的姿勢
+  Dm.decompose(_rv, _rq, _rs);
+  vmRoot.position.lerp(_rv, e);
+  vmRoot.quaternion.slerp(_rq, e);
+}
+
 // 外部造型的檢視動作：keys 是 [進度 0~1, x, y, z, rx, ry, rz] 的絕對姿勢（照影片逐格量），頭尾自動接回腰射姿勢，
 // 關鍵姿勢之間用平滑曲線內插；寫進 out 的位移先除掉晃動縮放（mv），套用時才會剛好落在絕對姿勢上
 function skinInspectPose(keys, t, hip, mv, out){
@@ -7228,14 +7306,15 @@ function updateViewModel(dt){
   const idle = (1 - G.bobAmp) * (1 - G.adsT*0.7);
   pose.y += Math.sin(G.t*1.15 - 0.4) * 0.006 * idle;
   pose.rx += Math.sin(G.t*0.83) * 0.012 * idle;
-  const ud0 = model.userData;
-  if (p.reloading > 0){
+  const ud0 = model.userData, rig = ud0.rig;
+  if (rig){ /* 手臂動畫自己有換彈與檢視的動作 */ }
+  else if (p.reloading > 0){
     reloadPose(kind, 1 - p.reloading/g.reload, ud0, pose);
   } else {
     ud0.mag.position.set(0,0,0); ud0.mag.rotation.set(0,0,0);
     ud0.charge.position.set(0,0,0); ud0.charge.rotation.set(0,0,0);
   }
-  if (vm.inspect > 0){
+  if (vm.inspect > 0 && !rig){
     if (fit.inspect) skinInspectPose(fit.inspect.keys, 1 - vm.inspect, base, mv, pose);
     else inspectPose(1 - vm.inspect, pose);
   }
@@ -7245,17 +7324,20 @@ function updateViewModel(dt){
     if (vm.swing > 1){ pose.z -= k*0.12; pose.rx -= k*0.25; }
     else { pose.x -= k*0.10*vm.swing; pose.rz += k*0.9*vm.swing; pose.ry += k*0.35*vm.swing; pose.y += k*0.03; }
   }
-  vmRoot.scale.setScalar(VM_SCALE);
-  vmRoot.position.set(
-    base.x + (vm.swayX*0.045*steady + bobX + pose.x)*mv,
-    base.y + (vm.swayY*0.035*steady + bobY + pose.y - vm.swap*0.22)*mv,
-    base.z + (vm.recoil*0.075 + kickZ + pose.z)*mv*mv
-  );
-  vmRoot.rotation.set(
-    base.rx + (-vm.swayY*0.10 - vm.recoil*0.30 - kickRX)*mr + pose.rx + vm.swap*0.5,
-    base.ry + vm.swayX*0.14*mr + pose.ry,
-    base.rz + vm.swayX*0.06*mr + pose.rz
-  );
+  if (rig) rigViewModel(rig, p, g, bobX, bobY, steady);
+  else {
+    vmRoot.scale.setScalar(VM_SCALE);
+    vmRoot.position.set(
+      base.x + (vm.swayX*0.045*steady + bobX + pose.x)*mv,
+      base.y + (vm.swayY*0.035*steady + bobY + pose.y - vm.swap*0.22)*mv,
+      base.z + (vm.recoil*0.075 + kickZ + pose.z)*mv*mv
+    );
+    vmRoot.rotation.set(
+      base.rx + (-vm.swayY*0.10 - vm.recoil*0.30 - kickRX)*mr + pose.rx + vm.swap*0.5,
+      base.ry + vm.swayX*0.14*mr + pose.ry,
+      base.rz + vm.swayX*0.06*mr + pose.rz
+    );
+  }
 
   // 槍管熱度：連射越久越紅，跟熱成像的設定一致
   for (const h of model.userData.heats) h.material.opacity = p.heat*0.85;

@@ -9630,7 +9630,7 @@ function sdUpdate(dt){
     }
     for (const k in seen) sdDefCall(k, seen[k].size >= 2);
   }
-  else if (sp.state === "dropped" && sd.phase !== "end"){
+  if (sp.state === "dropped" && sd.phase !== "end"){
     // 掉在地上：最近的進攻方電腦去撿；任何進攻方走過去就自動撿起來
     let fetch = null, fd = 1e9, pick = null;
     sdEach(e => {

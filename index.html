@@ -7154,11 +7154,13 @@ function updateViewModel(dt){
   const p = G.player, g = gun(), kind = g.vm || g.key;
   selectGun(kind);
   // 靜止姿勢與瞄準姿勢之間內插
-  const b0 = VM_BASE[kind], b1 = VM_ADS[kind], t = G.adsT;
+  // 外部造型可以在 skins/<key>.json 的 hip / ads 指定自己的腰射與開鏡姿勢（照 Valorant 截圖調，多了滾轉 rz）
+  const fit = SKIN_MODELS[kind] ? SKIN_MODELS[kind].fit : {};
+  const b0 = fit.hip || VM_BASE[kind], b1 = fit.ads || VM_ADS[kind], t = G.adsT;
   const lerp = (a,b) => a + (b-a)*t;
   const base = {
     x: lerp(b0.x,b1.x), y: lerp(b0.y,b1.y), z: lerp(b0.z,b1.z),
-    ry: lerp(b0.ry,b1.ry), rx: lerp(b0.rx,b1.rx),
+    ry: lerp(b0.ry,b1.ry), rx: lerp(b0.rx,b1.rx), rz: lerp(b0.rz || 0, b1.rz || 0),
   };
   const model = vm.models[kind];
   // 倍率鏡舉起來之後，槍身會擋住整個鏡頭，所以直接淡掉換成鏡框遮罩
@@ -7235,7 +7237,7 @@ function updateViewModel(dt){
   vmRoot.rotation.set(
     base.rx - vm.swayY*0.10 - vm.recoil*0.30 - kickRX + pose.rx + vm.swap*0.5,
     base.ry + vm.swayX*0.14 + pose.ry,
-    vm.swayX*0.06 + pose.rz
+    base.rz + vm.swayX*0.06 + pose.rz
   );
 
   // 槍管熱度：連射越久越紅，跟熱成像的設定一致

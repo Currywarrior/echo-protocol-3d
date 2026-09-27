@@ -6408,7 +6408,7 @@ function skinMats(root, keep){
 function skinRig(kind){
   const R = SKIN_MODELS[kind].fit.rig, arms = SKIN_MODELS[R.arms], rig = skinMats(arms.scene, true);
   const eye = new THREE.PerspectiveCamera();
-  eye.position.fromArray(R.eye); eye.lookAt(new THREE.Vector3().fromArray(R.look)); eye.updateMatrix();
+  eye.position.fromArray(R.eye); eye.lookAt(new THREE.Vector3().fromArray(R.look)); eye.rotateZ(R.roll || 0); eye.updateMatrix();
   const holder = new THREE.Group();
   holder.matrixAutoUpdate = false; holder.matrix.copy(eye.matrix).invert();
   rig.traverse(o => {

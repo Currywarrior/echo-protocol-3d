@@ -7228,16 +7228,19 @@ function updateViewModel(dt){
     else { pose.x -= k*0.10*vm.swing; pose.rz += k*0.9*vm.swing; pose.ry += k*0.35*vm.swing; pose.y += k*0.03; }
   }
 
+  // 外部造型的姿勢離眼睛近很多（腰射約 10cm，原本 41cm），同樣的晃動距離在畫面上會放大好幾倍（量過：連射時機匣晃 10 倍），
+  // 所以位移按距離比例縮小、前後位移再多縮一次（越近前後移動的放大越劇烈）、轉動按平方根縮小，畫面上的晃動幅度才跟原本的槍一樣
+  const mv = fit.hip ? base.z / lerp(VM_BASE[kind].z, VM_ADS[kind].z) : 1, mr = Math.sqrt(mv);
   vmRoot.scale.setScalar(VM_SCALE);
   vmRoot.position.set(
-    base.x + vm.swayX*0.045*steady + bobX + pose.x,
-    base.y + vm.swayY*0.035*steady + bobY + pose.y - vm.swap*0.22,
-    base.z + vm.recoil*0.075 + kickZ + pose.z
+    base.x + (vm.swayX*0.045*steady + bobX + pose.x)*mv,
+    base.y + (vm.swayY*0.035*steady + bobY + pose.y - vm.swap*0.22)*mv,
+    base.z + (vm.recoil*0.075 + kickZ + pose.z)*mv*mv
   );
   vmRoot.rotation.set(
-    base.rx - vm.swayY*0.10 - vm.recoil*0.30 - kickRX + pose.rx + vm.swap*0.5,
-    base.ry + vm.swayX*0.14 + pose.ry,
-    base.rz + vm.swayX*0.06 + pose.rz
+    base.rx + (-vm.swayY*0.10 - vm.recoil*0.30 - kickRX)*mr + pose.rx + vm.swap*0.5,
+    base.ry + vm.swayX*0.14*mr + pose.ry,
+    base.rz + vm.swayX*0.06*mr + pose.rz
   );
 
   // 槍管熱度：連射越久越紅，跟熱成像的設定一致
@@ -11865,6 +11868,19 @@ function drawValCrosshair(){
     const focal = (H2/2) / Math.tan(camera.fov * DEG / 2);
     firePx = Math.tan(SPREAD_PARTS.fire * DEG) * focal;
     movePx = Math.tan(SPREAD_PARTS.move * DEG) * focal;
+  }
+  // 開鏡的黃色六角框（照 Leo 給的 Valorant 開鏡截圖：左右尖角、上下平邊，寬約畫面高 22%、高 16%），外部造型的 adsHex 開啟
+  const sk = SKIN_MODELS[g.vm || g.key];
+  if (sk && sk.fit.adsHex && G.adsT > 0.5){
+    const rx = H2*0.108, ry = H2*0.080, sx = rx*0.55;
+    xctx.save();
+    xctx.globalAlpha = Math.min(1, (G.adsT - 0.5)/0.4) * 0.85;
+    xctx.strokeStyle = "#E8C45A"; xctx.lineWidth = Math.max(1.5, H2/700); xctx.lineJoin = "miter";
+    xctx.beginPath();
+    xctx.moveTo(X0 - rx, Y0); xctx.lineTo(X0 - sx, Y0 - ry); xctx.lineTo(X0 + sx, Y0 - ry);
+    xctx.lineTo(X0 + rx, Y0); xctx.lineTo(X0 + sx, Y0 + ry); xctx.lineTo(X0 - sx, Y0 + ry);
+    xctx.closePath(); xctx.stroke();
+    xctx.restore();
   }
   xhPaint(xctx, pr, xhRects(pr, X0, Y0, firePx, movePx), X0, Y0);
 }

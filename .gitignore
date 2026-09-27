@@ -19,3 +19,6 @@ desktop.ini
 *.wav
 *.m4a
 __pycache__/
+
+# 外部造型模型（別人設計的槍皮，只在本機玩，不進版控也不進 artifact）
+skins/

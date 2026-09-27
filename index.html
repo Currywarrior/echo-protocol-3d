@@ -433,6 +433,9 @@
 <p class="footnote"><b data-act="sonar">Q</b> 聲納 · <b data-act="echo">E</b> 回溯 · <b data-act="gun1 gun2 gun3">1 2 3</b> 換槍　—　需要鍵盤滑鼠</p>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.147.0/three.min.js"></script>
+<!-- 外部造型模型：r147 是最後一版有 UMD GLTFLoader 的；skins/skins.js 由 tools/skin2js.py 產生、不進版控，沒有這個檔就照舊用程式建的槍模 -->
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/loaders/GLTFLoader.js"></script>
+<script src="skins/skins.js"></script>
 <script>
 (() => {
 "use strict";
@@ -6360,6 +6363,38 @@ function vmStd(o){
   VM_MATS.push(m);
   return m;
 }
+
+// 外部造型模型（skins/skins.js）：解析完才登記，之前選到的那把先用程式建的槍模，解析完清掉快取、下次換槍就換上
+const SKIN_MODELS = {};
+if (window.ECHO_SKINS && THREE.GLTFLoader) for (const key in window.ECHO_SKINS){
+  const s = window.ECHO_SKINS[key];
+  const bin = Uint8Array.from(atob(s.glb), c => c.charCodeAt(0)).buffer;
+  new THREE.GLTFLoader().parse(bin, "", gltf => {
+    SKIN_MODELS[key] = {scene: gltf.scene, fit: s.fit};
+    if (vm.currentKey !== key) delete vm.models[key];
+  }, e => console.warn("skin", key, e));
+}
+// 把外部模型轉成槍模座標：槍口朝 -z、上 +y，縮放到 fit.len 長，槍口在 fit.front、瞄具頂端在 fit.top
+function skinMesh(key){
+  const {scene, fit} = SKIN_MODELS[key];
+  const root = scene.clone(true), holder = new THREE.Group();
+  root.rotation.y = {"+x": Math.PI/2, "-x": -Math.PI/2, "+z": Math.PI, "-z": 0}[fit.muzzle];
+  root.traverse(o => {
+    if (!o.isMesh) return;
+    const map = o.material.map;
+    // 這個遊戲的貼圖都當線性色處理（renderer 沒開 sRGB 輸出），外部貼圖照同樣規則，顏色才不會變暗
+    if (map) map.encoding = THREE.LinearEncoding;
+    // 生成的模型常沒有法線，平面著色才不會把稜角抹圓
+    o.material = vmStd({map, roughness:0.55, metalness:0.25, flatShading: !o.geometry.attributes.normal});
+  });
+  holder.add(root);
+  const box = new THREE.Box3().setFromObject(holder);
+  const k = fit.len / (box.max.z - box.min.z);
+  root.scale.setScalar(k);
+  box.setFromObject(holder);
+  root.position.set(-(box.min.x + box.max.x)/2, fit.top - box.max.y, fit.front - box.min.z);
+  return holder;
+}
 function buildGun(kind){
   const g = new THREE.Group();
   const tx = soldierTex();
@@ -6401,7 +6436,11 @@ function buildGun(kind){
   const charge = new THREE.Group();  g.add(charge);
   const panel = makeAmmoPanel();
 
-  if (kind === "val_classic"){
+  if (SKIN_MODELS[kind]){
+    // 外部造型是一整塊，彈匣與拉柄群組留空（換彈只剩整把槍的動作）
+    g.add(skinMesh(kind));
+    vm.muzzleZ = SKIN_MODELS[kind].fit.front;
+  } else if (kind === "val_classic"){
     // 短方滑套與厚聚合物握把保留 Classic 的直角比例。
     mk(charge, 0.050,0.052,0.245, dark, 0,0.038,-0.055);
     mk(charge, 0.010,0.014,0.018, steel, 0,0.070,-0.165);
@@ -6801,7 +6840,7 @@ function buildGun(kind){
                     valVm ? -0.012 : kind === "pistol" ? -0.004 : 0.012,
                     valVm ? 0.015 : kind === "lance" ? 0.06 : kind === "pistol" ? -0.06 : 0.02);
   if (kind === "pistol" || ["val_classic","val_frenzy","val_ghost","val_bandit","val_sheriff","val_shorty"].includes(kind)) disp.scale.setScalar(0.45);
-  disp.visible = kind !== "knife";
+  disp.visible = kind !== "knife" && !SKIN_MODELS[kind];
   g.add(disp);
 
   // 槍口火焰：白熱核心 + 外層花瓣 + 側向衝擊波

@@ -7094,6 +7094,18 @@ function inspectPose(t, out){
   out.rz += pulse(t, 0.06, 0.94, 0.85)*0.55;
 }
 
+// 外部造型的檢視動作：keys 是 [進度 0~1, x, y, z, rx, ry, rz] 的絕對姿勢（照影片逐格量），頭尾自動接回腰射姿勢，
+// 關鍵姿勢之間用平滑曲線內插；寫進 out 的位移先除掉晃動縮放（mv），套用時才會剛好落在絕對姿勢上
+function skinInspectPose(keys, t, hip, mv, out){
+  const H = [0, hip.x, hip.y, hip.z, hip.rx, hip.ry, hip.rz], K = [H, ...keys, [1, ...H.slice(1)]];
+  let i = 0;
+  while (i < K.length - 2 && t > K[i+1][0]) i++;
+  const a = K[i], b = K[i+1], u = ease(Math.min(1, Math.max(0, (t - a[0]) / (b[0] - a[0] || 1))));
+  const v = j => a[j] + (b[j] - a[j])*u - H[j];
+  out.x += v(1)/mv; out.y += v(2)/mv; out.z += v(3)/(mv*mv);
+  out.rx += v(4); out.ry += v(5); out.rz += v(6);
+}
+
 function selectGun(key){
   if (vm.currentKey === key) return;
   if (!vm.models[key]) vm.models[key] = buildGun(key);
@@ -7162,6 +7174,9 @@ function updateViewModel(dt){
     x: lerp(b0.x,b1.x), y: lerp(b0.y,b1.y), z: lerp(b0.z,b1.z),
     ry: lerp(b0.ry,b1.ry), rx: lerp(b0.rx,b1.rx), rz: lerp(b0.rz || 0, b1.rz || 0),
   };
+  // 外部造型的姿勢離眼睛近很多（腰射約 10cm，原本 41cm），同樣的晃動距離在畫面上會放大好幾倍（量過：連射時機匣晃 10 倍），
+  // 所以位移按距離比例縮小、前後位移再多縮一次（越近前後移動的放大越劇烈）、轉動按平方根縮小，畫面上的晃動幅度才跟原本的槍一樣
+  const mv = fit.hip ? base.z / lerp(VM_BASE[kind].z, VM_ADS[kind].z) : 1, mr = Math.sqrt(mv);
   const model = vm.models[kind];
   // 倍率鏡舉起來之後，槍身會擋住整個鏡頭，所以直接淡掉換成鏡框遮罩
   const hide = g.scope ? t : 0;
@@ -7198,7 +7213,7 @@ function updateViewModel(dt){
   vm.flashT = Math.max(0, (vm.flashT || 0) - dt);
   const kickZ = G.val ? vm.kick*(vm.kickAmp || 1)*0.045 : 0, kickRX = G.val ? vm.kick*(vm.kickAmp || 1)*0.16 : 0;
   vm.swap   = Math.max(0, vm.swap - dt/P.swapTime);
-  vm.inspect = Math.max(0, vm.inspect - dt/1.6);
+  vm.inspect = Math.max(0, vm.inspect - dt/(fit.inspect ? fit.inspect.dur : 1.6));
 
   // 姿勢累加器：換彈與檢視各自往上疊，最後一次套用
   const pose = {x:0, y:0, z:0, rx:0, ry:0, rz:0};
@@ -7220,17 +7235,16 @@ function updateViewModel(dt){
     ud0.mag.position.set(0,0,0); ud0.mag.rotation.set(0,0,0);
     ud0.charge.position.set(0,0,0); ud0.charge.rotation.set(0,0,0);
   }
-  if (vm.inspect > 0) inspectPose(1 - vm.inspect, pose);
+  if (vm.inspect > 0){
+    if (fit.inspect) skinInspectPose(fit.inspect.keys, 1 - vm.inspect, base, mv, pose);
+    else inspectPose(1 - vm.inspect, pose);
+  }
   // 揮刀：左鍵由右上往左下劃（左右交替），右鍵往前刺；進度借用後座那個值
   if (kind === "knife" && vm.recoil > 0){
     const k = Math.min(1, vm.recoil);
     if (vm.swing > 1){ pose.z -= k*0.12; pose.rx -= k*0.25; }
     else { pose.x -= k*0.10*vm.swing; pose.rz += k*0.9*vm.swing; pose.ry += k*0.35*vm.swing; pose.y += k*0.03; }
   }
-
-  // 外部造型的姿勢離眼睛近很多（腰射約 10cm，原本 41cm），同樣的晃動距離在畫面上會放大好幾倍（量過：連射時機匣晃 10 倍），
-  // 所以位移按距離比例縮小、前後位移再多縮一次（越近前後移動的放大越劇烈）、轉動按平方根縮小，畫面上的晃動幅度才跟原本的槍一樣
-  const mv = fit.hip ? base.z / lerp(VM_BASE[kind].z, VM_ADS[kind].z) : 1, mr = Math.sqrt(mv);
   vmRoot.scale.setScalar(VM_SCALE);
   vmRoot.position.set(
     base.x + (vm.swayX*0.045*steady + bobX + pose.x)*mv,
